@@ -97,6 +97,39 @@ def resolve(site: str) -> str:
     return url
 
 
+# Owner's case: kbb.com answered "Access Denied" because the window announced it was automated
+# (navigator.webdriver, --enable-automation), and Edge showed a "--no-sandbox" warning bar.
+# Nova's browser behaves like a normal Edge window instead: sandbox on, no automation banner.
+_NOT_A_ROBOT_JS = "Object.defineProperty(Navigator.prototype, 'webdriver', {get: () => undefined});"
+
+
+def launch_options(executable: str | None, channel: str | None, headless: bool, windows: bool | None = None) -> dict:
+    import sys
+    windows = sys.platform == "win32" if windows is None else windows
+    opts: dict = dict(headless=headless, no_viewport=not headless,
+                      args=["--start-maximized", "--disable-blink-features=AutomationControlled"],
+                      ignore_default_args=["--enable-automation", "--no-sandbox"])
+    if windows:
+        opts["chromium_sandbox"] = True          # Edge's normal protection (and no warning bar)
+    else:
+        opts["ignore_default_args"] = ["--enable-automation"]   # Linux test containers run as root
+    if executable:
+        opts["executable_path"] = executable
+    elif channel:
+        opts["channel"] = channel
+    return opts
+
+
+_BLOCK_WORDS = ("access denied", "you don't have permission to access", "are you a robot", "verify you are human",
+                "unusual traffic", "request blocked", "403 forbidden", "pardon our interruption")
+
+
+def blocked(title: str, text: str) -> bool:
+    """Did the site refuse the page (a bot wall), rather than show it?"""
+    t = f"{title}\n{text[:1500]}".lower()
+    return any(w in t for w in _BLOCK_WORDS)
+
+
 class NovaBrowser:
     """One Edge window Nova drives. Started on first use, restarted if you close it."""
 
@@ -141,17 +174,14 @@ class NovaBrowser:
         await self.close()
         self._pw = await async_playwright().start()
         PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-        opts = dict(headless=self.headless, no_viewport=not self.headless, args=["--start-maximized"])
-        if self.executable:
-            opts["executable_path"] = self.executable
-        elif self.channel:
-            opts["channel"] = self.channel
+        opts = launch_options(self.executable, self.channel, self.headless)
         try:
             self._ctx = await self._pw.chromium.launch_persistent_context(str(PROFILE_DIR), **opts)
         except Exception as e:
             await self.close()
             raise ToolError(f"I couldn't start my browser ({str(e).splitlines()[0][:120]}).") from e
         self._ctx.set_default_timeout(12000)
+        await self._ctx.add_init_script(_NOT_A_ROBOT_JS)
         self.page = self._ctx.pages[0] if self._ctx.pages else await self._ctx.new_page()
         self._ctx.on("page", self._new_tab)                      # links that open a new tab: follow them
 
@@ -200,9 +230,27 @@ def describe_elements(items: list[dict]) -> str:
     return "\n".join(lines)
 
 
+class Blocked(ToolError):
+    pass
+
+
 async def page_report(page, details: bool) -> str:
     title = (await page.title() or "").strip()[:100]
     BROWSER.title = title
+    try:
+        text = await page.evaluate("() => (document.body && document.body.innerText || '').slice(0, 1500)")
+    except Exception:
+        text = ""
+    if blocked(title, text):
+        site = urlparse(page.url).netloc.removeprefix("www.")
+        url = page.url
+        from assistant.core.launch import launch
+        try:
+            await asyncio.to_thread(launch, url)                 # your normal browser usually gets in
+            where = " I've opened it in your normal browser instead."
+        except Exception:
+            where = ""
+        raise Blocked(f"{site} blocked my browser (it said “{title or 'access denied'}”).{where}")
     where = urlparse(page.url).netloc.removeprefix("www.")
     head = f"Now on {title or where}" + (f" ({where})" if title and where else "") + "."
     if not details:
@@ -241,6 +289,15 @@ async def _target(page, target, field: bool = False):
     raise ToolError(f"I can't find “{t}” on the page.")
 
 
+async def _click(el) -> None:
+    """Click like a person; if an ad or banner is in the way, click through it."""
+    try:
+        await el.scroll_into_view_if_needed(timeout=3000)
+        await el.click(timeout=4000)
+    except Exception:
+        await el.evaluate("e => e.click()")      # something covers it: press the element itself
+
+
 async def _search_box(page):
     for sel in _SEARCH_BOXES:
         loc = page.locator(sel)
@@ -249,7 +306,7 @@ async def _search_box(page):
             if await box.is_visible() and await box.is_editable():
                 return box
     # Some sites hide the box behind a magnifying-glass button.
-    for opener in ("[aria-label*=search i]", "button[class*=search i]", "[data-testid*=search i]"):
+    for opener in ("button[aria-label*=search i]", "[role=button][aria-label*=search i]", "button[class*=search i]"):
         btn = page.locator(opener)
         if await btn.count() and await btn.first.is_visible():
             try:
@@ -292,7 +349,7 @@ async def browser(args: dict, ctx: ToolContext) -> str:
             before = page.url
             box = await _search_box(page)
             if box is not None:
-                await box.click()
+                await _click(box)
                 await box.fill(query)
                 await box.press("Enter")
                 await _settle(page)
@@ -309,8 +366,12 @@ async def browser(args: dict, ctx: ToolContext) -> str:
                 await page_report(page, details)
         if action == "click":
             el = await _target(page, args.get("target", ""))
-            await el.scroll_into_view_if_needed()
-            await el.click()
+            before = page.url
+            await _click(el)
+            try:                                             # a link: wait for the new page to start
+                await page.wait_for_url(lambda u: u != before, timeout=1500)
+            except Exception:
+                pass
             await _settle(page, 3000)
             return "Clicked. " + await page_report(page, details)
         if action == "type":

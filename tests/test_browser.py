@@ -39,6 +39,13 @@ class Handler(BaseHTTPRequestHandler):
             q = parse_qs(u.query).get("q", [""])[0]
             body = f"<html><head><title>{q} results</title></head><body><h1>Results for {q}</h1>" \
                    f"<a href='/car/1'>2019 Honda Civic LX - $18,500</a></body></html>"
+        elif u.path == "/covered":
+            body = ("<html><head><title>Covered</title></head><body><a href='/cars' style='position:absolute;top:50px'>Shop Cars for Sale</a>"
+                    "<div style='position:fixed;inset:0;background:rgba(0,0,0,.5)'>An ad</div></body></html>")
+        elif u.path == "/cars":
+            body = "<html><head><title>Cars for sale</title></head><body>Lots of cars</body></html>"
+        elif u.path == "/denied":
+            body = "<html><head><title>Access Denied</title></head><body><h1>Access Denied</h1>You don't have permission to access this.</body></html>"
         elif u.path == "/best":
             body = "<html><head><title>Best page</title></head><body>Best page for it</body></html>"
         elif u.path == "/car/1":
@@ -165,3 +172,42 @@ async def test_websites_stay_in_the_normal_browser_where_novas_cant_run(registry
     finally:
         pc._open_browser = orig
     assert not res.is_error and opened == ["https://kbb.com"]
+
+
+def test_launched_like_a_normal_edge_window():
+    """Owner's case: an '--no-sandbox' warning bar, and kbb.com said 'Access Denied' to the
+    automated window."""
+    opts = B.launch_options(None, "msedge", False, windows=True)
+    assert opts["chromium_sandbox"] is True and "--no-sandbox" in opts["ignore_default_args"]
+    assert "--enable-automation" in opts["ignore_default_args"]
+    assert "--disable-blink-features=AutomationControlled" in opts["args"]
+    assert opts["channel"] == "msedge"
+
+
+def test_bot_walls_are_recognised():
+    assert B.blocked("Access Denied", 'You don\'t have permission to access "http://www.kbb.com/bmw/m5/2016/"')
+    assert B.blocked("", "Please verify you are human")
+    assert not B.blocked("2016 BMW M5 Price", "Fair purchase price $32,000")
+
+
+@needs_chrome
+async def test_a_blocked_page_is_reported_and_opened_normally(nova_browser, site, monkeypatch):
+    opened = []
+    from assistant.core import launch
+    monkeypatch.setattr(launch, "launch", opened.append)
+    with pytest.raises(ToolError, match="blocked my browser.*normal browser"):
+        await B.browser({"action": "open", "site": f"{site}/denied"}, nova_browser)
+    assert opened == [f"{site}/denied"]
+
+
+@needs_chrome
+async def test_the_page_cant_tell_its_automated(nova_browser, site):
+    await B.browser({"action": "open", "site": f"{site}/", "details": False}, nova_browser)
+    assert await B.BROWSER.page.evaluate("() => navigator.webdriver") in (None, False)
+
+
+@needs_chrome
+async def test_clicks_through_a_banner_in_the_way(nova_browser, site):
+    await B.browser({"action": "open", "site": f"{site}/covered", "details": False}, nova_browser)
+    out = await B.browser({"action": "click", "target": "Shop Cars for Sale", "details": False}, nova_browser)
+    assert "Clicked. Now on Cars" in out
