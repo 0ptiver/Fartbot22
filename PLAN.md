@@ -184,7 +184,8 @@ scripts/           # install, run, register-startup
 - [x] Kokoro ~210 ms on the GPU. Profile: STFT runs on the CPU (84.6 ms, no CUDA kernel) plus GPU<->CPU copies; Conv 74 ms on CUDA. fp16 was slower (304 ms). Screen reading via Claude: 6.7 s, and the chat model stays loaded
 - [x] `assistant models` rewrites STFT into an equivalent Conv (windowed DFT kernels) → `kokoro-v1.0.gpu.onnx`, kept only if the audio matches the original. Used automatically on the GPU. Rewrite tested against onnxruntime's STFT (all window kinds, one- and two-sided)
 - [x] Owner: GPU-only Kokoro **72 ms** (was 243 ms). CPU provider down to 5 ms. STFT maths error 6.8e-7
-- [ ] Converted audio: loudness x0.87 while the original is deterministic run-to-run. `models --recheck` fixes every random op's seed in both models and requires the audio to match (<1e-3), which separates "changed random draw order" from a real difference
+- [x] Recheck: Kokoro has 0 random ops and is deterministic, but the rewrite's audio differs (0.47). So it's a real difference, and the converted model was removed automatically (Nova is back on the original, 243 ms)
+- [ ] `models --debug-stft` taps the real STFT input/output in both models to find the mismatch
 - [x] cuDNN algorithm search set to HEURISTIC (the default EXHAUSTIVE re-benchmarks every new sentence length). ttsbench compares heuristic, default and exhaustive on fresh sentences
 
 ### Phase 3 — Real-time feel
