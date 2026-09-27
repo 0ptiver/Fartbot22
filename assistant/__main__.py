@@ -49,9 +49,10 @@ def main(argv: list[str] | None = None) -> None:
         s = load_settings()
         if "--debug-stft" in argv:
             from assistant.voice.models import kokoro_paths
-            from assistant.voice.tts.stft_debug import debug_stft
+            from assistant.voice.tts.stft_debug import debug_downstream, debug_stft
             model, voices = kokoro_paths()
             debug_stft(model, voices, s.voice.tts.kokoro.voice, s.voice.tts.kokoro.lang)
+            debug_downstream(model, voices, s.voice.tts.kokoro.voice, s.voice.tts.kokoro.lang)
         elif "--recheck" in argv:
             from assistant.voice.models import make_gpu_kokoro
             make_gpu_kokoro(s.voice.tts.kokoro.voice, s.voice.tts.kokoro.lang, recheck=True)

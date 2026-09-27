@@ -95,3 +95,79 @@ def debug_stft(original: Path, voices: Path, voice: str = "bm_george", lang: str
             print(f"  standalone check with synthetic signal: {stft_math_error(spec):.2e}")
     n = min(len(audio_o), len(audio_c))
     print(f"Final audio max difference: {np.max(np.abs(audio_o[:n] - audio_c[:n])):.3g}")
+
+
+def _descendants(model, start: str) -> list:
+    """Nodes downstream of tensor `start`, in graph (topological) order."""
+    reach = {start}
+    out = []
+    for node in model.graph.node:
+        if any(i in reach for i in node.input):
+            out.append(node)
+            reach.update(node.output)
+    return out
+
+
+def _run(path: Path, feeds: dict, optimize: bool, taps: list[str] | None = None):
+    import onnxruntime as ort
+
+    opts = ort.SessionOptions()
+    opts.log_severity_level = 3
+    if not optimize:
+        opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+    if taps:
+        tmp = path.with_name(path.stem + "_tapped.onnx")
+        _with_outputs(path, taps, tmp)
+        path = tmp
+    sess = ort.InferenceSession(str(path), sess_options=opts, providers=["CPUExecutionProvider"])
+    outs = sess.run(None, feeds)
+    return {o.name: v for o, v in zip(sess.get_outputs(), outs)}, outs[0].ravel()
+
+
+def debug_downstream(original: Path, voices: Path, voice: str = "bm_george", lang: str = "en-gb") -> None:
+    """Is it the optimizer? And which node downstream of the STFT first diverges?"""
+    import onnx
+
+    from assistant.voice.tts.onnx_fix import replace_stft
+
+    text = "Good evening, sir. The time is a quarter past eleven."
+    feeds = _capture_inputs(original, voices, voice, lang, text)
+    model = onnx.load(str(original))
+    stft = next(n for n in model.graph.node if n.op_type == "STFT")
+    with tempfile.TemporaryDirectory() as d:
+        conv_path = Path(d) / "conv.onnx"
+        replace_stft(model)
+        onnx.save(model, str(conv_path))
+
+        print("\n1) Final audio difference with the runtime's graph optimizer ON vs OFF:")
+        for optimize in (True, False):
+            _, a = _run(original, feeds, optimize)
+            _, b = _run(conv_path, feeds, optimize)
+            n = min(len(a), len(b))
+            print(f"   optimizer {'ON ' if optimize else 'OFF'}: {np.max(np.abs(a[:n] - b[:n])):.3g}  "
+                  f"(loudness x{np.sqrt(np.mean(b ** 2)) / max(np.sqrt(np.mean(a ** 2)), 1e-9):.2f})")
+
+        print("\n2) First steps after the STFT whose output differs (optimizer OFF):")
+        down = _descendants(onnx.load(str(original)), stft.output[0])
+        taps = [o for n in down for o in n.output]
+        got_o, _ = _run(original, feeds, False, taps)
+        got_c, _ = _run(conv_path, feeds, False, taps)
+        shown = 0
+        for node in down:
+            for o in node.output:
+                if o not in got_o or o not in got_c:
+                    continue
+                x, y = np.asarray(got_o[o]), np.asarray(got_c[o])
+                if x.shape != y.shape:
+                    print(f"   {node.op_type:<12} {o}: shape {x.shape} vs {y.shape}")
+                    shown += 1
+                elif x.size and x.dtype.kind == "f":
+                    rel = float(np.max(np.abs(x - y)) / max(float(np.max(np.abs(x))), 1e-9))
+                    if rel > 1e-3:
+                        ins = ", ".join(i.split("/")[-1] for i in node.input)
+                        print(f"   {node.op_type:<12} {o.split('/')[-1]}: rel diff {rel:.2e}  (inputs: {ins})")
+                        shown += 1
+                if shown >= 6:
+                    return
+        if not shown:
+            print(f"   none of the {len(taps)} downstream tensors differ with the optimizer off")
