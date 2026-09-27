@@ -3,7 +3,7 @@
 onnxruntime's CUDA provider has no STFT kernel, so Kokoro's STFT runs on the CPU
 (~85 ms per sentence on the owner's PC, plus GPU<->CPU copies). An STFT with a fixed
 window is exactly a strided 1-D convolution with windowed cosine/sine kernels, which
-the GPU runs fast. This rewrites each STFT node into Transpose -> Conv -> Reshape ->
+the GPU runs fast. This rewrites each STFT node into Reshape -> Conv -> Reshape ->
 Transpose, then checks the new model gives the same audio before it's used.
 """
 
@@ -91,11 +91,13 @@ def replace_stft(model) -> list[str]:
         bins = weights.shape[0] // 2
 
         base = (node.name or "stft").replace("/", "_") + "_gpu"
-        w_name, shape_name = f"{base}_W", f"{base}_shape"
+        w_name, shape_name, in_shape = f"{base}_W", f"{base}_shape", f"{base}_in_shape"
         graph.initializer.append(numpy_helper.from_array(weights, w_name))
         graph.initializer.append(numpy_helper.from_array(np.array([0, 2, bins, -1], np.int64), shape_name))
+        # [B, L] or [B, L, 1] -> [B, 1, L]. (The spec says rank 3; Kokoro's export uses rank 2.)
+        graph.initializer.append(numpy_helper.from_array(np.array([0, 1, -1], np.int64), in_shape))
         new_nodes += [
-            helper.make_node("Transpose", [signal], [f"{base}_t"], perm=[0, 2, 1], name=f"{base}_in"),
+            helper.make_node("Reshape", [signal, in_shape], [f"{base}_t"], name=f"{base}_in"),
             helper.make_node("Conv", [f"{base}_t", w_name], [f"{base}_c"], strides=[step],
                              name=f"{base}_conv"),
             helper.make_node("Reshape", [f"{base}_c", shape_name], [f"{base}_r"], name=f"{base}_reshape"),
