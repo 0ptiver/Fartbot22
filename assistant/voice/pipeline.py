@@ -22,8 +22,8 @@ from assistant.voice.chunker import SentenceChunker
 from assistant.voice.latency import LatencyTracker
 from assistant.voice.stt.base import STTProvider, STTSession
 from assistant.voice.tts.base import TTSProvider
-from assistant.voice.vad import Endpointer, SpeechEnd, SpeechStart
-from assistant.voice.wake import echo_overlap, match_wake
+from assistant.voice.vad import Endpointer, SpeechEnd, SpeechPause, SpeechStart
+from assistant.voice.wake import _norm, echo_overlap, match_wake
 
 log = logging.getLogger(__name__)
 
@@ -59,10 +59,24 @@ class VoiceLoop:
         self._last_said = ""
         self._named = False
         self.turns_done = 0
+        # Phase 3: barge-in, merging, speculative STT
+        self._handler: asyncio.Task | None = None     # resolving an utterance (STT + decisions)
+        self._reply_started = False                   # current reply has started speaking
+        self._spec: tuple[asyncio.Task, int] | None = None   # (early transcript, audio length)
+        self._barge_check: asyncio.Task | None = None
+        self._barge_checked = 0
+        self._barged = False
+        self._utt_kind = "normal"                     # how the current utterance started
+        self._last_request = ("", 0.0)                # (text, time its speech ended)
 
     @property
     def busy(self) -> bool:
-        return self._turn is not None and not self._turn.done()
+        """A reply is being worked on or spoken (or an utterance is being resolved)."""
+        return any(t is not None and not t.done() for t in (self._turn, self._handler))
+
+    @property
+    def speaking(self) -> bool:
+        return self.busy and self._reply_started
 
     # --- main loop ------------------------------------------------------------
     async def run(self, max_turns: int | None = None) -> None:
@@ -73,13 +87,16 @@ class VoiceLoop:
                 await self._open_mic_frame(frame, t)
             if max_turns is not None and self.turns_done >= max_turns and not self.busy:
                 break
-        if self._turn:
+        for task in (self._handler, self._turn):
+            if task:
+                await asyncio.gather(task, return_exceptions=True)
+        if self._turn:  # a handler may have started a reply
             await asyncio.gather(self._turn, return_exceptions=True)
 
     async def _open_mic_frame(self, frame: np.ndarray, t: float) -> None:
-        if self.busy or time.perf_counter() < self._mute_until:
-            # Half-duplex until barge-in + echo cancellation arrive in Phase 3:
-            # don't listen to ourselves while speaking (plus a short tail afterwards).
+        bcfg = self.cfg.barge_in
+        if (not self.busy and time.perf_counter() < self._mute_until) or (self.busy and bcfg.mode == "off"):
+            # Ignore the echo tail right after speaking, or everything while busy if barge-in is off.
             if self.endpointer.in_speech or self._stt_session is not None:
                 self.endpointer.reset()
                 self._stt_session = None
@@ -87,14 +104,80 @@ class VoiceLoop:
         prob = self.vad(frame)
         ev = self.endpointer.process(frame, prob, t)
         if isinstance(ev, SpeechStart):
-            self.on_event({"type": "listening"})
+            self._utt_kind = ("overlap" if self.speaking else "thinking" if self.busy else "normal")
+            self._barged, self._barge_checked = False, 0
+            self._cancel_spec()
+            if self._utt_kind == "normal":
+                self.on_event({"type": "listening"})
             self._stt_session = self.stt.session()
             for f in self.endpointer._buf:   # pre-roll + frames so far
                 await self._stt_session.feed(f)
+        elif isinstance(ev, SpeechPause):
+            # Start transcribing during the pause; if it turns out to be the end, it's ready.
+            if self._utt_kind != "overlap" and hasattr(self.stt, "transcribe"):
+                self._cancel_spec()
+                self._spec = (asyncio.create_task(self.stt.transcribe(ev.audio)), len(ev.audio))
         elif isinstance(ev, SpeechEnd):
             await self._utterance_done(ev)
         elif self.endpointer.in_speech and self._stt_session is not None:
             await self._stt_session.feed(frame)
+            if self._utt_kind == "overlap" and not self._barged:
+                await self._maybe_barge()
+
+    def _cancel_spec(self) -> None:
+        if self._spec is not None:
+            self._spec[0].cancel()
+            self._spec = None
+
+    async def _maybe_barge(self) -> None:
+        """You're talking while Nova speaks. Interrupt? (fast: on any speech; verified: only
+        for words that aren't Nova's own voice coming back through the speakers)."""
+        b = self.cfg.barge_in
+        if b.mode == "fast":
+            if self.endpointer.speech_seconds * 1000 >= b.fast_min_ms:
+                self._barged = True
+                await self.interrupt(reason="you started talking")
+            return
+        audio = self.endpointer.audio()
+        due = len(audio) - self._barge_checked >= b.check_every_s * 16000
+        if b.mode == "verified" and due and hasattr(self.stt, "transcribe") and (
+                self._barge_check is None or self._barge_check.done()):
+            self._barge_checked = len(audio)
+            self._barge_check = asyncio.create_task(self._barge_verify(audio[-32000:]))
+
+    async def _barge_verify(self, audio: np.ndarray) -> None:
+        text = (await self.stt.transcribe(audio)).text
+        if text and not self._barged and self.speaking and self._is_new_speech(text):
+            self._barged = True
+            await self.interrupt(reason=f'heard "{text}"')
+
+    def _is_new_speech(self, text: str) -> bool:
+        """Is this the user (not Nova's own voice)? Stop words, the name, or enough new words."""
+        if self._stop_phrase(text) is not None or match_wake(text, self.cfg.wake.variants, 99)[0]:
+            return True
+        # Echo of Nova's own voice repeats its word *pairs* ("upon a", "a time"), even when
+        # Whisper mishears a word; your speech almost never does, even with common words.
+        said = [w for w in map(_norm, self._last_said.split()) if w]
+        words = [w for w in map(_norm, text.split()) if w]
+        if len(words) < self.cfg.barge_in.min_new_words:
+            return False
+        said_pairs = set(zip(said, said[1:]))
+        pairs = list(zip(words, words[1:]))
+        echoed = sum(p in said_pairs for p in pairs)
+        return echoed < 0.5 * len(pairs)
+
+    def _stop_phrase(self, text: str) -> str | None:
+        norm = " ".join(w for w in map(_norm, text.split()) if w)
+        for phrase in sorted(self.cfg.barge_in.stop_words, key=len, reverse=True):
+            p = " ".join(map(_norm, phrase.split()))
+            # Only "stop" (+ filler) stops; "stop the music" is a request for Spotify.
+            if norm == p or (norm.startswith(p + " ")
+                             and set(norm[len(p):].split()) <= _STOP_FILLER):
+                return phrase
+        name_stripped = match_wake(text, self.cfg.wake.variants, 3)[1]
+        if name_stripped and name_stripped != text:
+            return self._stop_phrase(name_stripped)
+        return None
 
     async def _ptt_frame(self, frame: np.ndarray, t: float) -> None:
         held = self.ptt.held.is_set()
@@ -119,41 +202,134 @@ class VoiceLoop:
         lat.mark("speech_end", end.t_last_speech)
         lat.mark("eot_detected", end.t_detected)
         session, self._stt_session = self._stt_session, None
-        self.on_event({"type": "thinking"})
-        self._turn = asyncio.create_task(self._respond(session, lat, end.audio))
+        spec = None
+        if self._spec is not None and end.silent_since_pause:
+            spec = self._spec[0]      # transcribed during the final pause: nothing new since
+        elif self._spec is not None:
+            self._spec[0].cancel()
+        self._spec = None
+        # An utterance that already interrupted Nova stays an interruption even though
+        # Nova is no longer busy by the time you finish speaking.
+        kind = "overlap" if self._barged else (self._utt_kind if self.busy else "normal")
+        if kind == "normal":
+            self.on_event({"type": "thinking"})
+        prev = self._handler if self._handler and not self._handler.done() else None
+        self._handler = asyncio.create_task(
+            self._handle_utterance(session, spec, lat, end.audio, kind, self._barged, prev))
 
-    async def interrupt(self) -> None:
-        self.player.stop()
-        if self.busy:
-            self._turn.cancel()
-            await asyncio.gather(self._turn, return_exceptions=True)
-            self.on_event({"type": "interrupted"})
-
-    # --- one spoken turn ------------------------------------------------------
-    async def _respond(self, session: STTSession | None, lat: LatencyTracker,
-                       audio: np.ndarray | None = None) -> None:
+    async def _handle_utterance(self, session, spec, lat: LatencyTracker, audio, kind: str,
+                                barged: bool, prev: asyncio.Task | None) -> None:
+        """Turn an utterance into text, then decide: new request, merge, interruption, or ignore."""
+        started_reply = False
         try:
-            text = (await session.finish()).text if session else ""
-            lat.mark("stt_done")
+            if prev is not None:   # an earlier utterance is still being resolved
+                await asyncio.gather(prev, return_exceptions=True)
+            text = ""
+            if spec is not None:
+                try:
+                    text = (await spec).text
+                    lat.mark("stt_done")
+                    lat.marks["stt_speculative"] = 1
+                except asyncio.CancelledError:
+                    if asyncio.current_task().cancelling():
+                        raise
+                    spec = None
+            if spec is None:
+                text = (await session.finish()).text if session else ""
+                lat.mark("stt_done")
             if not text:
                 if self.cfg.mode == "ptt":   # in hands-free modes this is just background noise
                     self.on_event({"type": "idle", "reason": "heard nothing",
                                    "hint": diagnose_silence(audio)})
                 return
-            if self.cfg.mode == "wake":
-                text = await self._check_wake(text, lat)
-                if text is None:
+
+            if kind == "overlap":
+                text = self._strip_echo_prefix(text)
+                if not barged and not self._is_new_speech(text):
+                    self.on_event({"type": "ignored", "text": text, "reason": "sounded like my own voice"})
                     return
+                await self.interrupt(reason=f'heard "{text}"')
+                if self._stop_phrase(text) is not None:
+                    self.on_event({"type": "stopped", "text": text})
+                    self._named = False
+                    self._mute_until = time.perf_counter() + self.cfg.wake.cooldown_ms / 1000
+                    return
+                rest = match_wake(text, self.cfg.wake.variants, self.cfg.wake.window_words)[1] or text
+                self._named = True   # talking over Nova counts as talking to Nova
+                text = rest
+            elif kind == "thinking":
+                prev_text, prev_end = self._last_request
+                if self._stop_phrase(text) is not None:
+                    await self.interrupt(reason=f'heard "{text}"')
+                    self.on_event({"type": "stopped", "text": text})
+                    return
+                if prev_text and lat.marks["speech_end"] - prev_end <= self.cfg.barge_in.merge_window_s:
+                    # You paused and carried on: one request, not two.
+                    await self.interrupt(reason="you kept talking")
+                    text = f"{prev_text} {text}"
+                    self.on_event({"type": "merged", "text": text})
+                elif self.cfg.mode == "wake":
+                    checked = await self._check_wake(text, lat)
+                    if checked is None:
+                        return
+                    await self.interrupt(reason="new request")
+                    text = checked
+                else:
+                    await self.interrupt(reason="new request")
+            elif self.cfg.mode == "wake":
+                checked = await self._check_wake(text, lat)
+                if checked is None:
+                    return
+                text = checked
+
+            self._last_request = (text, lat.marks["speech_end"])
             self.on_event({"type": "transcript", "text": text})
-            await self._speak_reply(text, lat)
-            self._after_reply()
+            self._turn = asyncio.create_task(self._reply(text, lat))
+            started_reply = True
         except asyncio.CancelledError:
             raise
         except Exception as e:
             log.exception("voice turn failed")
             self.on_event({"type": "error", "message": f"{type(e).__name__}: {e}"})
         finally:
+            if not started_reply:
+                self.turns_done += 1
+
+    async def _reply(self, text: str, lat: LatencyTracker) -> None:
+        self._reply_started = False
+        try:
+            await self._speak_reply(text, lat)
+            self._after_reply()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.exception("voice reply failed")
+            self.on_event({"type": "error", "message": f"{type(e).__name__}: {e}"})
+        finally:
+            self._reply_started = False
             self.turns_done += 1
+
+    async def interrupt(self, reason: str = "") -> None:
+        """Stop talking and cancel the reply in progress (barge-in, stop words, kill switch)."""
+        self.player.stop()
+        current = asyncio.current_task()
+        cancelled = False
+        for task in (self._turn, self._handler):
+            if task is not None and not task.done() and task is not current:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                cancelled = True
+        if cancelled:
+            self.on_event({"type": "interrupted", "reason": reason})
+
+    def _strip_echo_prefix(self, text: str) -> str:
+        """Drop leading words that were Nova's own voice coming back through the speakers."""
+        said = {w for w in map(_norm, self._last_said.split()) if w}
+        words = text.split()
+        i = 0
+        while i < len(words) and _norm(words[i]) in said:
+            i += 1
+        return " ".join(words[i:]) if i < len(words) else text
 
     async def _check_wake(self, text: str, lat: LatencyTracker) -> str | None:
         """Wake mode: only answer when addressed by name (or during the follow-up window)."""
@@ -188,6 +364,7 @@ class VoiceLoop:
     async def say(self, text: str) -> None:
         """Speak a fixed line (acknowledgements, notices)."""
         self._last_said = text
+        self._reply_started = True
         self.on_event({"type": "speak", "text": text})
         await self._synth_and_play(text, None)
         await self.player.drain()
@@ -271,9 +448,14 @@ class VoiceLoop:
     async def _speaker(self, queue: asyncio.Queue, lat: LatencyTracker) -> None:
         said = []
         while (chunk := await queue.get()) is not None:
+            self._reply_started = True
             said.append(chunk)
             self._last_said = " ".join(said)
             await self._synth_and_play(chunk, lat)
+
+
+_STOP_FILLER = {"please", "now", "thanks", "thank", "you", "nova", "sir", "for", "a", "sec",
+                "second", "moment", "right", "there", "it", "talking"}
 
 
 def diagnose_silence(audio: np.ndarray | None) -> str:

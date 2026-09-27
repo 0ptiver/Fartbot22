@@ -32,6 +32,12 @@ class FakeSTT(STTProvider):
             return Transcript(self.text if len(audio) else "")
         return BufferedSession(transcribe)
 
+    async def transcribe(self, audio):
+        """Direct transcription (speculative STT and barge-in checks)."""
+        self.direct_calls = getattr(self, "direct_calls", 0) + 1
+        self.spec_seconds = getattr(self, "spec_seconds", []) + [len(audio) / 16000]
+        return Transcript(self.text if len(audio) else "")
+
 
 class FakeTTS(TTSProvider):
     name = "fake"

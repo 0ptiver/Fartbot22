@@ -50,11 +50,17 @@ class SpeechStart:
 
 
 @dataclass
+class SpeechPause:
+    audio: np.ndarray            # utterance so far: transcribe it early (speculative STT)
+
+
+@dataclass
 class SpeechEnd:
     audio: np.ndarray            # the whole utterance incl. pre-roll, float32 16 kHz
     t_last_speech: float         # stream time the user actually stopped talking
     t_detected: float            # stream time we decided the turn was over
     truncated: bool = False
+    silent_since_pause: bool = False   # no speech after the last SpeechPause: its audio is final
 
 
 class Endpointer:
@@ -68,6 +74,7 @@ class Endpointer:
         self.preroll_frames = max(1, int(cfg.preroll_ms / FRAME_MS))
         self.min_speech_frames = max(1, int(cfg.min_speech_ms / FRAME_MS))
         self.end_frames = max(1, int(cfg.end_silence_ms / FRAME_MS))
+        self.pause_frames = max(1, int(cfg.pause_ms / FRAME_MS)) if cfg.pause_ms else 0
         self.max_frames = int(cfg.max_utterance_s * 1000 / FRAME_MS)
         self.reset()
 
@@ -80,12 +87,20 @@ class Endpointer:
         self._voiced = 0
         self._t_last_speech = 0.0
         self._t_start = 0.0
+        self._paused = False
 
     @property
     def in_speech(self) -> bool:
         return self._in_speech
 
-    def process(self, frame: np.ndarray, prob: float, t: float) -> SpeechStart | SpeechEnd | None:
+    @property
+    def speech_seconds(self) -> float:
+        return self._voiced * FRAME_MS / 1000
+
+    def audio(self) -> np.ndarray:
+        return np.concatenate(self._buf) if self._buf else np.zeros(0, np.float32)
+
+    def process(self, frame: np.ndarray, prob: float, t: float) -> SpeechStart | SpeechPause | SpeechEnd | None:
         """`t` is the stream time (seconds) at the *end* of this frame."""
         is_speech = prob >= self.cfg.threshold
         if not self._in_speech:
@@ -111,10 +126,14 @@ class Endpointer:
             self._silence_run = 0
             self._voiced += 1
             self._t_last_speech = t
+            self._paused = False
         else:
             self._silence_run += 1
         if self._silence_run >= self.end_frames or len(self._buf) >= self.max_frames:
             return self._finish(t, truncated=len(self._buf) >= self.max_frames)
+        if self.pause_frames and self._silence_run == self.pause_frames:
+            self._paused = True
+            return SpeechPause(self.audio())
         return None
 
     def force_end(self, t: float) -> SpeechEnd | None:
@@ -125,7 +144,6 @@ class Endpointer:
         return self._finish(t)
 
     def _finish(self, t: float, truncated: bool = False) -> SpeechEnd:
-        audio = np.concatenate(self._buf) if self._buf else np.zeros(0, np.float32)
-        end = SpeechEnd(audio, self._t_last_speech, t, truncated)
+        end = SpeechEnd(self.audio(), self._t_last_speech, t, truncated, self._paused)
         self.reset()
         return end

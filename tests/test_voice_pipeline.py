@@ -34,7 +34,8 @@ async def test_open_mic_turn_from_wav(settings, registry):
     assert kinds[0] == "listening"
     assert "transcript" in kinds and "tool" in kinds and "latency" in kinds
     # VAD cut a ~2 s utterance (plus pre-roll and trailing silence) out of the 3 s clip.
-    assert 1.5 < stt.heard_seconds[0] < 3.0
+    heard = (stt.heard_seconds or stt.spec_seconds)[0]   # end-of-speech or speculative STT
+    assert 1.5 < heard < 3.0
     # Spoken in chunks, with the pre-tool acknowledgement first.
     assert tts.spoken == ["One moment, sir.", "It is a quarter past three.", "Anything else?"]
     assert len(player.audio()) > 0

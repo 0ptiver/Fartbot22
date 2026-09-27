@@ -79,6 +79,7 @@ class VADConfig(BaseModel):
     min_speech_ms: int = 150
     preroll_ms: int = 300
     max_utterance_s: float = 30
+    pause_ms: int = 160              # start transcribing after this much silence (speculative STT)
 
 
 class WhisperConfig(BaseModel):
@@ -126,8 +127,23 @@ class WakeConfig(BaseModel):
     cooldown_ms: int = 350            # ignore the mic briefly after it finishes speaking
 
 
+class BargeInConfig(BaseModel):
+    # verified: interrupt only for words that aren't Nova's own voice (works with speakers)
+    # fast: interrupt as soon as you speak (headphones only; speakers would trigger it)
+    # off: never interrupt by voice
+    mode: str = "verified"
+    fast_min_ms: int = 250           # fast mode: speech needed before interrupting
+    check_every_s: float = 0.8       # verified mode: how often to check speech over Nova's voice
+    min_new_words: int = 3           # verified mode: words needed (besides stop words / the name)
+    stop_words: list[str] = Field(default_factory=lambda: [
+        "stop", "stop it", "stop talking", "cancel", "never mind", "nevermind", "shut up",
+        "quiet", "be quiet", "enough", "that's enough", "okay stop", "ok stop", "wait"])
+    merge_window_s: float = 2.5      # speak again this soon, before it answers -> one request
+
+
 class VoiceConfig(BaseModel):
     mode: str = "wake"
+    barge_in: BargeInConfig = Field(default_factory=BargeInConfig)
     wake: WakeConfig = Field(default_factory=WakeConfig)
     ptt_hotkey: str = "ctrl+alt+space"
     input_device: str | int | None = None

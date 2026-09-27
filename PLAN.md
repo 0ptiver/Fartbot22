@@ -187,15 +187,18 @@ scripts/           # install, run, register-startup
 - [x] Recheck: Kokoro has 0 random ops and is deterministic, but the rewrite's audio differs (0.47). So it's a real difference, and the converted model was removed automatically (Nova is back on the original, 243 ms)
 - [x] `models --debug-stft` found it. STFT output matched (6e-7), and the first diverging node was Atan(imag/real), the phase. At the 0 Hz / Nyquist bins the imaginary part is structurally 0: onnxruntime's STFT leaves random ±1e-6 noise there, and the exported atan pattern turns the sign of that noise into ±π
 - [x] Fix: exact-zero DFT weights plus a +1e-20 bias on those bins, which gives +π like torch.angle in training. Verified against a reference = original STFT with only those bins set the PyTorch way. `models` also saves original vs fast WAVs for a listening check
-- [ ] Owner: rerun `models`, listen to data/voice_compare/*.wav
+- [x] Owner: fast GPU voice sounds fine → Kokoro ~72 ms
 - [x] cuDNN algorithm search set to HEURISTIC (the default EXHAUSTIVE re-benchmarks every new sentence length). ttsbench compares heuristic, default and exhaustive on fresh sentences
 
 ### Phase 3 — Real-time feel
 - [ ] Train + ship "hey nova" openWakeWord model
-- [ ] Barge-in (stop playback, cancel LLM/TTS)
-- [ ] AEC (WebRTC APM) + gating fallback
+- [x] Barge-in. `verified` (default, safe with speakers): while Nova talks, speech is transcribed every 0.8 s and interrupts only if its word pairs aren't Nova's own (echo check), or it's a stop word / the name. `fast` (headphones): interrupts on 250 ms of speech. `off`
+- [x] Stop words ("stop", "cancel", "never mind") stop without starting a new request. "Stop the music" is treated as a request
+- [x] Pause-and-continue: speech during the thinking phase within 2.5 s merges into one request
+- [x] Speculative STT: Whisper starts at 160 ms of silence, and the result is used if no speech followed
+- [ ] AEC: not needed so far (the echo check replaces it). Revisit if speaker barge-in misfires
 - [x] Filler lines for slow tools (done in 2.5)
-- [ ] Speculative end-of-turn
+- [x] Speculative end-of-turn (see speculative STT)
 - [ ] Benchmark vs. realtime speech-to-speech API; report latency + cost
 
 ### Phase 4 — Full tool layer + safety

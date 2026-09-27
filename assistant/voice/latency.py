@@ -25,7 +25,7 @@ class LatencyTracker:
 
     def ms(self, a: str, b: str) -> float | None:
         if a in self.marks and b in self.marks:
-            return round((self.marks[b] - self.marks[a]) * 1000)
+            return max(0, round((self.marks[b] - self.marks[a]) * 1000))
         return None
 
     def total_ms(self) -> float | None:
@@ -40,7 +40,8 @@ class LatencyTracker:
     def report(self, target_ms: int = 800) -> str:
         lines = ["latency:"]
         for label, v in self.breakdown().items():
-            lines.append(f"  {label:32} {'-' if v is None else f'{v:>5.0f} ms'}")
+            note = "  (transcribed during your pause)" if label == "stt finalize" and self.marks.get("stt_speculative") else ""
+            lines.append(f"  {label:32} {'-' if v is None else f'{v:>5.0f} ms'}{note}")
         total = self.total_ms()
         if total is not None:
             lines.append(f"  {'target':32} {target_ms:>5} ms  {'OK' if total <= target_ms else 'OVER'}")

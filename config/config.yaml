@@ -58,6 +58,9 @@ voice:
     acknowledgement: "Yes, sir?" # said when you only say "Nova"
     window_words: 3              # "Nova" must be within the first/last 3 words
   ptt_hotkey: ctrl+alt+space     # only used in ptt mode
+  barge_in:
+    mode: verified               # verified (safe with speakers) | fast (headphones only) | off
+    merge_window_s: 2.5          # keep talking within this after a pause -> one request
   input_device: null             # null = Windows default; name or index (see: python -m assistant devices)
   output_device: null
   vad:
@@ -66,6 +69,7 @@ voice:
     min_speech_ms: 150           # ignore blips shorter than this
     preroll_ms: 300              # audio kept from before speech started
     max_utterance_s: 30
+    pause_ms: 160                # start transcribing during a pause (hides Whisper's time)
   stt:
     provider: whisper            # whisper (local, free) | deepgram (cloud)
     whisper:

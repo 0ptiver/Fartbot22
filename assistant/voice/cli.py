@@ -48,8 +48,13 @@ def make_printer(name: str, show_latency: bool):
         elif t == "error":
             print(f"\n{RED}{ev['message']}{RESET}", flush=True)
         elif t == "interrupted":
-            print(f"\n{DIM}  (interrupted){RESET}", flush=True)
+            why = f": {ev['reason']}" if ev.get("reason") else ""
+            print(f"\n{DIM}  (interrupted{why}){RESET}", flush=True)
             state["speaking"] = False
+        elif t == "stopped":
+            print(f"{DIM}  (stopped){RESET}", flush=True)
+        elif t == "merged":
+            print(f"{DIM}  (you kept talking, one request: \"{ev['text']}\"){RESET}", flush=True)
         elif t == "latency":
             print()
             state["speaking"] = False

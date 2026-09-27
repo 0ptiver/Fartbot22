@@ -76,7 +76,9 @@ Other commands:
 - **"Ask Claude …"** always goes straight to your Claude subscription.
 - Say just "Nova" and it answers "Yes, sir?", then waits for your request.
 - There are no hotkeys or keyboard hooks. Everything runs locally, and no audio is saved.
-- While it's talking it doesn't listen, so it won't answer its own voice through your speakers. Interrupting it by talking comes in Phase 3.
+- **Talk over it to interrupt.** Nova stops and answers your new request. Say **"stop"**, "cancel" or "never mind" to just stop it. With speakers it can hear itself, so it only stops for words that aren't its own (it compares phrases). With headphones, `barge_in.mode: fast` stops it the instant you speak.
+- **Pause and carry on.** "Nova, what's the weather… in Chicago tomorrow" is treated as one request, as long as you carry on within 2.5 s and before it starts answering.
+- **Faster replies.** Whisper starts transcribing during your pause, so the transcript is usually ready the moment it decides you've finished.
 
 Other modes (`--mode` or `voice.mode` in `config/local.yaml`): `open_mic` answers everything it hears, and `ptt` means hold `Ctrl+Alt+Space` while talking.
 

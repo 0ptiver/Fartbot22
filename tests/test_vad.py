@@ -18,7 +18,7 @@ def feed(ep, probs, frame_s=0.032):
 
 
 def test_endpointer_basic_utterance():
-    ep = Endpointer(VADConfig(end_silence_ms=320, min_speech_ms=64, preroll_ms=96))
+    ep = Endpointer(VADConfig(end_silence_ms=320, min_speech_ms=64, preroll_ms=96, pause_ms=0))
     probs = [0.0] * 10 + [0.9] * 20 + [0.0] * 15
     events = feed(ep, probs)
     (i0, start), (i1, end) = events
@@ -31,7 +31,7 @@ def test_endpointer_basic_utterance():
 
 
 def test_endpointer_ignores_blips_and_bridges_short_pauses():
-    ep = Endpointer(VADConfig(end_silence_ms=320, min_speech_ms=96))
+    ep = Endpointer(VADConfig(end_silence_ms=320, min_speech_ms=96, pause_ms=0))
     assert feed(ep, [0.0, 0.9, 0.0, 0.9, 0.9, 0.0] + [0.0] * 20) == []
     ep.reset()
     probs = [0.9] * 10 + [0.0] * 5 + [0.9] * 10 + [0.0] * 12
@@ -65,3 +65,22 @@ def test_silero_on_real_speech():
     assert 0.4 <= speech.min() <= 1.0
     assert 1.5 <= speech.max() <= 2.6
     assert max(probs[:10]) < 0.3  # leading silence is silence
+
+
+def test_pause_events_for_speculative_stt():
+    ep = Endpointer(VADConfig(end_silence_ms=320, min_speech_ms=32, pause_ms=160))
+    # speech, short pause (spec fires), more speech (spec invalid), long pause (spec fires, end clean)
+    probs = [0.9] * 10 + [0.0] * 6 + [0.9] * 5 + [0.0] * 12
+    events = feed(ep, probs)
+    kinds = [type(e).__name__ for _, e in events]
+    assert kinds == ["SpeechStart", "SpeechPause", "SpeechPause", "SpeechEnd"]
+    first_pause, second_pause, end = events[1][1], events[2][1], events[3][1]
+    assert len(second_pause.audio) > len(first_pause.audio)
+    assert end.silent_since_pause is True
+
+
+def test_end_without_clean_pause():
+    ep = Endpointer(VADConfig(max_utterance_s=0.5, min_speech_ms=32, pause_ms=160))
+    events = feed(ep, [0.9] * 40)
+    end = [e for _, e in events if isinstance(e, SpeechEnd)][0]
+    assert end.truncated and end.silent_since_pause is False
