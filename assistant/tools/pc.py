@@ -211,6 +211,30 @@ class WindowBackend:
                 return w
         return None
 
+    def rect(self, hwnd: int) -> tuple[int, int, int, int]:
+        """(left, top, width, height) of a window, in real pixels."""
+        _need_windows()
+        import ctypes
+        from ctypes import wintypes
+        from assistant.tools.grid import _dpi_aware
+        _dpi_aware()
+        r = wintypes.RECT()
+        ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(r))  # type: ignore[attr-defined]
+        return r.left, r.top, r.right - r.left, r.bottom - r.top
+
+    def at(self, x: int, y: int) -> Win | None:
+        """The top-level window under a point on the screen."""
+        _need_windows()
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+        hwnd = user32.WindowFromPoint(wintypes.POINT(x, y))
+        root = user32.GetAncestor(hwnd, 2) if hwnd else 0              # GA_ROOT
+        for w in self.list():
+            if w.hwnd == root:
+                return w
+        return None
+
     def press(self, vk: int) -> None:
         _need_windows()
         import ctypes

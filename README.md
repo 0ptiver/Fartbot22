@@ -147,6 +147,7 @@ Speech stack (all switchable in `config/config.yaml` → `voice`):
 | "Copy" / "paste" / "undo" / "save" / "new tab" / "close tab" / "go back" / "refresh" / "switch windows" | shortcuts |
 | "Minimise this" / "snap this to the left" / "move this window to the other screen" | the window you're using |
 | "Start dictation" … (talk) … "new line" / "scratch that" / "stop dictation" | everything you say is typed |
+| "Watch what I do" … (do it) … "Nova, done" … "morning setup" — later "Nova, morning setup" | teach Nova a task by showing it once (passwords are never recorded) |
 | "Tell me when my download finishes" / "…my game finishes downloading" / "…Blender is done" / "…my GPU cools down" / "…the battery is full" / "…the internet is back" / "…this page changes" | Nova watches and speaks up (see them in the window's Timers tab) |
 | "Subtitles on" / "translate this" / "what are they saying?" / "subtitles off", or **CC** in the window | live captions of your PC's sound (game chat, videos), translated into English |
 | "Change your voice to deep butler" / "use your normal voice", or the window's **Voice** tab | design Nova's voice: mix voices, speed, pitch, accent, preview, save |

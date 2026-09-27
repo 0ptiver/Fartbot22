@@ -79,7 +79,8 @@ def timers(scheduler, settings: Settings, watchers=None) -> dict[str, Any]:
     items = [] if scheduler is None else [
         {"id": r.id, "kind": r.kind, "text": r.text, "due": r.due} for r in scheduler.upcoming()]
     watching = [] if watchers is None else [{"id": w.id, "text": w.describe()} for w in watchers.items.values()]
-    return {"type": "timers", "items": items, "watches": watching, "now": time.time()}
+    return {"type": "timers", "items": items, "watches": watching, "now": time.time(),
+            "routines": _routines(settings)}
 
 
 def memories(store) -> dict[str, Any]:
@@ -102,7 +103,10 @@ def voice_info(loop) -> dict[str, Any]:
 
 def _routines(settings: Settings) -> list[dict[str, str]]:
     from assistant.tools.routines import active
-    return [{"name": n, "label": n.replace("_", " ").capitalize(), "phrase": (r.phrases or [n])[0]}
+    from assistant.tools.teach import load_learned
+    learned = load_learned()
+    return [{"name": n, "label": n.replace("_", " ").capitalize(), "phrase": (r.phrases or [n])[0],
+             "learned": n in learned and n not in settings.routines}
             for n, r in active(settings).items()]
 
 
@@ -206,6 +210,11 @@ def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=Non
                 await ws_send({"type": "toast", "text": str(e)})
         elif kind == "mem_delete" and memory is not None and isinstance(msg.get("id"), int):
             await asyncio.to_thread(memory.delete, [msg["id"]])
+        elif kind == "routine_delete" and isinstance(msg.get("name"), str):
+            from assistant.tools.teach import delete_learned, load_learned
+            if msg["name"] in load_learned():
+                await ws_send({"type": "toast", "text": delete_learned(msg["name"].replace("_", " "))})
+            await ws_send(timers(scheduler, settings, watchers))
         elif kind == "routine":
             r = next((r for r in _routines(settings) if r["name"] == msg.get("name")), None)
             if r is not None:

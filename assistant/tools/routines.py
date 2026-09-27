@@ -21,7 +21,16 @@ _TAIL = re.compile(r"\s+(?:routine|please|now)$")
 
 
 def active(settings: Settings) -> dict[str, RoutineConfig]:
-    return {k: v for k, v in settings.routines.items() if v is not None}
+    """Routines from config, plus the ones taught by showing (data/learned.json)."""
+    from assistant.tools.teach import load_learned
+    out = {k: v for k, v in settings.routines.items() if v is not None}
+    for k, v in load_learned().items():
+        if k not in out:
+            try:
+                out[k] = RoutineConfig.model_validate(v)
+            except Exception:
+                pass
+    return out
 
 
 def _norm(text: str) -> str:
@@ -64,8 +73,6 @@ def problems(settings: Settings, reg: ToolRegistry) -> list[str]:
 
 def register(reg: ToolRegistry) -> None:
     routines = active(reg.settings)
-    if not routines:
-        return
 
     async def run_routine(args: dict, ctx: ToolContext) -> str:
         name = args["name"]
@@ -96,8 +103,9 @@ def register(reg: ToolRegistry) -> None:
     lines = [f"{n.replace('_', ' ')} ({', '.join(r.phrases[:2]) or n})" for n, r in routines.items()]
     reg.tool(
         "run_routine",
-        "Run one of the user's routines (several actions at once). Routines: " + "; ".join(lines) + ".",
-        {"type": "object", "properties": {"name": {"type": "string", "enum": sorted(routines)}},
+        "Run one of the user's routines (several actions at once). Routines: " + ("; ".join(lines) or "none yet") + ".",
+        # No fixed list of names: lessons taught while Nova runs must work straight away.
+        {"type": "object", "properties": {"name": {"type": "string", "maxLength": 60}},
          "required": ["name"], "additionalProperties": False},
         risk=Risk.SAFE, category="routines",
         describe=lambda a: f"run the {a.get('name', '').replace('_', ' ')} routine",

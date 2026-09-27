@@ -154,6 +154,10 @@ ol { list-style: none; margin: 0; padding: 0; }
 /* --- routines -------------------------------------------------------------------------------- */
 .routines { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .routine { text-align: left; padding: 14px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); }
+.routine-card { position: relative; }
+.routine-card .routine { width: 100%; height: 100%; }
+.routine-card .x { position: absolute; top: 6px; right: 6px; border: none; background: none; color: var(--faint); width: 24px; height: 24px; border-radius: 6px; }
+.routine-card .x:hover { color: var(--red); background: rgba(248,113,113,.1); }
 .routine:hover { border-color: var(--cyan); box-shadow: 0 0 20px rgba(90,216,255,.08); }
 .routine b { display: block; margin-bottom: 4px; }
 .routine span { color: var(--muted); font-size: 12px; }

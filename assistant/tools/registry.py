@@ -110,6 +110,8 @@ class ToolRegistry:
         self.settings = settings
         self.audit = audit or AuditLog(settings.safety.audit_path())
         self._tools: dict[str, Tool] = {}
+        # Called with (name, args, ok) after each tool runs (e.g. a lesson being recorded).
+        self.observers: list[Callable[[str, Any, bool], None]] = []
 
     # --- registration -------------------------------------------------------
     def register(self, tool: Tool) -> Tool:
@@ -187,6 +189,11 @@ class ToolRegistry:
         record["is_error"] = result.is_error
         record["result"] = _summarize_content(result.content)
         await self.audit.write(record)
+        for fn in list(self.observers):
+            try:
+                fn(name, args, not result.is_error)
+            except Exception:
+                pass
         return result
 
     async def _execute(self, name: str, args: Any, ctx: ToolContext, record: dict) -> ToolResult:

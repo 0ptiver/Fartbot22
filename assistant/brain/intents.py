@@ -300,7 +300,7 @@ def memory_intent(raw: str, t: str) -> tuple[str, dict] | None:
         return "recall", {"about": m.group(1)}
     m = re.fullmatch(r"forget (?:about )?(that|it|this|what i just said|everything(?: about me)?|(?:all|all of) "
                      r"(?:it|that|my memories)|.+)", t)
-    if m:
+    if m and not re.search(r"\b(?:routine|lesson|task)$", t):          # those are lessons, not memories
         return "forget", {"what": m.group(1)}
     return None
 
@@ -316,6 +316,10 @@ def match_intent(text: str, grid_visible: bool = False, labels: bool = False) ->
     w = watch_intent(text)
     if w:
         return w
+    from assistant.tools.teach import teach_intent
+    lesson = teach_intent(t)
+    if lesson:
+        return lesson
     from assistant.tools.voice import subtitles_intent, voice_intent
     v = voice_intent(t) or subtitles_intent(t)
     if v:

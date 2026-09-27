@@ -107,6 +107,9 @@ class VoiceLoop:
             return "speaking"
         if self.busy:
             return "thinking"
+        teacher = self.ctx.services.get("teacher")
+        if teacher is not None and teacher.recording:
+            return "recording"
         if self.mic_muted:
             return "muted"
         if self.dictation:

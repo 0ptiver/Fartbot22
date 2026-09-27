@@ -176,7 +176,12 @@ class LocalBrain:
         nudged = False
         # Common commands ("pause", "what's playing", "play X") skip the model entirely.
         grid = ctx.services.get("grid")
-        intent = (match_routine(user_text, self.settings)
+        from assistant.brain.intents import _clean
+        from assistant.tools.teach import teach_intent
+        teacher = ctx.services.get("teacher")
+        lesson = teach_intent(_clean(user_text), teacher) if teacher and (
+            teacher.recording or teacher.awaiting_name) else None
+        intent = (lesson or match_routine(user_text, self.settings)
                   or match_intent(user_text, grid_visible=bool(grid and grid.grid is not None),
                                   labels=bool(grid and grid.labels is not None))
                   if self.cfg.fast_commands else None)

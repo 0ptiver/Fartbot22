@@ -107,8 +107,9 @@ def test_builtin_routines_are_valid():
     assert "gaming mode" in reg.get("run_routine").description
 
 
-def test_no_routines_no_tool(registry):
-    assert registry.get("run_routine") is None
+async def test_unknown_routine(settings, registry):
+    res = await registry.execute("run_routine", {"name": "nope"}, ToolContext(settings))
+    assert res.is_error and "no routine called" in res.content
 
 
 async def test_voice_phrase_skips_the_model(game):

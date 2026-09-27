@@ -214,7 +214,8 @@ class SafetyConfig(BaseModel):
     # Never from a phone or another PC (secure by default, even without config.yaml).
     remote_blocked_tools: list[str] = Field(default_factory=lambda: [
         "run_shell", "delete_file", "move_file", "power", "press_key", "window", "mouse", "mouse_grid",
-        "type_text", "press_keys", "click_element", "show_numbers", "forget"])
+        "type_text", "press_keys", "click_element", "show_numbers", "forget", "teach", "replay_click",
+        "replay_keys", "run_routine"])
     audit_log: str = "data/audit.jsonl"
 
     def audit_path(self) -> Path:

@@ -232,6 +232,7 @@ const LABEL = {
   listening: () => "Listening…", thinking: () => "Thinking…", speaking: () => "Speaking",
   confirm: () => "Waiting for your answer", muted: () => "Microphone off",
   dictation: () => "Dictating: say “stop dictation” when done",
+  recording: () => `Watching what you do. Say “${S.name}, done” when you've finished`,
   standby: () => `Standing down. Say “${S.name}, wake up” or press Wake up`,
   offline: () => "Not connected",
 };
@@ -258,7 +259,7 @@ function renderState() {
 const COLORS = {
   idle: [70, 180, 230], listening: [74, 222, 128], thinking: [167, 139, 250], speaking: [90, 216, 255],
   confirm: [255, 181, 71], standby: [100, 116, 139], muted: [248, 113, 113], offline: [70, 80, 100],
-  dictation: [236, 240, 245],
+  dictation: [236, 240, 245], recording: [255, 77, 109],
 };
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const orb = { c: [70, 180, 230], amp: 0.02, lvl: 0, glow: 0.5, t: 0 };
@@ -354,6 +355,10 @@ function answer(yes) { send({ type: "confirm", approved: yes }); hideConfirm(); 
 
 // --- timers ----------------------------------------------------------------------------------
 function timersIn(ev) {
+  if (ev.routines && JSON.stringify(ev.routines) !== JSON.stringify(S.routines)) {
+    S.routines = ev.routines;
+    renderRoutines();
+  }
   S.timers = ev.items || [];
   S.watches = ev.watches || [];
   S.clockSkew = (ev.now || Date.now() / 1000) - Date.now() / 1000;
@@ -419,11 +424,21 @@ function renderRoutines() {
   const box = $("routines");
   box.replaceChildren();
   for (const r of S.routines) {
+    const card = el("div", "routine-card");
     const b = el("button", "routine");
     b.type = "button";
-    b.append(el("b", "", r.label), el("span", "", `“${r.phrase}”`));
+    b.append(el("b", "", r.label), el("span", "", (r.learned ? "taught · " : "") + `“${r.phrase}”`));
     b.onclick = () => send({ type: "routine", name: r.name });
-    box.append(b);
+    card.append(b);
+    if (r.learned) {
+      const x = el("button", "x", "✕");
+      x.type = "button";
+      x.title = "Forget this lesson";
+      x.setAttribute("aria-label", `Forget ${r.label}`);
+      x.onclick = () => { if (confirm(`Forget "${r.label}"?`)) send({ type: "routine_delete", name: r.name }); };
+      card.append(x);
+    }
+    box.append(card);
   }
   if (!S.routines.length) box.append(el("p", "empty", "No routines set up."));
 }
