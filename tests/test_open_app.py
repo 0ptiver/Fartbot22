@@ -83,3 +83,54 @@ def test_play_a_game_opens_it(start_menu, monkeypatch):
     assert match_intent("play fivem") == ("open_app", {"name": "fivem"})
     assert match_intent("play drake")[0] == "play_music"
     assert match_intent("play gta on spotify")[0] == "play_music"            # asked for the music
+
+
+class ClosingWins(Wins):
+    """WM_CLOSE removes the window, unless the app asks to save first."""
+
+    def __init__(self, wins, asks=False):
+        super().__init__(wins)
+        self.asks, self.closed = asks, []
+
+    def show(self, hwnd, how):
+        if how == "close":
+            self.closed.append(hwnd)
+            if not self.asks:
+                self.wins = [w for w in self.wins if w.hwnd != hwnd]
+
+
+def test_close_is_checked(settings, monkeypatch):
+    wins = ClosingWins([pc.Win(3, "Untitled - Notepad", "notepad.exe")])
+    monkeypatch.setattr(pc, "WINDOWS", wins)
+    assert pc.window_control({"action": "close", "app": "notepad"}, ToolContext(settings)) == "Closed notepad."
+    wins.wins, wins.asks = [pc.Win(3, "*notes - Notepad", "notepad.exe")], True
+    out = pc.window_control({"action": "close", "app": "notepad"}, ToolContext(settings))
+    assert out.startswith("notepad didn't close") and "save" in out
+
+
+def test_closing_spotify_says_it_still_runs(settings, monkeypatch):
+    """'Closed Spotify' while the music carries on would be another claim that isn't true."""
+    monkeypatch.setattr(pc, "WINDOWS", ClosingWins([pc.Win(4, "Spotify Premium", "Spotify.exe")]))
+    out = pc.window_control({"action": "close", "app": "spotify"}, ToolContext(settings))
+    assert "still running in the tray" in out and 'quit Spotify' in out
+
+
+def test_quit_ends_a_tray_app(settings, monkeypatch):
+    monkeypatch.setattr(pc, "WINDOWS", ClosingWins([pc.Win(4, "Spotify Premium", "Spotify.exe")]))
+    ended = []
+    monkeypatch.setattr(pc, "end_processes", lambda exe: ended.append(exe) or 3)
+    assert pc.window_control({"action": "quit", "app": "spotify"}, ToolContext(settings)) == "Quit Spotify completely."
+    assert ended == ["Spotify.exe"]
+
+
+def test_quit_never_kills_an_app_with_work_in_it(settings, monkeypatch):
+    monkeypatch.setattr(pc, "WINDOWS", ClosingWins([pc.Win(3, "notes - Notepad", "notepad.exe")]))
+    monkeypatch.setattr(pc, "end_processes", lambda exe: pytest.fail("killed notepad"))
+    assert pc.window_control({"action": "quit", "app": "notepad"}, ToolContext(settings)) == "Closed notepad."
+
+
+@pytest.mark.parametrize("said,action", [("quit spotify", "quit"), ("close spotify completely", "quit"),
+                                         ("kill discord", "quit"), ("close spotify", "close")])
+def test_quit_phrases(said, action):
+    from assistant.brain.intents import match_intent
+    assert match_intent(said)[1]["action"] == action

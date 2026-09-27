@@ -357,6 +357,42 @@ def _find_window(app: str) -> Win:
     return ranked[0]
 
 
+CLOSE_WAIT_S = 2.0
+# Apps that keep running in the tray when their window is closed; no unsaved work to lose, so
+# "quit" may end them outright (Spotify keeps playing otherwise).
+TRAY_APPS = {"spotify": "Spotify", "discord": "Discord", "steam": "Steam", "steamwebhelper": "Steam",
+             "epicgameslauncher": "Epic Games", "battle.net": "Battle.net", "eadesktop": "EA app",
+             "obs64": "OBS"}
+
+
+def _gone(hwnd: int) -> bool:
+    import time as _t
+    deadline = _t.monotonic() + CLOSE_WAIT_S
+    while True:
+        if all(w.hwnd != hwnd for w in WINDOWS.list()):
+            return True
+        if _t.monotonic() >= deadline:
+            return False
+        _t.sleep(0.2)
+
+
+def end_processes(exe: str) -> int:
+    """End every process of this program run by this user (tray apps only). How many ended."""
+    import getpass
+
+    import psutil
+    me, ended = getpass.getuser().lower(), []
+    for p in psutil.process_iter(["name", "username"]):
+        try:
+            if (p.info["name"] or "").lower() == exe.lower() and (p.info["username"] or "").lower().endswith(me):
+                p.terminate()
+                ended.append(p)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    psutil.wait_procs(ended, timeout=3)
+    return len(ended)
+
+
 def window_control(args: dict, ctx: ToolContext) -> str:
     action = args["action"]
     if action == "show_desktop":
@@ -368,16 +404,28 @@ def window_control(args: dict, ctx: ToolContext) -> str:
     if not args.get("app"):
         raise ToolError("Which app?")
     w = _find_window(args["app"])
+    exe = w.process.lower().removesuffix(".exe")
+    label = TRAY_APPS.get(exe) or w.process.removesuffix(".exe") or w.title
     if action == "focus":
         if not WINDOWS.focus(w.hwnd):
-            raise ToolError(f"Windows wouldn't let me switch to {w.process.removesuffix('.exe') or w.title}. "
-                            "Click on it once, then ask again.")
+            raise ToolError(f"Windows wouldn't let me switch to {label}. Click on it once, then ask again.")
+    elif action in ("close", "quit"):
+        if action == "quit" and exe in TRAY_APPS:
+            if end_processes(w.process):
+                return f"Quit {label} completely."
+        WINDOWS.show(w.hwnd, "close")
+        # Checked: closing can be refused ("save changes?") and tray apps only hide.
+        if not _gone(w.hwnd):
+            return f"{label} didn't close. It may be asking you something, like whether to save."
+        if exe in TRAY_APPS:
+            return (f"Closed {label}'s window. It's still running in the tray; "
+                    f"say \"quit {label}\" to stop it completely.")
+        return f"Closed {label}."
     else:
         WINDOWS.show(w.hwnd, action)
-    label = w.process.removesuffix(".exe") or w.title
     return {"focus": f"Switched to {label}.", "minimize": f"Minimized {label}.",
             "maximize": f"Maximized {label}.", "restore": f"Restored {label}.",
-            "close": f"Closed {label}."}[action]
+            }[action]
 
 
 # Single keys only, and none that can type text, submit (Enter) or close things (Alt+F4):
@@ -453,10 +501,11 @@ def register(reg: ToolRegistry) -> None:
     reg.tool("cancel_shutdown", "Cancel a pending restart or shutdown.",
              risk=Risk.SAFE, category="system")(cancel_shutdown)
     reg.tool("window", "Manage app windows: focus (switch to), minimize, maximize, restore, close "
-             "(the app may ask to save), list open apps, or show_desktop. app='this' = the window in use.",
+             "(the app may ask to save), quit (also ends tray apps like Spotify/Discord), list open apps, "
+             "or show_desktop. app='this' = the window in use.",
              {"type": "object", "properties": {
                  "action": {"type": "string", "enum": ["focus", "minimize", "maximize", "restore",
-                                                       "close", "list", "show_desktop"]},
+                                                       "close", "quit", "list", "show_desktop"]},
                  "app": {"type": "string", "maxLength": 80}},
               "required": ["action"], "additionalProperties": False},
              risk=Risk.SAFE, category="apps")(window_control)

@@ -445,6 +445,12 @@ def everyday_intent(t: str) -> tuple[str, dict] | None:
         return "open_website", {"site": m.group(1)}               # "open bbc.co.uk": an address, not an app
     if re.fullmatch(r"(?:close|quit|exit) " + _THIS, n):
         return "window", {"action": "close", "app": "this"}
+    if m := (re.fullmatch(r"(?:fully close|completely close|force close|kill|shut down) (?:the |my )?(.+?)(?: app)?", n)
+             or re.fullmatch(r"(?:close|quit|exit) (?:the |my )?(.+?) (?:completely|fully|all the way|for good)", n)
+             or re.fullmatch(r"quit (?:the |my )?(.+?)(?: app)?", n)):
+        if len(m.group(1).split()) <= 3 and not _NOT_AN_APP.search(m.group(1)) \
+                and not re.fullmatch(r"(?:the |my )?(?:pc|computer|laptop|system)", m.group(1)):
+            return "window", {"action": "quit", "app": m.group(1)}
     m = re.fullmatch(r"(open|launch|start|close|quit|exit|switch to|bring up|go to) (?:up )?(?:the |my )?(.+?)"
                      r"(?: app| application| program)?", n)
     if m and len(m.group(2).split()) <= 3 and not _NOT_AN_APP.search(m.group(2)):

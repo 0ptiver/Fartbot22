@@ -81,3 +81,9 @@ def _no_waiting_for_app_windows(monkeypatch):
     """open_app watches for the app's window for a few seconds on the PC; not in tests."""
     from assistant.tools import system
     monkeypatch.setattr(system, "OPEN_WAIT_S", 0)
+
+
+@pytest.fixture(autouse=True)
+def _no_waiting_for_windows_to_close(monkeypatch):
+    from assistant.tools import pc
+    monkeypatch.setattr(pc, "CLOSE_WAIT_S", 0)
