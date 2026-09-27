@@ -11,6 +11,17 @@ import time
 DIM, CYAN, GREEN, RED, RESET = "\033[2m", "\033[36m", "\033[32m", "\033[31m", "\033[0m"
 
 
+def _print_devices(vcfg) -> None:
+    try:
+        import sounddevice as sd
+        mic = sd.query_devices(vcfg.input_device, "input")["name"]
+        out = sd.query_devices(vcfg.output_device, "output")["name"]
+        print(f"Mic: {mic}   |   Output: {out}")
+    except Exception as e:
+        print(f"{RED}Audio device problem: {e}{RESET}\nRun `python -m assistant devices` and pick another.")
+        raise
+
+
 def make_printer(name: str, show_latency: bool):
     state = {"speaking": False}
 
@@ -61,6 +72,8 @@ async def build(settings, wav: str | None, out: str | None):
     print(f"Loading models (STT: {vcfg.stt.provider}, TTS: {vcfg.tts.provider})…", flush=True)
     vad_path = await asyncio.to_thread(fetch_silero)
     await asyncio.gather(stt.load(), tts.load(), brain.warm_up())
+    if not wav:
+        _print_devices(vcfg)
     print(f"Models ready in {time.perf_counter() - t0:.1f}s"
           + (f" (whisper on {stt.device})" if getattr(stt, "device", None) else ""), flush=True)
     vad = SileroVAD(vad_path)
@@ -82,6 +95,10 @@ async def run(args) -> None:
     settings = load_settings()
     if args.mode:
         settings.voice.mode = args.mode
+    for attr in ("input", "output"):
+        value = getattr(args, attr)
+        if value is not None:
+            setattr(settings.voice, f"{attr}_device", int(value) if value.isdigit() else value)
     try:
         brain, stt, tts, mic, player, vad, ptt = await build(settings, args.wav, args.out)
     except Exception as e:
@@ -109,13 +126,27 @@ async def run(args) -> None:
 def list_devices() -> None:
     import sounddevice as sd
 
-    print(sd.query_devices())
-    print(f"\nDefault input/output: {sd.default.device}")
+    apis = sd.query_hostapis()
+    default_in, default_out = sd.default.device
+    for kind, key, default in (("MICROPHONES (input)", "max_input_channels", default_in),
+                               ("SPEAKERS / HEADPHONES (output)", "max_output_channels", default_out)):
+        print(f"\n{kind}")
+        for i, d in enumerate(sd.query_devices()):
+            if d[key] <= 0:
+                continue
+            api = apis[d["hostapi"]]["name"]
+            mark = "  <- Windows default" if i == default else ""
+            print(f"  {i:>3}  {d['name']}  [{api}]{mark}")
+    print("\nThe same device shows up once per Windows audio system. Prefer the [MME] entry:"
+          "\nit accepts any sample rate. Set it in config/config.yaml, e.g.  input_device: 3"
+          "\nor try one first:  python -m assistant voice --input 3")
 
 
 def main(argv: list[str]) -> None:
     p = argparse.ArgumentParser(prog="assistant voice")
     p.add_argument("--mode", choices=["ptt", "open_mic"], help="override voice.mode from config")
+    p.add_argument("--input", help="microphone: number or part of the name (see: assistant devices)")
+    p.add_argument("--output", help="speakers/headphones: number or part of the name")
     p.add_argument("--wav", help="use a WAV file as the microphone (one turn)")
     p.add_argument("--out", help="with --wav: save the spoken reply to this WAV")
     p.add_argument("--debug", action="store_true")
