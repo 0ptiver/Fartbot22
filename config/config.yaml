@@ -1,8 +1,8 @@
-# Orion configuration. Every value here can be changed without touching code.
+# Nova configuration. Every value here can be changed without touching code.
 
 assistant:
-  name: Orion
-  wake_phrase: hey orion
+  name: Nova
+  wake_phrase: hey nova
   address_user_as: sir          # set to "" to disable
   timezone: America/Chicago
   personality: british_butler   # see assistant/brain/prompts.py

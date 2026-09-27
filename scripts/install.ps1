@@ -1,4 +1,4 @@
-# Orion installer for Windows (PowerShell). Run from the repo root:
+# Nova installer for Windows (PowerShell). Run from the repo root:
 #   powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path $PSScriptRoot -Parent)

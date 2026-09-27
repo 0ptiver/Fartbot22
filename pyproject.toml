@@ -1,7 +1,7 @@
 [project]
 name = "pc-assistant"
 version = "0.1.0"
-description = "Orion: a real-time, voice-first personal assistant for Windows"
+description = "Nova: a real-time, voice-first personal assistant for Windows"
 requires-python = ">=3.12"
 dependencies = [
     "anthropic>=1.8",

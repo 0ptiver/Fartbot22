@@ -33,7 +33,7 @@ def create_app(settings: Settings | None = None, brain: Brain | None = None) -> 
     async def lifespan(app: FastAPI):
         yield
 
-    app = FastAPI(title="Orion", lifespan=lifespan)
+    app = FastAPI(title="Nova", lifespan=lifespan)
     app.state.brain = brain
 
     @app.get("/health")

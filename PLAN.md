@@ -1,7 +1,7 @@
-# ORION — Plan
+# NOVA — Plan
 
 A real-time, voice-first personal assistant for a Windows gaming laptop.
-Wake phrase: **"Hey Orion"**. The name lives only in `config/config.yaml` (`assistant.name`, `assistant.wake_phrase`), so renaming later is a config change plus retraining the wake word. Addresses the owner as **"sir"** (configurable).
+Wake phrase: **"Hey Nova"**. The name lives only in `config/config.yaml` (`assistant.name`, `assistant.wake_phrase`), so renaming later is a config change plus retraining the wake word. Addresses the owner as **"sir"** (configurable).
 
 ## Target machine
 
@@ -19,9 +19,9 @@ Wake phrase: **"Hey Orion"**. The name lives only in `config/config.yaml` (`assi
 | Layer | Default | Why | Alternative (config switch) |
 |---|---|---|---|
 | Core | Python 3.12, FastAPI, asyncio, uvicorn | Async end to end | — |
-| Wake word | openWakeWord, custom **"hey orion"** model | Free, local, CPU | Push-to-talk only |
+| Wake word | openWakeWord, custom **"hey nova"** model | Free, local, CPU | Push-to-talk only |
 | Push-to-talk | `Ctrl+Alt+Space` (hold) | | configurable |
-| Kill switch | `Ctrl+Alt+End` + "Orion, stand down" | | configurable |
+| Kill switch | `Ctrl+Alt+End` + "Nova, stand down" | | configurable |
 | VAD | Silero VAD (ONNX, CPU), 400 ms end-of-speech | ~1 ms per frame | tunable 250–700 ms |
 | STT | **faster-whisper** `large-v3-turbo` int8_float16 on GPU | Free, ~150–250 ms per utterance on this GPU | Deepgram Nova streaming ($200 free credit, then ~$0.46/h) |
 | Brain (chat) | **Claude Haiku 4.5** (`claude-haiku-4-5`), streaming + tools | Lowest time-to-first-token, $1/$5 per MTok | `claude-sonnet-5` |
@@ -114,7 +114,7 @@ scripts/           # install, run, register-startup
 - [ ] Integration test with recorded WAV files
 
 ### Phase 3 — Real-time feel
-- [ ] Train + ship "hey orion" openWakeWord model
+- [ ] Train + ship "hey nova" openWakeWord model
 - [ ] Barge-in (stop playback, cancel LLM/TTS)
 - [ ] AEC (WebRTC APM) + gating fallback
 - [ ] Filler lines for tools > 1 s

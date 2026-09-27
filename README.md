@@ -1,6 +1,6 @@
-# Orion
+# Nova
 
-A real-time, voice-first personal assistant for Windows. Wake phrase **"Hey Orion"** (coming in Phase 3).
+A real-time, voice-first personal assistant for Windows. Wake phrase **"Hey Nova"** (coming in Phase 3).
 It's calm and concise and calls you "sir", in a British butler style. It runs on your PC and controls it through a tool layer with safety rules.
 
 See [PLAN.md](PLAN.md) for the architecture, chosen stack, costs and phase checklist.
