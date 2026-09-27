@@ -58,6 +58,36 @@ def main(argv: list[str] | None = None) -> None:
             make_gpu_kokoro(s.voice.tts.kokoro.voice, s.voice.tts.kokoro.lang, recheck=True)
         else:
             fetch_all(s.voice.stt.whisper.model if s.voice.stt.provider == "whisper" else None)
+    elif cmd == "spotify":
+        import asyncio
+
+        from assistant.integrations import spotify
+        sub = argv[0] if argv else "status"
+        if sub == "login":
+            from assistant.core.secrets import get_secret
+            print("One-time setup (2 minutes):")
+            print("  1. Open https://developer.spotify.com/dashboard and log in")
+            print("  2. Create app: any name/description, Redirect URI  " + spotify.REDIRECT_URI)
+            print("     and tick 'Web API'. Save, then open Settings and copy the Client ID")
+            client_id = input("Client ID" + (" [press Enter to reuse the saved one]" if get_secret("SPOTIFY_CLIENT_ID") else "") + ": ").strip()
+            client_id = client_id or get_secret("SPOTIFY_CLIENT_ID") or ""
+            if not client_id:
+                print("No Client ID given.")
+                return
+            print("Opening your browser to approve access...")
+            asyncio.run(spotify.login(client_id))
+            print("Linked: " + asyncio.run(spotify.Spotify().me()))
+        elif sub == "logout":
+            spotify.logout()
+            print("Unlinked. (Also remove the app at spotify.com/account/apps to revoke it fully.)")
+        else:
+            if spotify.Spotify.linked():
+                try:
+                    print("Linked: " + asyncio.run(spotify.Spotify().me()))
+                except spotify.SpotifyError as e:
+                    print(e)
+            else:
+                print("Not linked. Run: python -m assistant spotify login")
     elif cmd == "doctor":
         from assistant.doctor import main as doctor
 
@@ -98,6 +128,7 @@ def main(argv: list[str] | None = None) -> None:
         print("  mictest [--input N] record 4 s, show the level, and transcribe it")
         print("  models              download speech models (VAD, TTS, Whisper)")
         print("  doctor [--full]     check setup (Ollama, Claude Code, models, audio)")
+        print("  spotify login|logout|status   link Nova to your Spotify account")
         print("  tools               list tools and risk levels")
         print("  audit [N]           show the last N audit log entries")
         print("  secrets set NAME    store an API key in Windows Credential Manager")

@@ -23,6 +23,7 @@ from assistant.voice.latency import LatencyTracker
 from assistant.voice.stt.base import STTProvider, STTSession
 from assistant.voice.tts.base import TTSProvider
 from assistant.voice.vad import Endpointer, SpeechEnd, SpeechPause, SpeechStart
+from assistant.voice.speechtext import clean_for_speech
 from assistant.voice.textnorm import compact, normalize_words
 from assistant.voice.wake import _norm, echo_overlap, match_wake
 
@@ -398,7 +399,10 @@ class VoiceLoop:
         cached = self._tts_cache.get(chunk)
         if cached is None:
             cached = []
-            async for audio in self.tts.synthesize(chunk):
+            spoken = clean_for_speech(chunk)
+            if not spoken:
+                return
+            async for audio in self.tts.synthesize(spoken):
                 if lat:
                     lat.mark("tts_first_audio")
                 self.player.play(audio)

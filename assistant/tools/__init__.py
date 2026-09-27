@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from assistant.core.config import Settings
-from assistant.tools import expert, screen, system, web
+from assistant.tools import expert, music, screen, system, web
 from assistant.tools.registry import AuditLog, ToolRegistry
 
-TOOL_MODULES = [system, screen, expert]
+TOOL_MODULES = [system, screen, expert, music]
 
 
 def build_registry(settings: Settings, audit: AuditLog | None = None) -> ToolRegistry:

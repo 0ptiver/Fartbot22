@@ -88,6 +88,22 @@ Other modes (`--mode` or `voice.mode` in `config/local.yaml`): `open_mic` answer
 - **Pick a mic or speakers**: run `python -m assistant devices`, then set `voice.input_device` in `config/local.yaml`.
 - **Test without a mic**: `python -m assistant voice --wav my_question.wav --out reply.wav`.
 
+## Music (Spotify)
+
+Without setup, "Nova, pause", "next song" and "go back" work for any app through the media keys.
+
+For full Spotify control ("play some Drake", "play my liked songs", "play the last song I listened to", "what's playing?", "queue Hotline Bling", "shuffle on", "Spotify volume 40"), link it once:
+
+```powershell
+.venv\Scripts\python -m assistant spotify login
+```
+
+1. Go to https://developer.spotify.com/dashboard, log in, and click **Create app**. Use any name and description, set the **Redirect URI** to `http://127.0.0.1:8888/callback`, and tick **Web API**.
+2. Open the app's **Settings**, copy the **Client ID**, and paste it into the prompt.
+3. Your browser opens Spotify's own approval page. Click **Agree**.
+
+Nova never sees your Spotify password. It uses PKCE, so there's no client secret either, and only a revocable token is stored, in Windows Credential Manager. To unlink: `python -m assistant spotify logout`, and remove the app at spotify.com/account/apps. Playback control needs Spotify Premium.
+
 Speech stack (all switchable in `config/config.yaml` → `voice`):
 
 | Stage | Default | Notes |

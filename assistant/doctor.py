@@ -201,6 +201,10 @@ async def check(full: bool) -> int:
     except Exception:
         line(WARN, "echo cancellation unavailable", "pip install livekit  (Nova may hear itself on speakers)")
 
+    from assistant.integrations.spotify import Spotify
+    line(OK if Spotify.linked() else WARN, "Spotify " + ("linked" if Spotify.linked() else "not linked"),
+         "" if Spotify.linked() else "for music control: python -m assistant spotify login")
+
     # --- Security -----------------------------------------------------------------
     from assistant.core.secrets import get_secret, local_client_token
     local_client_token()

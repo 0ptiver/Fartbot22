@@ -204,7 +204,14 @@ scripts/           # install, run, register-startup
 - [x] Speculative end-of-turn (see speculative STT)
 - [ ] Benchmark vs. realtime speech-to-speech API; report latency + cost
 
+### Phase 3 — verified by the owner
+- [x] Echo cancellation works on speakers: a whole story with no self-interruption, and "Oh, actually, no" interrupted correctly
+
 ### Phase 4 — Full tool layer + safety
+- [x] Spotify: PKCE login (no secret, loopback callback with state check), refresh-token rotation, search + play (track/artist/album/playlist/liked/recent), control, now playing, queue. Starts the Spotify app when no device is found. Premium/rate-limit errors are spoken plainly
+- [x] Media keys for any app (fallback when Spotify isn't linked)
+- [x] Speech cleanup: maths symbols, markdown and URLs are spoken as words
+- [ ] Investigate: live Kokoro first-audio 0.8–1.0 s vs 72 ms benchmark (GPU contention with Ollama?)
 - [ ] Apps/windows, system, files, browser (Playwright), keyboard/mouse, clipboard, screen, shell, productivity, Spotify, Discord, Gmail/Calendar
 - [ ] Confirmation flow (voice "yes" / UI button)
 - [ ] Kill switch, remote policy, routines (YAML), MCP servers as a tool source
