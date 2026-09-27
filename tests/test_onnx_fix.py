@@ -86,26 +86,46 @@ def test_unused_constants_pruned():
 
 def test_verification_rules():
     from assistant.voice.tts.onnx_fix import verification_ok
-    good = {"stft_math_error": 1e-6, "length_ratio": 1.0, "loudness_ratio": 1.03,
-            "original_run_to_run_diff": 0.25}
+    good = {"stft_math_error": 1e-6, "reference_diff": 1e-5, "length_ratio": 1.0,
+            "loudness_vs_original": 0.9, "loudness_vs_reference": 1.0}
     assert verification_ok(good)
     assert not verification_ok({**good, "stft_math_error": 1e-2})
-    assert not verification_ok({**good, "loudness_ratio": 0.3})
+    assert not verification_ok({**good, "reference_diff": 0.2})
     assert not verification_ok({**good, "length_ratio": 1.5})
 
 
-def test_seeded_copy_fixes_random_ops(tmp_path):
-    from assistant.voice.tts.onnx_fix import seeded_copy
-    node = helper.make_node("RandomNormalLike", ["x"], ["y"], name="noise")
-    g = helper.make_graph([node], "g", [helper.make_tensor_value_info("x", TensorProto.FLOAT, [4])],
-                          [helper.make_tensor_value_info("y", TensorProto.FLOAT, [4])])
-    m = helper.make_model(g, opset_imports=[helper.make_opsetid("", 17)], ir_version=9)
-    src = tmp_path / "m.onnx"
-    onnx.save(m, str(src))
-    outs = []
-    for i in range(2):
-        dst = tmp_path / f"s{i}.onnx"
-        assert seeded_copy(src, dst) == 1
-        sess = ort.InferenceSession(str(dst), providers=["CPUExecutionProvider"])
-        outs.append(sess.run(None, {"x": np.zeros(4, np.float32)})[0])
-    np.testing.assert_array_equal(outs[0], outs[1])
+@pytest.mark.parametrize("rank", [2, 3])
+def test_edge_bins_follow_pytorch_phase(rank):
+    """0 Hz / Nyquist imag must be a tiny *positive* value so the exported atan pattern gives
+    +pi for negative values, like torch.angle on PyTorch's exact-zero imag."""
+    from assistant.voice.tts.onnx_fix import PHASE_EPS
+    x = np.random.default_rng(3).standard_normal((1, 4003)).astype(np.float32)
+    model = stft_model("initializer", rank=rank)
+    replace_stft(model)
+    got = run(model, x)
+    assert np.all(got[..., 0, 1] == np.float32(PHASE_EPS))
+    assert np.all(got[..., -1, 1] == np.float32(PHASE_EPS))
+    # Phase via the exported atan pattern, vs numpy's exact FFT + angle (PyTorch semantics).
+    re, im = got[..., 0].astype(np.float64), got[..., 1].astype(np.float64)
+    atan = np.arctan(im / re)
+    exported = np.where(re < 0, np.where(im > 0, atan + np.pi, atan - np.pi), atan)
+    frames = np.lib.stride_tricks.sliding_window_view(x[0], 20)[::5] * np.hanning(20)
+    spec = np.fft.rfft(frames, axis=-1)
+    ok = np.abs(spec) > 1e-3
+    diff = np.angle(np.exp(1j * (exported[0] - np.angle(spec))))
+    assert np.max(np.abs(diff[ok])) < 1e-3
+    assert np.all(exported[0][:, 0][re[0][:, 0] < 0] > 3.14)   # +pi, not -pi
+
+
+def test_reference_model_masks_edge_bins(tmp_path):
+    from assistant.voice.tts.onnx_fix import PHASE_EPS, make_reference
+    src, ref = tmp_path / "m.onnx", tmp_path / "r.onnx"
+    onnx.save(stft_model("initializer", rank=2), str(src))
+    make_reference(src, ref)
+    x = np.random.default_rng(4).standard_normal((1, 999)).astype(np.float32)
+    sess = ort.InferenceSession(str(ref), providers=["CPUExecutionProvider"])
+    y = sess.run(None, {"x": x})[0]
+    assert np.all(y[..., 0, 1] == np.float32(PHASE_EPS)) and np.all(y[..., -1, 1] == np.float32(PHASE_EPS))
+    conv = stft_model("initializer", rank=2)
+    replace_stft(conv)
+    np.testing.assert_allclose(run(conv, x), y, atol=2e-4, rtol=1e-4)

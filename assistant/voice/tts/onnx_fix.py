@@ -50,14 +50,38 @@ def _const_value(graph, name: str, producers: dict):
 
 
 def dft_kernels(window: np.ndarray, frame_length: int, onesided: bool) -> np.ndarray:
-    """Conv weights [2*bins, 1, N]: rows 0..bins-1 give the real part, the rest the imaginary."""
+    """Conv weights [2*bins, 1, N]: rows 0..bins-1 give the real part, the rest the imaginary.
+
+    Values that are mathematically zero must be *exactly* zero. In particular the imaginary
+    parts of the 0 Hz and Nyquist bins: an FFT returns exact 0 there, and Kokoro takes the
+    phase with atan(imag / real) plus sign tests, so a stray 1e-9 flips the phase by pi.
+    Angles are reduced to exact multiples of 2*pi/N first so sin/cos land on exact values."""
     n = np.arange(frame_length)
     bins = frame_length // 2 + 1 if onesided else frame_length
     k = np.arange(bins)[:, None]
-    angle = 2 * np.pi * k * n[None, :] / frame_length
-    real = np.cos(angle) * window[None, :]
-    imag = -np.sin(angle) * window[None, :]
+    m = (k * n[None, :]) % frame_length           # exact integer phase index
+    angle = 2 * np.pi * m / frame_length
+    cos, sin = np.cos(angle), np.sin(angle)
+    cos[np.abs(cos) < 1e-12] = 0.0
+    sin[np.abs(sin) < 1e-12] = 0.0
+    sin[(2 * m) % frame_length == 0] = 0.0        # m = 0 or N/2: sin is exactly zero
+    real = cos * window[None, :]
+    imag = -sin * window[None, :]
+    imag[imag == 0] = 0.0                         # no negative zeros
     return np.concatenate([real, imag])[:, None, :]
+
+
+# PyTorch (where Kokoro was trained) returns exactly +0 for the imaginary part of the 0 Hz
+# and Nyquist bins, so torch.angle gives +pi there for negative values. The exported model
+# computes the angle with atan + "imag > 0" tests, which turns an exact 0 into -pi, and
+# onnxruntime's own STFT leaves random +/-1e-6 noise there. A tiny positive value restores
+# PyTorch's +pi without measurably changing magnitudes.
+PHASE_EPS = 1e-20
+
+
+def self_conjugate_bins(frame_length: int, bins: int) -> list[int]:
+    """Bins whose imaginary part is exactly zero for real input (0 Hz and Nyquist)."""
+    return [k for k in range(bins) if (2 * k) % frame_length == 0]
 
 
 def stft_spec(graph, node, producers) -> dict | None:
@@ -113,13 +137,18 @@ def replace_stft(model) -> list[str]:
 
         base = (node.name or "stft").replace("/", "_") + "_gpu"
         w_name, shape_name, in_shape = f"{base}_W", f"{base}_shape", f"{base}_in_shape"
+        b_name = f"{base}_B"
+        bias = np.zeros(weights.shape[0], dtype)
+        for k in self_conjugate_bins(frame_length, bins):
+            bias[bins + k] = PHASE_EPS
         graph.initializer.append(numpy_helper.from_array(weights, w_name))
+        graph.initializer.append(numpy_helper.from_array(bias, b_name))
         graph.initializer.append(numpy_helper.from_array(np.array([0, 2, bins, -1], np.int64), shape_name))
         # [B, L] or [B, L, 1] -> [B, 1, L]. (The spec says rank 3; Kokoro's export uses rank 2.)
         graph.initializer.append(numpy_helper.from_array(np.array([0, 1, -1], np.int64), in_shape))
         new_nodes += [
             helper.make_node("Reshape", [signal, in_shape], [f"{base}_t"], name=f"{base}_in"),
-            helper.make_node("Conv", [f"{base}_t", w_name], [f"{base}_c"], strides=[step],
+            helper.make_node("Conv", [f"{base}_t", w_name, b_name], [f"{base}_c"], strides=[step],
                              name=f"{base}_conv"),
             helper.make_node("Reshape", [f"{base}_c", shape_name], [f"{base}_r"], name=f"{base}_reshape"),
             helper.make_node("Transpose", [f"{base}_r"], [node.output[0]], perm=[0, 3, 2, 1],
@@ -192,77 +221,79 @@ def stft_math_error(spec: dict) -> float:
     raise RuntimeError(f"STFT check failed: {last}")
 
 
-RANDOM_OPS = {"RandomNormal", "RandomNormalLike", "RandomUniform", "RandomUniformLike", "Multinomial"}
-
-
-def seeded_copy(src: Path, dst: Path) -> int:
-    """Copy a model with a fixed seed on every random op (keyed by node name), so two models
-    that differ only in unrelated nodes produce the same random numbers. Returns the count."""
-    import zlib
-
+def make_reference(src: Path, dst: Path) -> None:
+    """The original model (onnxruntime's own STFT) with only the 0 Hz / Nyquist imaginary
+    parts set the PyTorch way. The GPU version must match this exactly."""
     import onnx
-    from onnx import helper
+    from onnx import helper, numpy_helper
 
     model = onnx.load(str(src))
-    count = 0
-    for node in model.graph.node:
-        if node.op_type in RANDOM_OPS:
-            for a in list(node.attribute):
-                if a.name == "seed":
-                    node.attribute.remove(a)
-            node.attribute.append(helper.make_attribute("seed", float(zlib.crc32(node.name.encode()) % 100000)))
-            count += 1
+    graph = model.graph
+    for spec_node in [n for n in graph.node if n.op_type == "STFT"]:
+        spec = stft_spec(graph, spec_node, {o: n for n in graph.node for o in n.output})
+        if spec is None:
+            continue
+        bins = spec["frame_length"] // 2 + 1 if spec["onesided"] else spec["frame_length"]
+        mask = np.ones((1, 1, bins, 2), np.float32)
+        add = np.zeros((1, 1, bins, 2), np.float32)
+        for k in self_conjugate_bins(spec["frame_length"], bins):
+            mask[0, 0, k, 1], add[0, 0, k, 1] = 0.0, PHASE_EPS
+        out = spec_node.output[0]
+        raw, masked = out + "_raw", out + "_masked"
+        spec_node.output[0] = raw
+        base = (spec_node.name or "stft").replace("/", "_") + "_ref"
+        graph.initializer.extend([numpy_helper.from_array(mask, base + "_mask"),
+                                  numpy_helper.from_array(add, base + "_add")])
+        idx = list(graph.node).index(spec_node) + 1
+        graph.node.insert(idx, helper.make_node("Mul", [raw, base + "_mask"], [masked]))
+        graph.node.insert(idx + 1, helper.make_node("Add", [masked, base + "_add"], [out]))
     onnx.save(model, str(dst))
-    return count
 
 
-def verify_kokoro(original: Path, converted: Path, voices: Path, voice: str, lang: str) -> dict:
-    """Kokoro adds random noise while generating, so two runs never match sample-for-sample.
-    Instead: (1) the STFT maths must match exactly, (2) the converted model must produce
-    speech of the same length and loudness, (3) report the original's run-to-run noise."""
-    import onnx
+def _speak(path: Path, voices: Path, voice: str, lang: str, text: str):
     import onnxruntime as ort
     from kokoro_onnx import Kokoro
 
+    sess = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+    return Kokoro.from_session(sess, str(voices)).create(text, voice=voice, lang=lang, trim=False)[0]
+
+
+def verify_kokoro(original: Path, converted: Path, voices: Path, voice: str, lang: str,
+                  save_dir: Path | None = None) -> dict:
+    """(1) STFT maths vs onnxruntime on a test signal, (2) full-model audio vs the reference
+    (original STFT + PyTorch-style 0 Hz/Nyquist phase) must match, (3) loudness report."""
+    import tempfile
+
+    import onnx
+
     specs = stft_specs(onnx.load(str(original)))
     math_err = max((stft_math_error(sp) for sp in specs), default=0.0)
-
     text = "Good evening, sir. The time is a quarter past eleven."
-    audio = {}
-    for tag, path in (("orig", original), ("orig2", original), ("conv", converted)):
-        sess = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
-        audio[tag], _ = Kokoro.from_session(sess, str(voices)).create(text, voice=voice, lang=lang, trim=False)
+    with tempfile.TemporaryDirectory() as d:
+        ref_path = Path(d) / "ref.onnx"
+        make_reference(original, ref_path)
+        orig, ref, conv = (_speak(p, voices, voice, lang, text) for p in (original, ref_path, converted))
 
     def rms(a):
         return float(np.sqrt(np.mean(np.square(a)))) if len(a) else 0.0
 
-    # Definitive check: same fixed random numbers in both -> audio must match.
-    import tempfile
-    with tempfile.TemporaryDirectory() as d:
-        so, sc = Path(d) / "o.onnx", Path(d) / "c.onnx"
-        n_random = seeded_copy(original, so)
-        seeded_copy(converted, sc)
-        seeded = []
-        for path in (so, sc):
-            sess = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
-            seeded.append(Kokoro.from_session(sess, str(voices)).create(text, voice=voice, lang=lang, trim=False)[0])
-    m = min(len(seeded[0]), len(seeded[1]))
-    seeded_diff = (float(np.max(np.abs(seeded[0][:m] - seeded[1][:m])) / max(float(np.max(np.abs(seeded[0]))), 1e-9))
-                   if m and len(seeded[0]) == len(seeded[1]) else float("inf"))
-
-    n = min(len(audio["orig"]), len(audio["orig2"]))
+    n = min(len(ref), len(conv))
+    ref_diff = (float(np.max(np.abs(ref[:n] - conv[:n])) / max(float(np.max(np.abs(ref))), 1e-9))
+                if n and len(ref) == len(conv) else float("inf"))
+    if save_dir is not None:
+        import soundfile as sf
+        save_dir.mkdir(parents=True, exist_ok=True)
+        sf.write(str(save_dir / "1_original.wav"), orig, 24000)
+        sf.write(str(save_dir / "2_fast_gpu.wav"), conv, 24000)
     return {
-        "random_ops": n_random,
-        "seeded_diff": seeded_diff,
         "stft_math_error": math_err,
-        "length_ratio": len(audio["conv"]) / max(len(audio["orig"]), 1),
-        "loudness_ratio": rms(audio["conv"]) / max(rms(audio["orig"]), 1e-9),
-        "original_run_to_run_diff": float(np.max(np.abs(audio["orig"][:n] - audio["orig2"][:n]))) if n else 0.0,
+        "reference_diff": ref_diff,
+        "length_ratio": len(conv) / max(len(orig), 1),
+        "loudness_vs_original": rms(conv) / max(rms(orig), 1e-9),
+        "loudness_vs_reference": rms(conv) / max(rms(ref), 1e-9),
     }
 
 
 def verification_ok(v: dict) -> bool:
-    # With random numbers fixed, the audio must match; the length/loudness checks remain as
-    # a sanity net in case the model has no random ops to fix.
-    return (v["stft_math_error"] < 1e-4 and v.get("seeded_diff", 0.0) < 1e-3
-            and 0.9 <= v["length_ratio"] <= 1.1 and 0.75 <= v["loudness_ratio"] <= 1.33)
+    return (v["stft_math_error"] < 1e-4 and v["reference_diff"] < 1e-3
+            and 0.9 <= v["length_ratio"] <= 1.1)

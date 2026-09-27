@@ -185,7 +185,9 @@ scripts/           # install, run, register-startup
 - [x] `assistant models` rewrites STFT into an equivalent Conv (windowed DFT kernels) → `kokoro-v1.0.gpu.onnx`, kept only if the audio matches the original. Used automatically on the GPU. Rewrite tested against onnxruntime's STFT (all window kinds, one- and two-sided)
 - [x] Owner: GPU-only Kokoro **72 ms** (was 243 ms). CPU provider down to 5 ms. STFT maths error 6.8e-7
 - [x] Recheck: Kokoro has 0 random ops and is deterministic, but the rewrite's audio differs (0.47). So it's a real difference, and the converted model was removed automatically (Nova is back on the original, 243 ms)
-- [ ] `models --debug-stft` taps the real STFT input/output in both models to find the mismatch
+- [x] `models --debug-stft` found it. STFT output matched (6e-7), and the first diverging node was Atan(imag/real), the phase. At the 0 Hz / Nyquist bins the imaginary part is structurally 0: onnxruntime's STFT leaves random ±1e-6 noise there, and the exported atan pattern turns the sign of that noise into ±π
+- [x] Fix: exact-zero DFT weights plus a +1e-20 bias on those bins, which gives +π like torch.angle in training. Verified against a reference = original STFT with only those bins set the PyTorch way. `models` also saves original vs fast WAVs for a listening check
+- [ ] Owner: rerun `models`, listen to data/voice_compare/*.wav
 - [x] cuDNN algorithm search set to HEURISTIC (the default EXHAUSTIVE re-benchmarks every new sentence length). ttsbench compares heuristic, default and exhaustive on fresh sentences
 
 ### Phase 3 — Real-time feel

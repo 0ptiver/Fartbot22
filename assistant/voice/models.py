@@ -80,7 +80,7 @@ def make_gpu_kokoro(voice: str = "bm_george", lang: str = "en-gb", recheck: bool
     dst = MODELS_DIR / KOKORO_GPU
     if recheck and dst.exists():
         print("Re-checking the Kokoro GPU version:")
-        v = verify_kokoro(src, dst, voices, voice, lang)
+        v = verify_kokoro(src, dst, voices, voice, lang, save_dir=_compare_dir())
         _print_verification(v)
         if not verification_ok(v):
             dst.unlink()
@@ -95,7 +95,7 @@ def make_gpu_kokoro(voice: str = "bm_george", lang: str = "en-gb", recheck: bool
     try:
         for line in convert(src, tmp):
             print("  " + line)
-        v = verify_kokoro(src, tmp, voices, voice, lang)
+        v = verify_kokoro(src, tmp, voices, voice, lang, save_dir=_compare_dir())
     except Exception as e:
         print(f"  skipped: {type(e).__name__}: {e}")
         tmp.unlink(missing_ok=True)
@@ -110,9 +110,15 @@ def make_gpu_kokoro(voice: str = "bm_george", lang: str = "en-gb", recheck: bool
     return dst
 
 
+def _compare_dir() -> Path:
+    from assistant.core.config import ROOT
+    return ROOT / "data" / "voice_compare"
+
+
 def _print_verification(v: dict) -> None:
     print(f"  STFT maths error {v['stft_math_error']:.1e} (must be < 1e-4)")
-    print(f"  with random numbers fixed ({v.get('random_ops', 0)} random steps): "
-          f"audio difference {v.get('seeded_diff', float('nan')):.1e} (must be < 1e-3)")
-    print(f"  normal run: length x{v['length_ratio']:.2f}, loudness x{v['loudness_ratio']:.2f}; "
-          f"original's own run-to-run variation {v['original_run_to_run_diff']:.2f}")
+    print(f"  vs reference (original STFT + PyTorch-style edge-bin phase): "
+          f"difference {v['reference_diff']:.1e} (must be < 1e-3)")
+    print(f"  loudness vs original x{v['loudness_vs_original']:.2f}, vs reference "
+          f"x{v['loudness_vs_reference']:.2f}; length x{v['length_ratio']:.2f}")
+    print(f"  listen: {_compare_dir() / '1_original.wav'}  vs  {_compare_dir() / '2_fast_gpu.wav'}")
