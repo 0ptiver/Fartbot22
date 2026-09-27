@@ -114,14 +114,21 @@ class LocalBrain:
         return r.json().get("capabilities", []) if r.status_code == 200 else []
 
     async def warm_up(self) -> None:
-        """Load the model into VRAM now so the first reply isn't slow."""
-        try:
-            r = await self.http.post("/api/generate", json={
-                "model": self.cfg.model, "prompt": "", "keep_alive": self.cfg.keep_alive})
-            if r.status_code == 404:
-                raise OllamaError(f"Model {self.cfg.model} isn't downloaded. Run: ollama pull {self.cfg.model}")
-        except httpx.ConnectError as e:
-            raise OllamaError("Ollama isn't running. Start the Ollama app.") from e
+        """Load the model *with the same settings real turns use* and pre-process the
+        system prompt + tool list, so Ollama's prompt cache makes the first reply fast.
+        (A different num_ctx than the real request would force a full model reload.)"""
+        body = self._body([{"role": "user", "content": "hi"}])
+        body["options"] = {**body["options"], "num_predict": 1}
+        for _ in range(2):  # second try only if the model rejects think=false
+            try:
+                async for _chunk in self._stream(body):
+                    pass
+                return
+            except _RetryWithoutThink:
+                body = self._body([{"role": "user", "content": "hi"}])
+                body["options"] = {**body["options"], "num_predict": 1}
+            except httpx.ConnectError as e:
+                raise OllamaError("Ollama isn't running. Start the Ollama app.") from e
 
     async def _stream(self, body: dict) -> AsyncIterator[dict]:
         async with self.http.stream("POST", "/api/chat", json=body) as r:

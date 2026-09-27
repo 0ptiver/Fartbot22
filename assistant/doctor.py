@@ -58,18 +58,35 @@ async def check(full: bool) -> int:
                 from assistant.tools.registry import ToolContext
                 import time
                 brain = LocalBrain(s, build_registry(s))
-                await brain.warm_up()
                 t = time.perf_counter()
-                reply, first = "", None
-                async for ev in brain.run_turn(Conversation(), "Say hello in five words.", ToolContext(s)):
-                    if ev.type == "text":
-                        first = first or time.perf_counter()
-                        reply += ev.text
-                if first:
-                    line(OK, f"local reply in {(first - t) * 1000:.0f} ms to first word", repr(reply.strip()[:60]))
-                else:
-                    line(FAIL, "local model gave no reply", getattr(ev, "message", ""))
-                    problems += 1
+                await brain.warm_up()
+                line(OK, f"model loaded + prompt cached in {time.perf_counter() - t:.1f}s")
+                conv = Conversation()
+                for label, prompt in (("first reply", "Say hello in five words."),
+                                      ("next reply", "What is two plus two?")):
+                    t = time.perf_counter()
+                    reply, first, err = "", None, ""
+                    async for ev in brain.run_turn(conv, prompt, ToolContext(s)):
+                        if ev.type == "text":
+                            first = first or time.perf_counter()
+                            reply += ev.text
+                        elif ev.type == "error":
+                            err = ev.message
+                    if first:
+                        ms = (first - t) * 1000
+                        mark = OK if ms < 1000 else WARN
+                        hint = "" if ms < 1000 else " (slow: is the GPU busy, or VRAM full? check `ollama ps`)"
+                        line(mark, f"{label}: {ms:.0f} ms to first word{hint}", repr(reply.strip()[:60]))
+                    else:
+                        line(FAIL, "local model gave no reply", err)
+                        problems += 1
+                        break
+                async with httpx.AsyncClient(base_url=s.brain.local.host, timeout=5) as c:
+                    for m in (await c.get("/api/ps")).json().get("models", []):
+                        on_gpu = m.get("size_vram", 0) / max(m.get("size", 1), 1)
+                        mark = OK if on_gpu > 0.99 else WARN
+                        line(mark, f"loaded: {m['name']}  {on_gpu:.0%} on GPU",
+                             "" if on_gpu > 0.99 else "part of it runs on the CPU (slow). Free VRAM or use a smaller model")
         except httpx.ConnectError:
             line(FAIL, "Ollama isn't running", "start the Ollama app (it lives in the system tray)")
             problems += 1

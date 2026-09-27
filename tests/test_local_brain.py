@@ -234,3 +234,21 @@ async def test_separated_thinking_field_ignored(local_settings, ctx):
     brain, _ = make(local_settings, [reply])
     events = await collect(brain, Conversation(), "hi", ctx)
     assert "".join(e.text for e in events if isinstance(e, TextDelta)) == "Hello, sir."
+
+
+async def test_warm_up_matches_real_requests(local_settings, ctx):
+    brain, fake = make(local_settings, [text_reply("x"), text_reply("Hello.")])
+    await brain.warm_up()
+    await collect(brain, Conversation(), "hi", ctx)
+    (_, warm), (_, real) = fake.requests
+    # Same model, context size, system prompt and tools -> no reload, prompt cache hit.
+    assert warm["options"]["num_ctx"] == real["options"]["num_ctx"]
+    assert warm["options"]["num_predict"] == 1
+    assert warm["messages"][0] == real["messages"][0]
+    assert warm["tools"] == real["tools"] and warm["model"] == real["model"]
+
+
+async def test_warm_up_errors(local_settings):
+    brain, _ = make(local_settings, [httpx.Response(404, text='{"error":"model not found"}')])
+    with pytest.raises(Exception, match="ollama pull"):
+        await brain.warm_up()
