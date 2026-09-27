@@ -92,3 +92,20 @@ def test_verification_rules():
     assert not verification_ok({**good, "stft_math_error": 1e-2})
     assert not verification_ok({**good, "loudness_ratio": 0.3})
     assert not verification_ok({**good, "length_ratio": 1.5})
+
+
+def test_seeded_copy_fixes_random_ops(tmp_path):
+    from assistant.voice.tts.onnx_fix import seeded_copy
+    node = helper.make_node("RandomNormalLike", ["x"], ["y"], name="noise")
+    g = helper.make_graph([node], "g", [helper.make_tensor_value_info("x", TensorProto.FLOAT, [4])],
+                          [helper.make_tensor_value_info("y", TensorProto.FLOAT, [4])])
+    m = helper.make_model(g, opset_imports=[helper.make_opsetid("", 17)], ir_version=9)
+    src = tmp_path / "m.onnx"
+    onnx.save(m, str(src))
+    outs = []
+    for i in range(2):
+        dst = tmp_path / f"s{i}.onnx"
+        assert seeded_copy(src, dst) == 1
+        sess = ort.InferenceSession(str(dst), providers=["CPUExecutionProvider"])
+        outs.append(sess.run(None, {"x": np.zeros(4, np.float32)})[0])
+    np.testing.assert_array_equal(outs[0], outs[1])

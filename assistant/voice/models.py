@@ -72,12 +72,22 @@ def fetch_all(include_whisper_model: str | None = None) -> None:
         print("  ok:", download_model(include_whisper_model))
 
 
-def make_gpu_kokoro(voice: str = "bm_george", lang: str = "en-gb") -> Path | None:
+def make_gpu_kokoro(voice: str = "bm_george", lang: str = "en-gb", recheck: bool = False) -> Path | None:
     """Create kokoro-v1.0.gpu.onnx (STFT -> Conv) and keep it only if the audio matches."""
     from assistant.voice.tts.onnx_fix import convert, verification_ok, verify_kokoro
 
     src, voices = kokoro_paths()
     dst = MODELS_DIR / KOKORO_GPU
+    if recheck and dst.exists():
+        print("Re-checking the Kokoro GPU version:")
+        v = verify_kokoro(src, dst, voices, voice, lang)
+        _print_verification(v)
+        if not verification_ok(v):
+            dst.unlink()
+            print("  removed it; Nova will use the original model")
+            return None
+        print("  ok")
+        return dst
     if dst.exists() or not src.exists():
         return dst if dst.exists() else None
     print("Kokoro GPU version (moves the STFT step from CPU to GPU):")
@@ -90,9 +100,7 @@ def make_gpu_kokoro(voice: str = "bm_george", lang: str = "en-gb") -> Path | Non
         print(f"  skipped: {type(e).__name__}: {e}")
         tmp.unlink(missing_ok=True)
         return None
-    print(f"  STFT maths error {v['stft_math_error']:.1e} (must be < 1e-4); "
-          f"speech length x{v['length_ratio']:.2f}, loudness x{v['loudness_ratio']:.2f}; "
-          f"original's own run-to-run variation {v['original_run_to_run_diff']:.2f}")
+    _print_verification(v)
     if not verification_ok(v):
         print("  not using it")
         tmp.unlink(missing_ok=True)
@@ -100,3 +108,11 @@ def make_gpu_kokoro(voice: str = "bm_george", lang: str = "en-gb") -> Path | Non
     tmp.replace(dst)
     print(f"  ok: {dst}")
     return dst
+
+
+def _print_verification(v: dict) -> None:
+    print(f"  STFT maths error {v['stft_math_error']:.1e} (must be < 1e-4)")
+    print(f"  with random numbers fixed ({v.get('random_ops', 0)} random steps): "
+          f"audio difference {v.get('seeded_diff', float('nan')):.1e} (must be < 1e-3)")
+    print(f"  normal run: length x{v['length_ratio']:.2f}, loudness x{v['loudness_ratio']:.2f}; "
+          f"original's own run-to-run variation {v['original_run_to_run_diff']:.2f}")

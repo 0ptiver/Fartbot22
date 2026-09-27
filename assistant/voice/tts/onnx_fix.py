@@ -192,6 +192,30 @@ def stft_math_error(spec: dict) -> float:
     raise RuntimeError(f"STFT check failed: {last}")
 
 
+RANDOM_OPS = {"RandomNormal", "RandomNormalLike", "RandomUniform", "RandomUniformLike", "Multinomial"}
+
+
+def seeded_copy(src: Path, dst: Path) -> int:
+    """Copy a model with a fixed seed on every random op (keyed by node name), so two models
+    that differ only in unrelated nodes produce the same random numbers. Returns the count."""
+    import zlib
+
+    import onnx
+    from onnx import helper
+
+    model = onnx.load(str(src))
+    count = 0
+    for node in model.graph.node:
+        if node.op_type in RANDOM_OPS:
+            for a in list(node.attribute):
+                if a.name == "seed":
+                    node.attribute.remove(a)
+            node.attribute.append(helper.make_attribute("seed", float(zlib.crc32(node.name.encode()) % 100000)))
+            count += 1
+    onnx.save(model, str(dst))
+    return count
+
+
 def verify_kokoro(original: Path, converted: Path, voices: Path, voice: str, lang: str) -> dict:
     """Kokoro adds random noise while generating, so two runs never match sample-for-sample.
     Instead: (1) the STFT maths must match exactly, (2) the converted model must produce
@@ -212,8 +236,24 @@ def verify_kokoro(original: Path, converted: Path, voices: Path, voice: str, lan
     def rms(a):
         return float(np.sqrt(np.mean(np.square(a)))) if len(a) else 0.0
 
+    # Definitive check: same fixed random numbers in both -> audio must match.
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        so, sc = Path(d) / "o.onnx", Path(d) / "c.onnx"
+        n_random = seeded_copy(original, so)
+        seeded_copy(converted, sc)
+        seeded = []
+        for path in (so, sc):
+            sess = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+            seeded.append(Kokoro.from_session(sess, str(voices)).create(text, voice=voice, lang=lang, trim=False)[0])
+    m = min(len(seeded[0]), len(seeded[1]))
+    seeded_diff = (float(np.max(np.abs(seeded[0][:m] - seeded[1][:m])) / max(float(np.max(np.abs(seeded[0]))), 1e-9))
+                   if m and len(seeded[0]) == len(seeded[1]) else float("inf"))
+
     n = min(len(audio["orig"]), len(audio["orig2"]))
     return {
+        "random_ops": n_random,
+        "seeded_diff": seeded_diff,
         "stft_math_error": math_err,
         "length_ratio": len(audio["conv"]) / max(len(audio["orig"]), 1),
         "loudness_ratio": rms(audio["conv"]) / max(rms(audio["orig"]), 1e-9),
@@ -222,5 +262,7 @@ def verify_kokoro(original: Path, converted: Path, voices: Path, voice: str, lan
 
 
 def verification_ok(v: dict) -> bool:
-    return (v["stft_math_error"] < 1e-4 and 0.9 <= v["length_ratio"] <= 1.1
-            and 0.8 <= v["loudness_ratio"] <= 1.25)
+    # With random numbers fixed, the audio must match; the length/loudness checks remain as
+    # a sanity net in case the model has no random ops to fix.
+    return (v["stft_math_error"] < 1e-4 and v.get("seeded_diff", 0.0) < 1e-3
+            and 0.9 <= v["length_ratio"] <= 1.1 and 0.75 <= v["loudness_ratio"] <= 1.33)

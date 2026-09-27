@@ -47,7 +47,11 @@ def main(argv: list[str] | None = None) -> None:
         from assistant.voice.models import fetch_all
 
         s = load_settings()
-        fetch_all(s.voice.stt.whisper.model if s.voice.stt.provider == "whisper" else None)
+        if "--recheck" in argv:
+            from assistant.voice.models import make_gpu_kokoro
+            make_gpu_kokoro(s.voice.tts.kokoro.voice, s.voice.tts.kokoro.lang, recheck=True)
+        else:
+            fetch_all(s.voice.stt.whisper.model if s.voice.stt.provider == "whisper" else None)
     elif cmd == "doctor":
         from assistant.doctor import main as doctor
 
