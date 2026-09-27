@@ -75,6 +75,11 @@ class FakeSpotify:
             return httpx.Response(200, json={"items": [{"track": {"uri": "spotify:track:7", "name": "Hotline Bling", "artists": [{"name": "Drake"}]}}]})
         if path == "/v1/me/player/currently-playing":
             return httpx.Response(200, json=self.playing) if self.playing else httpx.Response(204)
+        if path in ("/v1/me/player/repeat", "/v1/me/player/shuffle"):
+            if getattr(self, "obeys", True):
+                self.state = {**(self.state or {}), "repeat_state" if path.endswith("repeat") else "shuffle_state":
+                              q["state"] if path.endswith("repeat") else q["state"] == "true"}
+            return httpx.Response(204)
         if path in ("/v1/me/player/pause", "/v1/me/player/next", "/v1/me/player/volume", "/v1/me/player/queue"):
             if not q.get("device_id") and not any(d.get("is_active") for d in self.devices):
                 return httpx.Response(404, json={"error": {"status": 404, "reason": "NO_ACTIVE_DEVICE"}})
@@ -431,3 +436,24 @@ async def test_servers_refuse_but_the_app_plays_it(secrets, ctx, pc_media, monke
     fake = type("F", (Refusing, SearchFake), {})()
     ctx.services["spotify"] = fake.client()
     assert await music.play_music({"query": "my way by kanye west"}, ctx) == "Playing My Way by Kanye West."
+
+
+async def test_repeat_this_song_is_checked(ctx, secrets):
+    from assistant.brain.intents import match_intent
+    assert match_intent("repeat this song") == ("music_control", {"action": "repeat_track"})
+    assert match_intent("put it on repeat") == ("music_control", {"action": "repeat_track"})
+    assert match_intent("repeat that") is None or match_intent("repeat that")[0] != "music_control"   # "say that again"
+    fake = FakeSpotify()
+    ctx.services["spotify"] = fake.client()
+    assert await music.music_control({"action": "repeat_track"}, ctx) == "This song is on repeat."
+    assert ("PUT", "/v1/me/player/repeat", {"state": "track"}, None) in fake.calls
+    assert await music.music_control({"action": "shuffle_on"}, ctx) == "Shuffle on."
+
+
+async def test_repeat_that_spotify_ignores_is_not_claimed(ctx, secrets, monkeypatch):
+    monkeypatch.setattr(sp.Spotify, "linked", staticmethod(lambda: True))
+    fake = FakeSpotify()
+    fake.obeys = False
+    ctx.services["spotify"] = fake.client()
+    with pytest.raises(ToolError, match="repeat didn't change"):
+        await music.music_control({"action": "repeat_track"}, ctx)

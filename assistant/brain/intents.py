@@ -30,6 +30,11 @@ _RULES: list[tuple[re.Pattern, str, dict]] = [
      "media", {"action": "previous"}),
     (re.compile(r"^shuffle(?: (?:on|my music))?$|^turn (?:on )?shuffle(?: on)?$"), "music_control", {"action": "shuffle_on"}),
     (re.compile(r"^(?:turn )?shuffle off$|^turn off shuffle$"), "music_control", {"action": "shuffle_off"}),
+    (re.compile(r"^(?:repeat|loop|put)(?: this| this song| the song| it| this track| the track)(?: on repeat)?$"
+                r"|^(?:put (?:this |it |this song )?on repeat|loop this song)$"), "music_control", {"action": "repeat_track"}),
+    (re.compile(r"^(?:turn on repeat|repeat on|repeat (?:the |this )?(?:playlist|album))$"), "music_control", {"action": "repeat_on"}),
+    (re.compile(r"^(?:stop repeating|turn off repeat|repeat off|stop looping|no more repeat)(?: this| it| this song)?$"),
+     "music_control", {"action": "repeat_off"}),
 ]
 
 
@@ -411,6 +416,11 @@ def everyday_intent(t: str) -> tuple[str, dict] | None:
                         r"|how much (?:" + words + r") (?:do i have|is left|have i got|am i using|is being used|is in use|is used)(?: left)?"
                         r"|(?:" + words + r") usage", t):
             return "system_status", {"what": what}
+    if re.fullmatch(r"what(?:'?s| is) on (?:my |the |this )?(?:screen|monitor|display)|what am i looking at|"
+                    r"(?:look|have a look|take a look) at (?:my |the |this )?(?:screen|monitor)|what do you see|"
+                    r"can you see (?:my |the )?screen|what does (?:this|that|the) (?:error|message|popup|pop up|box|window) say|"
+                    r"read (?:me )?(?:this|that|the) (?:error|message|popup|pop up|dialog|box)|what(?:'?s| is) (?:this|that) (?:error|popup|pop up|message)", t):
+        return "look_at_screen", {"focus": t}
     page = r"(?:this|the|that) (?:page|article|site|website|web page|post|thread|video|story)"
     if re.fullmatch(r"(?:summari[sz]e|sum up|give me (?:a )?(?:summary|tl ?dr|rundown|quick summary) of|tl ?dr"
                     r"|explain|read me|what(?:'?s| is)(?: the gist of)?) " + page + r"(?: about)?(?: for me)?"
@@ -442,6 +452,17 @@ def everyday_intent(t: str) -> tuple[str, dict] | None:
                     r"lower the volume|make it quieter|(?:a (?:bit|little) )?quieter|too loud|it'?s too loud)"
                     r"(?: a (?:bit|little)| more)?", n):
         return "volume", {"action": "down"}
+    scr = r"(?:the )?(?:screen|display|brightness|monitor)"
+    if m := re.fullmatch(r"(?:set |turn |put )?(?:the )?(?:screen )?brightness (?:to |at )?(\d{1,3})(?: percent| %)?", n):
+        return "brightness", {"action": "set", "level": min(100, int(m.group(1)))}
+    if re.fullmatch(r"(?:turn |put )?(?:the )?(?:screen )?brightness up|(?:turn up|raise|increase) " + scr + r"(?: brightness)?"
+                    r"|(?:make (?:the |my )?(?:screen|display) )?brighter|brighten (?:the |my )?(?:screen|display)", n):
+        return "brightness", {"action": "up"}
+    if re.fullmatch(r"(?:turn |put )?(?:the )?(?:screen )?brightness down|(?:turn down|lower|decrease|reduce) " + scr + r"(?: brightness)?"
+                    r"|(?:make (?:the |my )?(?:screen|display) )?(?:dimmer|darker)|dim (?:the |my )?(?:screen|display)", n):
+        return "brightness", {"action": "down"}
+    if re.fullmatch(r"(?:what(?:'?s| is) (?:the |my )?(?:screen )?brightness(?: at)?|how bright is (?:the |my )?screen)", n):
+        return "brightness", {"action": "get"}
     if re.fullmatch(r"(?:mute|mute (?:the )?(?:pc|computer|sound|volume|audio))", n):
         return "volume", {"action": "mute"}
     if re.fullmatch(r"(?:unmute|unmute (?:the )?(?:pc|computer|sound|volume|audio))", n):

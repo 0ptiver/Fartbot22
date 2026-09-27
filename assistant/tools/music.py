@@ -198,7 +198,7 @@ def register(reg: ToolRegistry) -> None:
             "type": "object",
             "properties": {
                 "action": {"type": "string", "enum": ["pause", "resume", "next", "previous", "shuffle_on",
-                                                      "shuffle_off", "repeat_on", "repeat_off", "volume"]},
+                                                      "shuffle_off", "repeat_on", "repeat_off", "repeat_track", "volume"]},
                 "level": {"type": "integer", "minimum": 0, "maximum": 100},
             },
             "required": ["action"],

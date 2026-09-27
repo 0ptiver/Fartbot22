@@ -144,7 +144,7 @@ async def test_screenshot_described_by_vision_model(local_settings, ctx, monkeyp
     brain, fake = make(local_settings, [tool_reply("look_at_screen", {"focus": "error"}), vision,
                                         text_reply("There's an error, sir.")])
     conv = Conversation()
-    await collect(brain, conv, "what's on my screen", ctx)
+    await collect(brain, conv, "is there anything weird going on with my monitor", ctx)
     path, body = fake.requests[1]
     assert body["model"] == "qwen3-vl:4b" and body["messages"][0]["images"]
     assert "A red error dialog." in conv.messages[2]["content"]
@@ -326,7 +326,7 @@ async def test_screenshot_described_by_claude(local_settings, ctx, monkeypatch, 
     brain, fake = make(local_settings, [tool_reply("look_at_screen", {}), text_reply("An error, sir.")],
                        ImgExpert())
     conv = Conversation()
-    await collect(brain, conv, "what's on my screen", ctx)
+    await collect(brain, conv, "is there anything weird going on with my monitor", ctx)
     assert seen == {"exists": True, "inside": True}
     assert "A red error dialog." in conv.messages[2]["content"]
     assert len(fake.requests) == 2          # no local vision model call

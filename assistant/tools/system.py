@@ -293,7 +293,56 @@ def open_app(args: dict, ctx: ToolContext, _launcher=_launch, _dirs=None, _apps=
     return f"Starting {label}. It can take a moment to appear."
 
 
+# --- brightness (the laptop's own screen) ----------------------------------------------------
+class Brightness:
+    """The built-in screen's brightness through Windows' WMI (external monitors don't support it).
+    A fake in tests."""
+
+    def _ps(self, script: str) -> str:
+        import subprocess
+        return subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                              capture_output=True, text=True, timeout=8,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout.strip()
+
+    def get(self) -> int | None:
+        if not IS_WINDOWS:
+            return None
+        out = self._ps("(Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness "
+                       "-ErrorAction SilentlyContinue | Select-Object -First 1).CurrentBrightness")
+        return int(out) if out.isdigit() else None
+
+    def set(self, level: int) -> None:
+        self._ps("Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods | "
+                 f"Invoke-CimMethod -MethodName WmiSetBrightness -Arguments @{{Timeout=1; Brightness={int(level)}}}")
+
+
+BRIGHTNESS = Brightness()
+
+
+def brightness(args: dict, ctx: ToolContext) -> str:
+    now = BRIGHTNESS.get()
+    if now is None:
+        raise ToolError("I can't change this screen's brightness (only the laptop's own screen supports it).")
+    action = args.get("action", "get")
+    if action == "get":
+        return f"Brightness is {now} percent."
+    step = int(args.get("amount") or 20)
+    want = {"set": args.get("level", now), "up": now + step, "down": now - step}[action]
+    want = max(0 if action == "set" else 5, min(100, int(want)))
+    BRIGHTNESS.set(want)
+    got = BRIGHTNESS.get()
+    if got is None or abs(got - want) > 5:
+        raise ToolError(f"I asked for {want} percent, but the brightness is still {now}.")
+    return f"Brightness {got} percent."
+
+
 def register(reg: ToolRegistry) -> None:
+    reg.tool("brightness", "The laptop screen's brightness: get, set (level 0-100), up or down.",
+             {"type": "object", "properties": {
+                 "action": {"type": "string", "enum": ["get", "set", "up", "down"]},
+                 "level": {"type": "integer", "minimum": 0, "maximum": 100},
+                 "amount": {"type": "integer", "minimum": 1, "maximum": 100}},
+              "required": ["action"], "additionalProperties": False}, risk=Risk.SAFE, category="system")(brightness)
     reg.tool(
         "get_time",
         "Get the current local date and time, or the time in another place (place='Tokyo').",

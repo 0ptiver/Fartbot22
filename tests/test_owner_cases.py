@@ -142,3 +142,21 @@ async def test_new_tab_in_novas_browser_is_done_directly(monkeypatch, settings, 
     monkeypatch.setattr(B, "shortcut", shortcut)
     res = await registry.execute("press_keys", {"keys": "ctrl+t"}, ToolContext(settings))
     assert res.content == "Opened a new tab in my browser." and done == ["ctrl+t"]
+
+
+async def test_whats_on_my_screen_is_answered_directly(local_settings, ctx):
+    """Went to the small model; now straight to the screenshot, described by Claude, and spoken."""
+    from PIL import Image
+
+    from assistant.tools import screen
+    from tests.test_local_brain import FakeExpert, collect, make
+    expert = FakeExpert("A Steam download is at 80 percent.")
+    brain, fake = make(local_settings, [], expert=expert)
+    orig = screen.grab_screen
+    screen.grab_screen = lambda monitor=1: Image.new("RGB", (64, 36))
+    try:
+        events = await collect(brain, Conversation(), "What's on my screen?", ctx)
+    finally:
+        screen.grab_screen = orig
+    assert said(events) == "A Steam download is at 80 percent." and not fake.requests
+    assert expert.calls and expert.calls[0][2] is not None                  # the picture went to Claude

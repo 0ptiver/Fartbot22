@@ -91,6 +91,119 @@ def calc_intent(t: str) -> tuple[str, dict] | None:
     return None
 
 
+# --- conversions ------------------------------------------------------------------------------
+# unit -> (kind, factor to the base unit)
+_UNITS = {}
+for kind, table in {
+    "length": {("mm", "millimetre", "millimeter"): 0.001, ("cm", "centimetre", "centimeter"): 0.01,
+               ("m", "metre", "meter"): 1, ("km", "kilometre", "kilometer", "k"): 1000,
+               ("in", "inch", "inche"): 0.0254, ("ft", "foot", "feet"): 0.3048, ("yd", "yard"): 0.9144,
+               ("mi", "mile"): 1609.344},
+    "weight": {("g", "gram", "gramme"): 0.001, ("kg", "kilo", "kilogram", "kilogramme"): 1,
+               ("oz", "ounce"): 0.028349523125, ("lb", "lbs", "pound"): 0.45359237, ("st", "stone"): 6.35029318,
+               ("ton", "tonne"): 1000},
+    "volume": {("ml", "millilitre", "milliliter"): 0.001, ("l", "litre", "liter"): 1, ("cup",): 0.2365882365,
+               ("pint",): 0.473176473, ("gallon",): 3.785411784, ("fl oz", "fluid ounce"): 0.0295735295625},
+    "speed": {("mph", "miles per hour", "mile per hour"): 0.44704, ("kph", "km/h", "kmh", "kilometres per hour",
+              "kilometers per hour", "kilometre per hour", "kilometer per hour"): 1 / 3.6,
+              ("m/s", "metres per second", "meters per second"): 1},
+}.items():
+    for names, factor in table.items():
+        for n in names:
+            _UNITS[n] = (kind, factor, next((x for x in names if len(x) > 3 and "/" not in x and x != "lbs"), names[0]))
+_TEMPS = {"c": "c", "celsius": "c", "centigrade": "c", "degrees c": "c", "degrees celsius": "c",
+          "f": "f", "fahrenheit": "f", "degrees f": "f", "degrees fahrenheit": "f", "degrees": None}
+_CURRENCY = {"dollar": "USD", "dollars": "USD", "usd": "USD", "bucks": "USD", "us dollars": "USD",
+             "pound": "GBP", "pounds": "GBP", "quid": "GBP", "gbp": "GBP", "pounds sterling": "GBP",
+             "euro": "EUR", "euros": "EUR", "eur": "EUR", "yen": "JPY", "canadian dollars": "CAD",
+             "canadian dollar": "CAD", "australian dollars": "AUD", "australian dollar": "AUD", "pesos": "MXN",
+             "peso": "MXN", "rupees": "INR", "rupee": "INR", "won": "KRW", "yuan": "CNY", "francs": "CHF",
+             "swiss francs": "CHF", "krona": "SEK", "kronor": "SEK", "zloty": "PLN", "rand": "ZAR"}
+_CUR_NAMES = {"USD": "dollars", "GBP": "pounds", "EUR": "euros", "JPY": "yen", "CAD": "Canadian dollars",
+              "AUD": "Australian dollars", "MXN": "pesos", "INR": "rupees", "KRW": "won", "CNY": "yuan",
+              "CHF": "Swiss francs", "SEK": "kronor", "PLN": "zloty", "ZAR": "rand"}
+
+
+def _unit(word: str):
+    w = word.strip().lower().rstrip(".")
+    for cand in (w, w[:-1] if w.endswith("s") else w, w[:-2] if w.endswith("es") else w):
+        if cand in _UNITS:
+            return _UNITS[cand]
+    return None
+
+
+def _plural(name: str, value: float) -> str:
+    if abs(value) == 1 or name.endswith("s") or "/" in name or " per " in name or name in ("mph", "kph", "stone"):
+        return name.replace("miles per", "mile per") if abs(value) == 1 else name.replace("mile per", "miles per")
+    return {"foot": "feet", "inch": "inches"}.get(name, name + "s")
+
+
+async def convert(args: dict, ctx: ToolContext, _http=None) -> str:
+    amount, frm, to = float(args["amount"]), args["from"].strip().lower(), args["to"].strip().lower()
+    if frm in _TEMPS and to in _TEMPS:
+        a, b = _TEMPS[frm] or ("f" if _TEMPS[to] == "c" else "c"), _TEMPS[to] or ("f" if _TEMPS[frm] == "c" else "c")
+        value = (amount - 32) * 5 / 9 if (a, b) == ("f", "c") else amount * 9 / 5 + 32 if (a, b) == ("c", "f") else amount
+        return f"{spoken_number(round(amount, 2))} degrees {a.upper()} is {spoken_number(round(value, 1))} degrees {b.upper()}."
+    if frm in _CURRENCY and to in _CURRENCY:
+        import httpx
+        http = _http or httpx.AsyncClient(timeout=8, follow_redirects=True)
+        a, b = _CURRENCY[frm], _CURRENCY[to]
+        value = None
+        try:
+            # Frankfurter: the European Central Bank's daily rates, free, no key or account.
+            for url in ("https://api.frankfurter.dev/v1/latest", "https://api.frankfurter.app/latest"):
+                try:
+                    value = (await http.get(url, params={"amount": amount, "from": a, "to": b})).json()["rates"][b]
+                    break
+                except (httpx.HTTPError, KeyError, ValueError):
+                    continue
+        finally:
+            if _http is None:
+                await http.aclose()
+        if value is None:
+            raise ToolError("I couldn't get today's exchange rate.")
+        return (f"{spoken_number(round(amount, 2))} {_CUR_NAMES.get(a, a)} is about "
+                f"{spoken_number(round(value, 2))} {_CUR_NAMES.get(b, b)}.")
+    u1, u2 = _unit(frm), _unit(to)
+    if not u1 or not u2:
+        raise ToolError(f"I don't know how to convert {frm} to {to}.")
+    if u1[0] != u2[0]:
+        raise ToolError(f"You can't turn {u1[0]} into {u2[0]}.")
+    value = amount * u1[1] / u2[1]
+    shown = round(value, 2) if abs(value) >= 1 else round(value, 4)
+    return f"{spoken_number(round(amount, 4))} {_plural(u1[2], amount)} is {spoken_number(shown)} {_plural(u2[2], value)}."
+
+
+_NUM = r"(\d+(?:\.\d+)?|a|an|one)"
+_CONVERT = re.compile(r"^(?:convert |change |turn )?" + _NUM + r" ([a-z/ ]{1,25}?) (?:to|into|in|as) ([a-z/ ]{1,25}?)$"
+                      r"|^(?:what(?:'?s| is|'re| are) |how much (?:is|are) )" + _NUM + r" ([a-z/ ]{1,25}?) (?:in|to) ([a-z/ ]{1,25}?)$"
+                      r"|^how many ([a-z/ ]{1,25}?) (?:are )?(?:in|is|are|make) " + _NUM + r" ([a-z/ ]{1,25}?)$")
+
+
+def convert_intent(t: str) -> tuple[str, dict] | None:
+    from assistant.voice.textnorm import normalize_words
+    t = re.sub(r"\$\s?(\d+(?:\.\d+)?)", r"\1 dollars", t)
+    t = re.sub(r"£\s?(\d+(?:\.\d+)?)", r"\1 pounds", t)
+    t = re.sub(r"€\s?(\d+(?:\.\d+)?)", r"\1 euros", t)
+    n = " ".join(normalize_words(t)).replace("degrees celsius", "celsius").replace("degrees fahrenheit", "fahrenheit")
+    m = _CONVERT.match(n)
+    if not m:
+        return None
+    g = m.groups()
+    if g[0]:
+        amount, frm, to = g[0], g[1], g[2]
+    elif g[3]:
+        amount, frm, to = g[3], g[4], g[5]
+    else:
+        to, amount, frm = g[6], g[7], g[8]
+    amount = 1.0 if amount in ("a", "an", "one") else float(amount)
+    frm, to = frm.strip(), to.strip()
+    known = lambda u: u in _TEMPS or u in _CURRENCY or _unit(u) is not None   # noqa: E731
+    if not (known(frm) and known(to)):
+        return None
+    return "convert", {"amount": amount, "from": frm, "to": to}
+
+
 # --- days until -------------------------------------------------------------------------------
 _MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september",
            "october", "november", "december"]
@@ -258,13 +371,19 @@ def quick_intent(t: str) -> tuple[str, dict] | None:
         if m.group("place"):
             args["place"] = m.group("place")
         return "weather", args
-    return until_intent(t) or calc_intent(t)
+    return until_intent(t) or convert_intent(t) or calc_intent(t)
 
 
 def register(reg: ToolRegistry) -> None:
     reg.tool("calculate", "Exact arithmetic: '15 times 23', '20 percent of 85', 'square root of 144'.",
              {"type": "object", "properties": {"expression": {"type": "string", "minLength": 1, "maxLength": 200}},
               "required": ["expression"], "additionalProperties": False}, risk=Risk.SAFE, category="system")(calculate)
+    reg.tool("convert", "Convert units (length, weight, volume, speed, temperature) or money between currencies "
+             "(today's rate): amount, from, to, e.g. 100, 'dollars', 'pounds'.",
+             {"type": "object", "properties": {"amount": {"type": "number"},
+                                               "from": {"type": "string", "minLength": 1, "maxLength": 30},
+                                               "to": {"type": "string", "minLength": 1, "maxLength": 30}},
+              "required": ["amount", "from", "to"], "additionalProperties": False}, risk=Risk.SAFE, category="web")(convert)
     reg.tool("days_until", "How many days until a date or holiday ('christmas', 'the 3rd of june').",
              {"type": "object", "properties": {"what": {"type": "string", "minLength": 2, "maxLength": 60}},
               "required": ["what"], "additionalProperties": False}, risk=Risk.SAFE, category="system")(days_until)

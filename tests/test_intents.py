@@ -26,7 +26,7 @@ from assistant.brain.intents import match_intent
     ("Play my liked songs", ("play_music", {"kind": "liked_songs"})),
     ("Play the last song I listened to", ("play_music", {"kind": "recently_played"})),
     ("Play my chill playlist", ("play_music", {"query": "chill", "kind": "playlist"})),
-    ("What's on my screen?", None),
+    ("What's on my screen?", ("look_at_screen", {"focus": "what's on my screen"})),
     ("Open Spotify", ("open_app", {"name": "spotify"})),     # everyday commands skip the model now
     ("How do I lock my PC", None),
     ("Shut down the PC", ("power", {"action": "shutdown"})),                      # power always goes via the model + a yes/no

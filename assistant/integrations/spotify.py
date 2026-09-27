@@ -363,16 +363,28 @@ class Spotify:
             return "Going back."
         if action in ("shuffle_on", "shuffle_off"):
             await self._player("PUT", "/me/player/shuffle", params={"state": str(action == "shuffle_on").lower()})
+            await self._check_state("shuffle_state", action == "shuffle_on", "shuffle")
             return "Shuffle " + ("on." if action == "shuffle_on" else "off.")
-        if action in ("repeat_on", "repeat_off"):
-            await self._player("PUT", "/me/player/repeat", params={"state": "context" if action == "repeat_on" else "off"})
-            return "Repeat " + ("on." if action == "repeat_on" else "off.")
+        if action in ("repeat_on", "repeat_off", "repeat_track"):
+            state = {"repeat_on": "context", "repeat_off": "off", "repeat_track": "track"}[action]
+            await self._player("PUT", "/me/player/repeat", params={"state": state})
+            await self._check_state("repeat_state", state, "repeat")
+            return {"repeat_on": "Repeat on.", "repeat_off": "Repeat off.", "repeat_track": "This song is on repeat."}[action]
         if action == "volume":
             if level is None:
                 raise SpotifyError("Tell me a volume from 0 to 100.")
             await self._player("PUT", "/me/player/volume", params={"volume_percent": max(0, min(100, level))})
             return f"Spotify volume {max(0, min(100, level))}%."
         raise SpotifyError(f"Unknown music action: {action}")
+
+    async def _check_state(self, key: str, want, what: str) -> None:
+        """Spotify saying OK isn't proof: read the player back (owner: claims that weren't true)."""
+        for _ in range(3):
+            await asyncio.sleep(self.verify_delay)
+            data = await self._call("GET", "/me/player") or {}
+            if data.get(key) == want:
+                return
+        raise SpotifyError(f"Spotify accepted it, but {what} didn't change. Is something playing in the Spotify app?")
 
     async def now_playing(self) -> str:
         data = await self._call("GET", "/me/player/currently-playing")

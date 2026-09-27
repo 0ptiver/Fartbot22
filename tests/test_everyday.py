@@ -192,3 +192,72 @@ def test_empty_recycle_bin_asks_first_and_not_from_a_phone(registry):
                                         ("what's your name", "I'm Nova"), ("what can you do", "Quite a lot, sir.")])
 def test_who_and_what(said, start):
     assert _small_talk(said, ", sir", "Oliver", "Nova").startswith(start)
+
+
+@pytest.mark.parametrize("said,expected", [
+    ("what's 5 miles in km", "5 miles is 8.05 kilometres."), ("how many cm in an inch", "1 inch is 2.54 centimetres."),
+    ("100 f to c", "100 degrees F is 37.8 degrees C."), ("what is 70 kg in pounds", "70 kilos is 154.32 pounds."),
+    ("60 mph in kph", "60 miles per hour is 96.56 kilometres per hour."), ("what is 5 stone in kg", "5 stone is 31.75 kilos."),
+])
+async def test_unit_conversions(said, expected):
+    intent = match_intent(said)
+    assert intent[0] == "convert"
+    assert await quick.convert(intent[1], None) == expected
+
+
+async def test_currency_uses_todays_rate():
+    assert match_intent("convert 100 dollars to pounds") == ("convert", {"amount": 100.0, "from": "dollars", "to": "pounds"})
+    assert match_intent("what's $50 in euros")[1] == {"amount": 50.0, "from": "dollars", "to": "euros"}
+    seen = []
+
+    def handler(req):
+        seen.append(req.url)
+        return httpx.Response(200, json={"amount": 100, "base": "USD", "rates": {"GBP": 74.52}})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        out = await quick.convert({"amount": 100, "from": "dollars", "to": "pounds"}, None, _http=http)
+    assert out == "100 dollars is about 74.52 pounds." and seen[0].params["from"] == "USD"
+    with pytest.raises(ToolError, match="kilos into length|weight into length"):
+        await quick.convert({"amount": 1, "from": "kg", "to": "km"}, None)
+
+
+async def test_no_rate_says_so():
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(503))) as http:
+        with pytest.raises(ToolError, match="exchange rate"):
+            await quick.convert({"amount": 1, "from": "euros", "to": "yen"}, None, _http=http)
+
+
+@pytest.mark.parametrize("said,args", [("brightness up", {"action": "up"}), ("dim the screen", {"action": "down"}),
+                                       ("set brightness to 70", {"action": "set", "level": 70})])
+def test_brightness_phrases(said, args):
+    assert match_intent(said) == ("brightness", args)
+
+
+class FakeBrightness:
+    def __init__(self, level, works=True):
+        self.level, self.works = level, works
+
+    def get(self):
+        return self.level
+
+    def set(self, level):
+        if self.works:
+            self.level = level
+
+
+def test_brightness_is_checked(monkeypatch):
+    from assistant.tools import system
+    monkeypatch.setattr(system, "BRIGHTNESS", FakeBrightness(50))
+    assert system.brightness({"action": "up"}, None) == "Brightness 70 percent."
+    assert system.brightness({"action": "set", "level": 100}, None) == "Brightness 100 percent."
+    monkeypatch.setattr(system, "BRIGHTNESS", FakeBrightness(50, works=False))
+    with pytest.raises(ToolError, match="still 50"):
+        system.brightness({"action": "down"}, None)
+    monkeypatch.setattr(system, "BRIGHTNESS", FakeBrightness(None))
+    with pytest.raises(ToolError, match="laptop's own screen"):
+        system.brightness({"action": "up"}, None)
+
+
+@pytest.mark.parametrize("said,focus", [("what's on my screen", "what's on my screen"),
+                                        ("what does this error say", "what does this error say")])
+def test_screen_questions_go_straight_to_the_screen(said, focus):
+    assert match_intent(said) == ("look_at_screen", {"focus": focus})

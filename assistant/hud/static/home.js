@@ -52,6 +52,7 @@ const NovaHome = (() => {
     recall: ["i-brain", "pink", () => "Checking my memory", "wMem"],
     system_status: ["i-pulse", "blue", () => "Checking the PC", "wPc"],
     get_time: ["i-clock", "blue", (a) => a.place ? `Checking the time in ${cap(a.place)}` : "Checking the time"],
+    brightness: ["i-spark", "amber", (a) => a.action === "get" ? "Checking the brightness" : a.action === "set" ? `Brightness to ${a.level}%` : `Brightness ${a.action}`],
     days_until: ["i-clock", "blue", (a) => `Counting the days to ${cap(a.what || "it")}`],
     empty_recycle_bin: ["i-power", "red", () => "Emptying the Recycle Bin"],
     lock_pc: ["i-lock", "red", () => "Locking the PC"],

@@ -566,7 +566,10 @@ class LocalBrain:
         started = time.perf_counter()
         res = await self.registry.execute(name, args, ctx)
         timings["tools_ms"] = _ms(started)
-        text = res.content if isinstance(res.content, str) else _summarize_content(res.content, 300)
+        # A screenshot is described first (the fast path speaks the result, it can't show a picture).
+        text = res.content if isinstance(res.content, str) else \
+            (await self._result_text(res, args)).replace("Screen description: ", "")
+        text = "\n".join(line for line in text.splitlines() if not line.startswith("Screenshot of monitor"))
         yield ToolFinished(cid, name, res.is_error, _summarize_content(text, 200), _ms(started))
         spoken = text.strip() or "Done."
         timings["first_token_ms"] = _ms(t0)
