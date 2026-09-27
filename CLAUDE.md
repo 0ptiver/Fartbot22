@@ -20,7 +20,7 @@ Branch: `claude/jarvis-voice-assistant-lhnfza` (commit and push there after ever
 ## My sandbox (Linux cloud container)
 - Blocked: huggingface.co, github release downloads, ollama.com, developer.spotify.com. PyPI works. There's no GPU, audio device, Windows or Ollama.
 - So real models and Win32 can't run here. Every Windows part sits behind a swappable backend (pc.WINDOWS, pc.POWER, grid MouseBackend/TkOverlay, keyboard.KEYBOARD, uia.UIA, video.MEDIA, teach InputPoller) and is tested with fakes.
-- `.venv` (Python 3.12, `uv`). Run `timeout 100 .venv/bin/python -m pytest -q` (~490 tests, ~18 s) and `.venv/bin/python -m pyflakes assistant tests`.
+- `.venv` (Python 3.12, `uv`). Run `timeout 100 .venv/bin/python -m pytest -q` (~800 tests, ~50 s) and `.venv/bin/python -m pyflakes assistant tests`.
 - **Beware unbounded loops in tests**: fixtures set delays to 0, and a while loop keyed on elapsed time hangs pytest. Always use `timeout 100`.
 - `pkill -f <pattern>` kills your own shell if the pattern matches the command line (exit 144). Let background demo servers time out instead.
 - conftest autouse fixtures redirect `voicedesign.VOICE_FILE` and `teach.LEARNED_FILE` to tmp; `settings.memory.path` is tmp too. Keep file paths looked up at call time (not as default args) so tests can redirect them.
@@ -62,6 +62,7 @@ Branch: `claude/jarvis-voice-assistant-lhnfza` (commit and push there after ever
 - The 4B local model fumbles multi-step PC control: put common commands on the fast path, keep spoken results short, and verify actions.
 - **The voice lock must never ignore the owner silently** (owner: "straight up ignoring me"): near misses are spoken and shown with a "That was me" button; stand down / stop / cancel always pass. A new microphone changes the voiceprint.
 - Voiceprints of speech heard over Nova's own voice (speakers) match worse: the voice lock must be looser there, or the owner can't interrupt (owner's case). "Stop" while Nova is busy skips the lock.
+- **The local model's window is 8,192 tokens and the prompt + tools take ~5,200** (measured with Qwen's tokenizer from the `dashscope` wheel's `qwen.tiktoken`). Everything sent goes through `brain/fit.py`; adding tools or prompt text shrinks the history Nova remembers.
 - **Keep the model's tool list short** (`tools.MODEL_HIDDEN`): at 54 tools the 4B model stopped calling tools and claimed or refused instead ("you broke him"). New tools that are said directly go on the fast path and into MODEL_HIDDEN. Compound "X and Y" commands are split by `LocalBrain._compound` when every part is known.
 - The owner hates chatter: keep the spoken-sentence cap, the preamble hold in `LocalBrain.run_turn` (`_PREAMBLE`), and put common commands on the fast path (`intents.everyday_intent`).
 - pytest sometimes prints a Rust "panic in a function that cannot unwind" after all tests pass (a livekit tokio thread at interpreter exit, sandbox only). The results above it are what count.
@@ -75,7 +76,8 @@ Branch: `claude/jarvis-voice-assistant-lhnfza` (commit and push there after ever
 - Polish pass done (owner: "he doesn't cancel and he freezes"): universal cancel, tool time limits, "One moment", tick, `media` pause of whatever is playing, "no, I meant X", robust window focus, fullscreen via the player's button with verification. The owner said "it works".
 - Spotify playback reworked (polish pass 3); needs the owner's test.
 - HUD overhaul (command-centre layout) and phone access (Phase 6) built; neither seen on the PC yet.
-- Latest: "more brains" (situation context: window in front, Nova's browser, media → `brain/situation.py`; `press_keys` names the target window and verifies tab/nav shortcuts by title change; Nova's-browser shortcuts via `browser.shortcut`) and owner identity (`assistant.owner_name: Oliver`, prompt says Oliver made Nova and is in charge; risky-action confirmations stay). Not yet tried on the PC.
+- Polish pass 4 (owner away): context-window fitting (`brain/fit.py`, the likely "bugs out after 5 minutes" cause), 22 more direct phrases, checked open/close/quit, summarise page, conversions, brightness. Not yet tried on the PC.
+- Earlier: "more brains" (situation context: window in front, Nova's browser, media → `brain/situation.py`; `press_keys` names the target window and verifies tab/nav shortcuts by title change; Nova's-browser shortcuts via `browser.shortcut`) and owner identity (`assistant.owner_name: Oliver`, prompt says Oliver made Nova and is in charge; risky-action confirmations stay). Not yet tried on the PC.
 
 ## Next (the owner's menu; they pick)
 1. ~~Voice lock~~ built (needs the owner's real-voice test and maybe threshold tuning).

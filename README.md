@@ -156,6 +156,19 @@ Speech stack (all switchable in `config/config.yaml` → `voice`):
 | "Show the grid" … "click 14" / "zoom 14" / "double click 3" / "scroll down" / "hide the grid" | voice mouse (numbers work without "Nova" while the grid is showing) |
 | "Show the grid on screen 2" / "on the other monitor" … "next screen" | voice mouse on another screen (screen 1 = your main one) |
 | "Full screen the video and press play" / "pause the video" / "skip ahead" / "exit full screen" | `video`: finds the video playing in your browser by itself |
+| "Open GTA" / "play GTA" / "open Xbox" | `open_app` also finds Steam/Epic games (desktop and Start menu) and Store apps; says "starting" until the window really appears |
+| "Go back to the game" / "switch back" | `window`: the game you were playing, or the window before this one |
+| "Close Spotify" / "quit Spotify" | close says if the app is still running in the tray; quit ends tray apps (Spotify, Discord, Steam) completely |
+| "Skip the ad" / "skip ahead 30 seconds" / "rewind a minute" | `video`: clicks YouTube's own Skip button, checked |
+| "Play MrBeast on YouTube" / "search YouTube for lofi" | YouTube's results in your browser |
+| "Summarise this page" / "what's this video about?" / "what does this page say about the price?" | Claude reads the page you're on (never pages only on your PC or network) |
+| "What's the time in Tokyo?" / "how many days until Christmas?" | `get_time`, `days_until` |
+| "Remind me tomorrow at 9 to call the bank" / "wake me up on Friday at 7" | reminders and alarms on a day |
+| "Convert 100 dollars to pounds" / "what's 5 miles in km?" / "100 F to C" | `convert` (today's European Central Bank rate for money) |
+| "Brightness up" / "dim the screen" / "set brightness to 60" | the laptop screen's brightness, checked |
+| "Repeat this song" / "turn off repeat" | Spotify, checked |
+| "Empty the recycle bin" | asks first; not from the phone |
+| "Who are you?" / "what can you do?" | instant answers |
 | "Gaming mode" / "movie time" / "I'm heading out" / "goodnight" | routines (see below) |
 | "Work out the monthly payment on a $20k loan at 6% over 5 years" | `escalate` → Claude Opus 5 |
 
