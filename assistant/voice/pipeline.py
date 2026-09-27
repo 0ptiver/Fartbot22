@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import logging
+import time
 from typing import Any, Callable
 
 import numpy as np
@@ -22,6 +23,7 @@ from assistant.voice.latency import LatencyTracker
 from assistant.voice.stt.base import STTProvider, STTSession
 from assistant.voice.tts.base import TTSProvider
 from assistant.voice.vad import Endpointer, SpeechEnd, SpeechStart
+from assistant.voice.wake import echo_overlap, match_wake
 
 log = logging.getLogger(__name__)
 
@@ -51,6 +53,10 @@ class VoiceLoop:
         self._ptt_t_last = 0.0
         self.last_latency: LatencyTracker | None = None
         self._fillers = itertools.cycle(self.cfg.filler_phrases or [""])
+        self._tts_cache: dict[str, list[np.ndarray]] = {}
+        self._follow_up_until = 0.0
+        self._mute_until = 0.0
+        self._last_said = ""
         self.turns_done = 0
 
     @property
@@ -70,9 +76,12 @@ class VoiceLoop:
             await asyncio.gather(self._turn, return_exceptions=True)
 
     async def _open_mic_frame(self, frame: np.ndarray, t: float) -> None:
-        if self.busy:
+        if self.busy or time.perf_counter() < self._mute_until:
             # Half-duplex until barge-in + echo cancellation arrive in Phase 3:
-            # don't listen to ourselves while speaking.
+            # don't listen to ourselves while speaking (plus a short tail afterwards).
+            if self.endpointer.in_speech or self._stt_session is not None:
+                self.endpointer.reset()
+                self._stt_session = None
             return
         prob = self.vad(frame)
         ev = self.endpointer.process(frame, prob, t)
@@ -126,11 +135,17 @@ class VoiceLoop:
             text = (await session.finish()).text if session else ""
             lat.mark("stt_done")
             if not text:
-                self.on_event({"type": "idle", "reason": "heard nothing",
-                               "hint": diagnose_silence(audio)})
+                if self.cfg.mode == "ptt":   # in hands-free modes this is just background noise
+                    self.on_event({"type": "idle", "reason": "heard nothing",
+                                   "hint": diagnose_silence(audio)})
                 return
+            if self.cfg.mode == "wake":
+                text = await self._check_wake(text, lat)
+                if text is None:
+                    return
             self.on_event({"type": "transcript", "text": text})
             await self._speak_reply(text, lat)
+            self._after_reply()
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -138,6 +153,60 @@ class VoiceLoop:
             self.on_event({"type": "error", "message": f"{type(e).__name__}: {e}"})
         finally:
             self.turns_done += 1
+
+    async def _check_wake(self, text: str, lat: LatencyTracker) -> str | None:
+        """Wake mode: only answer when addressed by name (or during the follow-up window)."""
+        w = self.cfg.wake
+        if self._last_said and echo_overlap(text, self._last_said) >= w.echo_overlap:
+            self.on_event({"type": "ignored", "text": text, "reason": "sounded like my own voice"})
+            return None
+        addressed, rest = match_wake(text, w.variants, w.window_words)
+        in_follow_up = time.perf_counter() < self._follow_up_until
+        if not addressed and not in_follow_up:
+            self.on_event({"type": "ignored", "text": text, "reason": "not addressed to me"})
+            return None
+        if addressed and not rest:              # just "Nova" -> "Yes, sir?"
+            self.on_event({"type": "transcript", "text": text})
+            await self.say(w.acknowledgement)
+            self._after_reply()
+            return None
+        return rest if addressed else text
+
+    def _after_reply(self) -> None:
+        now = time.perf_counter()
+        self._follow_up_until = now + self.cfg.wake.follow_up_s
+        self._mute_until = now + self.cfg.wake.cooldown_ms / 1000
+        self.on_event({"type": "follow_up", "seconds": self.cfg.wake.follow_up_s})
+
+    async def say(self, text: str) -> None:
+        """Speak a fixed line (acknowledgements, notices)."""
+        self._last_said = text
+        self.on_event({"type": "speak", "text": text})
+        await self._synth_and_play(text, None)
+        await self.player.drain()
+
+    async def prewarm(self) -> None:
+        """Pre-synthesize short fixed phrases so they play instantly."""
+        for phrase in [*self.cfg.filler_phrases, self.cfg.wake.acknowledgement]:
+            if phrase and phrase not in self._tts_cache:
+                self._tts_cache[phrase] = [a async for a in self.tts.synthesize(phrase)]
+
+    async def _synth_and_play(self, chunk: str, lat: LatencyTracker | None) -> None:
+        cached = self._tts_cache.get(chunk)
+        if cached is None:
+            cached = []
+            async for audio in self.tts.synthesize(chunk):
+                if lat:
+                    lat.mark("tts_first_audio")
+                self.player.play(audio)
+                cached.append(audio)
+            if len(chunk) <= 40 and len(self._tts_cache) < 200:
+                self._tts_cache[chunk] = cached
+            return
+        for audio in cached:
+            if lat:
+                lat.mark("tts_first_audio")
+            self.player.play(audio)
 
     async def _speak_reply(self, text: str, lat: LatencyTracker) -> None:
         chunker = SentenceChunker(self.cfg.first_chunk_min_chars,
@@ -189,10 +258,11 @@ class VoiceLoop:
         self.on_event({"type": "idle"})
 
     async def _speaker(self, queue: asyncio.Queue, lat: LatencyTracker) -> None:
+        said = []
         while (chunk := await queue.get()) is not None:
-            async for audio in self.tts.synthesize(chunk):
-                lat.mark("tts_first_audio")
-                self.player.play(audio)
+            said.append(chunk)
+            self._last_said = " ".join(said)
+            await self._synth_and_play(chunk, lat)
 
 
 def diagnose_silence(audio: np.ndarray | None) -> str:

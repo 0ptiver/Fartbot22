@@ -34,6 +34,8 @@ class KokoroTTS(TTSProvider):
         os.environ.setdefault("ONNX_PROVIDER", provider)
         from kokoro_onnx import Kokoro
 
+        logging.getLogger("phonemizer").setLevel(logging.ERROR)  # harmless "words count mismatch"
+
         model, voices = kokoro_paths()
         if not model.exists() or not voices.exists():
             raise RuntimeError("Kokoro model files missing. Run: python -m assistant models")

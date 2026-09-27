@@ -73,6 +73,7 @@ class WhisperSTT(STTProvider):
             condition_on_previous_text=False,
             without_timestamps=True,
             vad_filter=False,  # we already ran Silero VAD
+            hotwords=self.cfg.hotwords,
         )
         # Whisper's own rule: only drop a segment when it's both "probably silence"
         # and low-confidence. (Dropping on no_speech_prob alone loses quiet speech.)

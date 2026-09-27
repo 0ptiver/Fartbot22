@@ -48,8 +48,12 @@ brain:
     max_results: 5               # local backend (free DuckDuckGo search)
 
 voice:
-  mode: ptt                      # ptt (hold hotkey) | open_mic (VAD only; wake word arrives in Phase 3)
-  ptt_hotkey: ctrl+alt+space
+  mode: wake                     # wake (say "Nova ..."), open_mic (answers everything), ptt (hold hotkey)
+  wake:
+    follow_up_s: 8               # after a reply, keep talking without saying "Nova"
+    acknowledgement: "Yes, sir?" # said when you only say "Nova"
+    window_words: 3              # "Nova" must be within the first/last 3 words
+  ptt_hotkey: ctrl+alt+space     # only used in ptt mode
   input_device: null             # null = Windows default; name or index (see: python -m assistant devices)
   output_device: null
   vad:

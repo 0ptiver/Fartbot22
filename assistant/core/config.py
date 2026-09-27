@@ -85,6 +85,7 @@ class WhisperConfig(BaseModel):
     compute_type: str = "auto"
     beam_size: int = 1
     language: str | None = "en"
+    hotwords: str | None = None       # words to bias towards; wake mode adds the assistant's name
 
 
 class DeepgramConfig(BaseModel):
@@ -109,8 +110,20 @@ class TTSConfig(BaseModel):
     kokoro: KokoroConfig = Field(default_factory=KokoroConfig)
 
 
+class WakeConfig(BaseModel):
+    # What Whisper might write when you say the name. Checked near the start or end of a sentence.
+    variants: list[str] = Field(default_factory=lambda: [
+        "nova", "novah", "novo", "nover", "no va", "noah va", "know va"])
+    window_words: int = 3
+    follow_up_s: float = 8.0          # after a reply, talk again without the name
+    acknowledgement: str = "Yes, sir?"  # said when you only say the name
+    echo_overlap: float = 0.6         # ignore what sounds like its own voice from the speakers
+    cooldown_ms: int = 350            # ignore the mic briefly after it finishes speaking
+
+
 class VoiceConfig(BaseModel):
-    mode: str = "ptt"
+    mode: str = "wake"
+    wake: WakeConfig = Field(default_factory=WakeConfig)
     ptt_hotkey: str = "ctrl+alt+space"
     input_device: str | int | None = None
     output_device: str | int | None = None

@@ -166,6 +166,14 @@ scripts/           # install, run, register-startup
 - [x] Fix: warm-up now uses the real request settings. Measured on the RTX 5070: model load + prompt cache 6.9 s once at startup, then **58–60 ms to first word**, 100% on GPU
 - [x] Fix: `qwen3:4b` is a thinking model (30 s to first word, reasoning leaked into the reply). Default is now `qwen3:4b-instruct-2507-q4_K_M`. A reasoning filter keeps thinking out of speech, and doctor warns about thinking models
 
+### Phase 2.6 — Hands-free by name (owner request: remove the hotkey)
+- [x] Owner test: the voice loop works end to end (Whisper on cuda). 1325 ms total, of which 431 ms was opening the speakers and 451 ms was the first TTS audio
+- [x] Default mode `wake`: always listening, answers only when "Nova" is near the start/end of the sentence (Whisper hotword bias). 8 s follow-up window, "Yes, sir?" on the name alone
+- [x] The `keyboard` hook isn't loaded unless `ptt` mode is chosen (it made keys lag)
+- [x] Speakers opened at startup (low-latency stream). Short phrases pre-synthesized and cached
+- [x] Speaker-echo guard: brief mic cooldown after speaking, and transcripts matching its own last words are ignored
+- [ ] Owner verification of the new latency
+
 ### Phase 3 — Real-time feel
 - [ ] Train + ship "hey nova" openWakeWord model
 - [ ] Barge-in (stop playback, cancel LLM/TTS)

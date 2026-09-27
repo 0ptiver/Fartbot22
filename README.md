@@ -64,18 +64,25 @@ Other commands:
 .venv\Scripts\python -m assistant audit 20   # last 20 tool calls from the audit log
 ```
 
-## Voice (Phase 2)
+## Voice
 
 ```powershell
-.venv\Scripts\python -m assistant models     # one-off: downloads the speech models (~2 GB, installer does this)
-.venv\Scripts\python -m assistant voice      # hold Ctrl+Alt+Space, talk, release
+.venv\Scripts\python -m assistant voice
 ```
 
-- **Push-to-talk** (default): hold `Ctrl+Alt+Space` while you talk and release when you're done. Pressing it while Nova is talking cuts Nova off.
-- **Open mic**: `python -m assistant voice --mode open_mic` listens all the time and answers when you pause. Use headphones: until echo cancellation lands in Phase 3, it stops listening while it's talking. The "Hey Nova" wake word also comes in Phase 3.
-- **Latency**: after every reply it prints how long each stage took and the total time from when you stopped talking to when it started speaking.
-- **Test without a mic**: `python -m assistant voice --wav my_question.wav --out reply.wav` uses a recording as the mic and saves the spoken reply.
-- `python -m assistant devices` lists microphones and speakers. Set `voice.input_device` / `voice.output_device` in the config to pick one.
+**Just talk and say "Nova".** For example: "Nova, what time is it?", "Hey Nova, open Spotify", or "What's the weather tomorrow, Nova?"
+- It ignores speech that isn't addressed to it. The name has to be near the start or the end of the sentence.
+- After it answers, you have **8 seconds to reply without saying "Nova"**, e.g. "thanks" or "and tomorrow?".
+- Say just "Nova" and it answers "Yes, sir?", then waits for your request.
+- There are no hotkeys or keyboard hooks. Everything runs locally, and no audio is saved.
+- While it's talking it doesn't listen, so it won't answer its own voice through your speakers. Interrupting it by talking comes in Phase 3.
+
+Other modes (`--mode` or `voice.mode` in `config/local.yaml`): `open_mic` answers everything it hears, and `ptt` means hold `Ctrl+Alt+Space` while talking.
+
+- **Latency**: after every reply it prints how long each stage took, and the total from when you stopped talking to when it started speaking.
+- **Test your mic**: `python -m assistant mictest` shows a live level meter and what Whisper heard.
+- **Pick a mic or speakers**: run `python -m assistant devices`, then set `voice.input_device` in `config/local.yaml`.
+- **Test without a mic**: `python -m assistant voice --wav my_question.wav --out reply.wav`.
 
 Speech stack (all switchable in `config/config.yaml` → `voice`):
 

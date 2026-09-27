@@ -118,7 +118,8 @@ class AudioPlayer:
 
         self._loop = asyncio.get_running_loop()
         self._stream = sd.OutputStream(samplerate=self.sample_rate, channels=1, dtype="float32",
-                                       device=self.device, callback=self._callback, blocksize=480)
+                                       device=self.device, callback=self._callback, blocksize=480,
+                                       latency="low")
         self._stream.start()
 
     def _callback(self, outdata, frames, _time, _status) -> None:

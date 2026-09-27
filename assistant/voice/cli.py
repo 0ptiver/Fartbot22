@@ -49,6 +49,8 @@ def make_printer(name: str, show_latency: bool):
             state["speaking"] = False
             if show_latency:
                 print(DIM + ev["report"] + RESET, flush=True)
+        elif t == "ignored":
+            print(f"{DIM}  (heard \"{ev['text']}\": {ev['reason']}){RESET}", flush=True)
         elif t == "idle" and ev.get("reason"):
             hint = f": {ev['hint']}" if ev.get("hint") else ""
             print(f"{DIM}  ({ev['reason']}{hint}){RESET}", flush=True)
@@ -67,6 +69,8 @@ async def build(settings, wav: str | None, out: str | None):
     from assistant.voice.vad import SileroVAD
 
     vcfg = settings.voice
+    if vcfg.mode == "wake" and not vcfg.stt.whisper.hotwords:
+        vcfg.stt.whisper.hotwords = settings.assistant.name   # helps Whisper spell "Nova"
     brain = create_brain(settings)
     stt, tts = create_stt(settings), create_tts(settings)
     t0 = time.perf_counter()
@@ -80,12 +84,13 @@ async def build(settings, wav: str | None, out: str | None):
     vad = SileroVAD(vad_path)
 
     if wav:
-        settings.voice.mode = "open_mic"
+        settings.voice.mode = "open_mic" if settings.voice.mode == "ptt" else settings.voice.mode
         mic, player, ptt = WavMic(wav, realtime=True), RecordingPlayer(tts.sample_rate), None
     else:
         mic = MicStream(vcfg.input_device)
         player = AudioPlayer(tts.sample_rate, vcfg.output_device)
         ptt = PushToTalk(vcfg.ptt_hotkey) if vcfg.mode == "ptt" else None
+        player.start()   # open the speakers now, not on the first word (saves ~0.4 s)
     return brain, stt, tts, mic, player, vad, ptt
 
 
@@ -107,11 +112,17 @@ async def run(args) -> None:
         return
     loop = VoiceLoop(settings, brain, stt, tts, mic, player, vad, ptt,
                      make_printer(settings.assistant.name, settings.voice.latency_report or args.debug))
+    await loop.prewarm()
+    name = settings.assistant.name
     if ptt:
         ptt.start()
         print(f"Hold {settings.voice.ptt_hotkey.upper()} and speak. Release to send. Ctrl+C to quit.")
+    elif settings.voice.mode == "wake" and not args.wav:
+        print(f"Listening. Say \"{name}, ...\" (e.g. \"{name}, what time is it?\"). "
+              f"After a reply you can answer without the name for "
+              f"{settings.voice.wake.follow_up_s:.0f}s. Ctrl+C to quit.")
     elif not args.wav:
-        print("Open mic: just talk. (Use headphones until echo cancellation lands in Phase 3.) Ctrl+C to quit.")
+        print("Open mic: answers everything it hears. Ctrl+C to quit.")
     try:
         await loop.run(max_turns=1 if args.wav else None)
     finally:
@@ -191,7 +202,7 @@ async def mictest(seconds: float = 4.0, input_device: str | None = None) -> None
 
 def main(argv: list[str]) -> None:
     p = argparse.ArgumentParser(prog="assistant voice")
-    p.add_argument("--mode", choices=["ptt", "open_mic"], help="override voice.mode from config")
+    p.add_argument("--mode", choices=["wake", "open_mic", "ptt"], help="override voice.mode from config")
     p.add_argument("--input", help="microphone: number or part of the name (see: assistant devices)")
     p.add_argument("--output", help="speakers/headphones: number or part of the name")
     p.add_argument("--wav", help="use a WAV file as the microphone (one turn)")
