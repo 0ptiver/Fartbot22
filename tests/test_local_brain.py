@@ -387,10 +387,10 @@ async def test_ignored_nudge_is_not_said_twice(local_settings, ctx):
 
 
 async def test_honest_answer_after_nudge_is_spoken(local_settings, ctx):
-    brain, fake = make(local_settings, [text_reply("The video is now fullscreen, sir."),
-                                        text_reply("I can't make videos fullscreen, sir.")])
-    events = await collect(brain, Conversation(), "fullscreen the video", ctx)
-    assert events[-1].text.endswith("I can't make videos fullscreen, sir.")
+    brain, fake = make(local_settings, [text_reply("Discord is now minimized, sir."),
+                                        text_reply("I can't find a Discord window, sir.")])
+    events = await collect(brain, Conversation(), "minimize discord", ctx)
+    assert events[-1].text.endswith("I can't find a Discord window, sir.")
 
 
 async def test_answers_mentioning_closed_are_not_claims(local_settings, ctx):

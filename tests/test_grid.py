@@ -159,8 +159,8 @@ def test_grid_on_a_second_screen_clicks_there(settings):
     ("next screen", False, None),
     ("switch to the main screen", True, ("mouse_grid", {"action": "show", "screen": "main"})),
     # Owner's case: "Can you now hit play on the video on my screen?" got "I can't see your screen".
-    ("Can you now hit play on the video on my screen?", False, ("media_key", {"action": "play_pause"})),
-    ("Pause the video", False, ("media_key", {"action": "play_pause"})),
+    ("Can you now hit play on the video on my screen?", False, ("video", {"actions": ["play"]})),
+    ("Pause the video", False, ("video", {"actions": ["pause"]})),
 ])
 def test_phrases(text, visible, expected):
     assert match_intent(text, grid_visible=visible) == expected

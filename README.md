@@ -143,7 +143,7 @@ Speech stack (all switchable in `config/config.yaml` → `voice`):
 | "Nova, stand down" … "Nova, wake up" | kill switch / standby |
 | "Show the grid" … "click 14" / "zoom 14" / "double click 3" / "scroll down" / "hide the grid" | voice mouse (numbers work without "Nova" while the grid is showing) |
 | "Show the grid on screen 2" / "on the other monitor" … "next screen" | voice mouse on another screen (screen 1 = your main one) |
-| "Hit play on the video" / "pause the video" | media key (any browser or player) |
+| "Full screen the video and press play" / "pause the video" / "skip ahead" / "exit full screen" | `video`: finds the video playing in your browser by itself |
 | "Gaming mode" / "movie time" / "I'm heading out" / "goodnight" | routines (see below) |
 | "Work out the monthly payment on a $20k loan at 6% over 5 years" | `escalate` → Claude Opus 5 |
 

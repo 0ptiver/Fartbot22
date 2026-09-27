@@ -143,12 +143,47 @@ def grid_intent(t: str, visible: bool = False) -> tuple[str, dict] | None:
     return None
 
 
-# "Hit play on the video on my screen": the media key reaches YouTube/Netflix in any browser.
-_VIDEO = re.compile(
-    r"^(?:hit |press |click )?(?:play|pause|unpause|resume|stop)(?: on)? (?:the |this |my |that )?"
-    r"(?:video|youtube|youtube video|movie|film|clip|show|episode|stream)"
-    r"(?: (?:on|in) (?:my |the )?(?:screen|browser|firefox|chrome|edge|youtube))?$"
-    r"|^(?:hit|press) (?:play|pause)$")
+# Videos: "full screen the video and press play", "pause the video", "skip ahead".
+_VIDEO_NOUN = r"(?:video|youtube(?: video)?|movie|film|clip|show|episode|stream|netflix|twitch)"
+_VIDEO_WORDS = re.compile(r"\b" + _VIDEO_NOUN + r"\b|\bfull ?screen\b")
+_VIDEO_FILLER = re.compile(
+    r"\b(?:(?:on|in) (?:my |the )?(?:screen|browser|firefox|chrome|edge|youtube)|the|this|that|my|it|"
+    r"please|for me|now|again|on|in|of|" + _VIDEO_NOUN + r")\b")
+_VIDEO_ACTIONS = [
+    (r"(?:exit|leave|get out of|close|undo|stop|no|turn off|minimi[sz]e)(?: the)? full ?screen|un ?full ?screen|"
+     r"make (?:it )?small(?:er)?", "exit_fullscreen"),
+    (r"(?:make (?:it )?|go |put (?:it )?(?:in |on )?|set (?:it )?(?:to )?)?full ?screen|make (?:it )?bigger|"
+     r"maximi[sz]e", "fullscreen"),
+    (r"(?:hit |press |click |start |)(?:play(?:ing)?|resume|unpause|continue|keep playing)", "play"),
+    (r"(?:hit |press |click )?(?:pause|stop|hold)", "pause"),
+    (r"(?:un)?mute", "mute"),
+    (r"skip(?: ahead| forward)?|(?:go )?forward|fast forward", "forward"),
+    (r"(?:go )?back|rewind|skip back", "back"),
+    (r"(?:play )?(?:the )?next(?: one)?|skip to (?:the )?next", "next"),
+    (r"(?:play )?(?:the )?previous(?: one)?|(?:the )?last one", "previous"),
+]
+
+
+def video_intent(t: str) -> tuple[str, dict] | None:
+    """Only when a video (or fullscreen) is mentioned, or it's a bare 'hit play'/'press pause':
+    'pause' and 'next song' on their own belong to Spotify."""
+    if re.fullmatch(r"(?:hit|press) (?:play|pause)", t):
+        return "video", {"actions": ["play" if t.endswith("play") else "pause"]}
+    if not _VIDEO_WORDS.search(t):
+        return None
+    parts = [p for p in re.split(r"\s*(?:,|\band then\b|\bthen\b|\band\b|\balso\b)\s*", t) if p.strip()]
+    actions = []
+    for part in parts:
+        p = " ".join(_VIDEO_FILLER.sub(" ", part).split())
+        if not p and _VIDEO_WORDS.search(part):   # "the video" alone after a verb split off
+            continue
+        for pattern, action in _VIDEO_ACTIONS:
+            if re.fullmatch(pattern, p):
+                actions.append(action)
+                break
+        else:
+            return None                             # something we don't understand: the model decides
+    return ("video", {"actions": actions}) if actions else None
 
 
 def match_intent(text: str, grid_visible: bool = False) -> tuple[str, dict] | None:
@@ -161,8 +196,9 @@ def match_intent(text: str, grid_visible: bool = False) -> tuple[str, dict] | No
     grid = grid_intent(t, grid_visible)
     if grid:
         return grid
-    if _VIDEO.match(t):
-        return "media_key", {"action": "play_pause"}
+    video = video_intent(t)
+    if video:
+        return video
     for pattern, tool, args in _PC_RULES:
         if pattern.match(t):
             return tool, dict(args)

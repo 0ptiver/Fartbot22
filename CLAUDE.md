@@ -30,6 +30,7 @@ Branch: `claude/jarvis-voice-assistant-lhnfza` (commit and push there after ever
   - `expert.py` = hard tasks via the **official Claude Code CLI on the owner's subscription** (`claude -p`, task on stdin, API keys stripped from env, `--permission-mode dontAsk`, tools WebSearch/WebFetch/Read with Read confined to an empty workspace, `--strict-mcp-config`). Never use `--bare`: it ignores subscription login.
   - `llm.py` `Brain` = Claude API backend (optional, paid).
   - Vision ("what's on my screen") goes to Claude Code by default. A local VL model evicts the chat model from 8 GB VRAM.
+- `tools/video.py` browser video control: GSMTC media sessions via winrt (exact play/pause, title) + focus the browser window by title and press f/Esc/m/j/l. Fast path `intents.video_intent` splits "X and Y".
 - `tools/grid.py` voice mouse grid (Tk overlay thread + ctypes mouse; fast-path phrases in intents.grid_intent; no name needed while visible via VoiceLoop._grid_command). Preview the overlay under Xvfb with /usr/bin/python3.12 (has tkinter; the project venv doesn't).
 - `tools/pc.py` system_status/lock_pc/power(confirm)/cancel_shutdown/window/open_website (Win32 in swappable backends). `tools/routines.py` config-defined routines, registered last in build_registry.
 - `tools/` registry (JSON schema, risk safe/confirm/blocked, audit log `data/audit.jsonl`, remote policy), system (time/volume/open_app), screen, expert(escalate), web (DuckDuckGo via ddgs), music (Spotify + media keys).
