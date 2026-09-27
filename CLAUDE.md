@@ -42,7 +42,7 @@ Branch: `claude/jarvis-voice-assistant-lhnfza` (commit and push there after ever
 - `hud/`: the window, served from inside `assistant voice` on 127.0.0.1:8766 (per-run key in the URL fragment, Host/Origin checks, strict CSP, textContent only) and shown in an Edge `--app` window with its own profile. Layout (overhauled): left nav rail (Chat, Activity, Timers, Routines, Brain, Voice), centre page with a topbar (title, voice-lock pill, Subtitles, Wake word/Open mic), right "core" panel (orb, Stop/Stand down/Mic, confirm card, Up next, This PC vitals); under 860 px the rail moves to the bottom. SVG icon sprite in index.html, `--glow` CSS var follows Nova's state. `static/`: `hud.js` (orb, chat with tool chips, activity, timer cards, routines incl. taught ones, confirm card, vitals), `brain.js` (memory brain view), `voice.js` (Voice tab). `server.py` pushes status 10×/s, timers/routines once a second, vitals every 3 s (psutil + cached nvidia-smi). `test_every_element_the_scripts_use_is_on_the_page` guards the ids the scripts use. Window opens at 1180×760.
 - `remote/`: phone access. `auth.py` (PhoneAuth: scrypt password + own TOTP, secrets in keyring as PHONE_AUTH, per-device token hashes + on/off in data/phone.json, lockout), `server.py` (PhoneService binds to the Tailscale IP only and follows Tailscale up/down; `create_phone_app`: tailnet-peer + own-names Host checks, /api/login|logout|me, /ws with PhoneChat = core `Session(remote=True)` per device; fixed quick ACTIONS), `static/` (phone.html/js/css, manifest). The window's Phone page is `hud/static/phonesetup.js` + `phone_*` messages in hud/server.py. conftest redirects auth's files and turns keyring off.
 - `background.py` (supervisor `assistant background`, autostart via HKCU Run, log file, single-instance mutex) + `tray.py` (pystray icon in the state colour).
-- `integrations/spotify.py`: PKCE login, tokens in keyring. **Playback is parked** (see PLAN.md).
+- `integrations/spotify.py`: PKCE login, tokens in keyring, strict playback check (`NotPlaying`). `tools/music.play_music` then confirms via Windows' media list and falls back to the Spotify app's own Play button. `spotify test [song]` for diagnosis.
 - CLI: `python -m assistant {voice [--background|--no-hud]|background|autostart on|off|status|hud|chat|serve|doctor [--full]|models|ttsbench|mictest|devices|spotify ...|tools|routines|audit|secrets set NAME}`.
 - Data on the PC (git-ignored `data/`): audit.jsonl, reminders.json, memory.db, voice.json, learned.json, logs/, hud-url.txt, hud-browser/ (the window's browser profile).
 
@@ -58,13 +58,15 @@ Branch: `claude/jarvis-voice-assistant-lhnfza` (commit and push there after ever
 - Voiceprints of speech heard over Nova's own voice (speakers) match worse: the voice lock must be looser there, or the owner can't interrupt (owner's case). "Stop" while Nova is busy skips the lock.
 - The owner hates chatter: keep the spoken-sentence cap, the preamble hold in `LocalBrain.run_turn` (`_PREAMBLE`), and put common commands on the fast path (`intents.everyday_intent`).
 - pytest sometimes prints a Rust "panic in a function that cannot unwind" after all tests pass (a livekit tokio thread at interpreter exit, sandbox only). The results above it are what count.
+- **An API saying "OK" or even "playing" is not proof.** Check the local truth: Windows' media list (`video.MEDIA`, GSMTC) for play/pause and Spotify, window style + rect for full screen. Only then say it happened (owner's case, three times).
+- A maximised window covers a taskbar-less monitor: full screen also needs no caption/thick frame.
 - "Cancel" in game chat must not do anything: it only counts with the name, in the follow-up window, while Nova is busy, or while the grid, dictation or a lesson is active.
 
 ## Status (end of this session)
 - Phases 1–4 done and confirmed on the PC: voice (~0.9–1.3 s), barge-in and echo cancellation on speakers, confirmations, kill switch, files, timers, PC control, routines, HUD, grid on two screens, video control (incl. full screen after the focus fix), keyboard, click by name, numbers, dictation, memory + brain view, tray + autostart.
 - Phase 8 (the owner's picks) built: watchers, voice designer, live subtitles, teach by showing. The owner has used teach by showing (after the schema fix); watchers, the voice designer and subtitles aren't confirmed on the PC yet.
 - Polish pass done (owner: "he doesn't cancel and he freezes"): universal cancel, tool time limits, "One moment", tick, `media` pause of whatever is playing, "no, I meant X", robust window focus, fullscreen via the player's button with verification. The owner said "it works".
-- Spotify playback still parked (PLAN.md has the next steps).
+- Spotify playback reworked (polish pass 3); needs the owner's test.
 - HUD overhaul (command-centre layout) and phone access (Phase 6) built; neither seen on the PC yet.
 
 ## Next (the owner's menu; they pick)

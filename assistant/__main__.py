@@ -98,6 +98,32 @@ def main(argv: list[str] | None = None) -> None:
                 else:
                     print("Player: nothing active")
             asyncio.run(show())
+        elif sub == "test":
+            # Plays a song the way Nova does and prints what Spotify and Windows each say.
+            async def test():
+                from assistant.core.config import load_settings
+                from assistant.tools import music, video
+                from assistant.tools.registry import ToolContext, ToolError
+                query = " ".join(argv[1:]) or "Blinding Lights by The Weeknd"
+                ctx = ToolContext(load_settings())
+                print(f"Asking Nova to play: {query}")
+                try:
+                    print("Nova says: " + await music.play_music({"query": query}, ctx))
+                except ToolError as e:
+                    print("Nova says (failed): " + str(e))
+                sp = ctx.services.get("spotify")
+                print(f"Target: {getattr(sp, 'last_target', None)}")
+                print(f"Windows can see media: {video.MEDIA.available()}")
+                for m in await video.MEDIA.list():
+                    print(f"  Windows: {m.status} '{m.title}' by '{m.artist}' in {m.app}")
+                try:
+                    state = await sp._call("GET", "/me/player")
+                    item = (state or {}).get("item") or {}
+                    print(f"Spotify says: {'playing' if (state or {}).get('is_playing') else 'not playing'} "
+                          f"'{item.get('name', '-')}' on {((state or {}).get('device') or {}).get('name', '-')}")
+                except Exception as e:
+                    print(f"Spotify says: error {e}")
+            asyncio.run(test())
         elif sub == "logout":
             spotify.logout()
             print("Unlinked. (Also remove the app at spotify.com/account/apps to revoke it fully.)")
@@ -189,6 +215,7 @@ def main(argv: list[str] | None = None) -> None:
         print("  models              download speech models (VAD, TTS, Whisper)")
         print("  doctor [--full]     check setup (Ollama, Claude Code, models, audio)")
         print("  spotify login|logout|status|devices   link Nova to Spotify / see its devices")
+        print("  spotify test [song] play a song like Nova does and show what Spotify and Windows report")
         print("  tools               list tools and risk levels")
         print("  background          run Nova in the tray (no console), restarting it if it crashes")
         print("  autostart on|off    start Nova (in the tray) when you sign in to Windows")

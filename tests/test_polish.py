@@ -12,7 +12,7 @@ from assistant.core.conversation import Conversation
 from assistant.core.scheduler import Scheduler
 from assistant.tools import registry as R
 from assistant.tools import video as V
-from assistant.tools.registry import Risk, ToolContext
+from assistant.tools.registry import Risk, ToolContext, ToolError
 from assistant.voice.commands import is_cancel
 from assistant.voice.pipeline import tick
 from tests.fakes import text_msg, tool_msg
@@ -139,6 +139,8 @@ class FakeMedia:
 
     async def command(self, m, action):
         self.cmds.append((m.title, action))
+        if action in ("play", "pause"):
+            m.status = "playing" if action == "play" else "paused"      # a player that obeys
         return True
 
 
@@ -147,7 +149,6 @@ async def test_pause_means_whatever_is_playing(settings):
     spotify = V.Media(1, "Spotify.exe", "My Way", "", "paused")
     api = FakeMedia([spotify, video])
     assert await V.media({"action": "pause"}, ToolContext(settings), _media=api) == "Paused Lofi beats."
-    video.status = "paused"
     assert await V.media({"action": "pause"}, ToolContext(settings), _media=api) == "Nothing is playing."
     api2 = FakeMedia([V.Media(0, "Spotify.exe", "My Way", "", "playing")])
     assert (await V.media({"action": "play"}, ToolContext(settings), _media=api2)).endswith("already playing.")
@@ -171,3 +172,19 @@ async def test_corrections_are_the_request(settings, ctx):
     brain.registry.get("media").handler = fake_media
     await collect(brain, Conversation(), "No, I meant pause", ctx)
     assert ran == [{"action": "pause"}] and fake.requests == []
+
+
+
+async def test_pause_that_doesnt_happen_is_reported(settings, monkeypatch):
+    """A player that ignores Windows: the media key is tried, then Nova says it didn't work."""
+    from assistant.tools import music
+    pressed = []
+    monkeypatch.setattr(music, "press_media_key", pressed.append)
+
+    class Stubborn(FakeMedia):
+        async def command(self, m, action):
+            return True                                            # "accepted", nothing happens
+    video = V.Media(0, "firefox.exe", "Lofi beats", "", "playing")
+    with pytest.raises(ToolError, match="didn't pause"):
+        await V.media({"action": "pause"}, ToolContext(settings), _media=Stubborn([video]))
+    assert pressed == ["play_pause"]

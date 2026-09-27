@@ -398,11 +398,14 @@ def match_intent(text: str, grid_visible: bool = False, labels: bool = False) ->
         return daily
     if len(t.split()) <= 14 and _NOW_PLAYING_ANYWHERE.search(t):
         return "now_playing", {}
-    m = re.match(r"^play (.+?)(?: on spotify)?$", t)
+    if t in ("play", "play it", "play it again", "play again", "press play", "hit play", "play that", "play this"):
+        return "media", {"action": "play"}                  # resume what's paused (not a song called "it")
+    m = re.match(r"^(?:play|put on|throw on|stick on) (.+?)(?: on spotify)?$", t)
     if m:
         q = m.group(1).strip()
-        if q in ("music", "some music", "spotify", "my music", "something"):
+        if q in ("music", "some music", "spotify", "my music", "something", "some tunes", "a song"):
             return "media", {"action": "play"}
+        q = re.sub(r"^(?:something|anything|a song|some songs|some music|songs|music) by ", "", q)
         if re.fullmatch(r"(?:some of )?(?:my )?(?:liked songs|likes|favou?rites|favou?rite songs)", q):
             return "play_music", {"kind": "liked_songs"}
         if re.search(r"(?:last|recent|previous) (?:song|track|thing) i (?:listened to|played|heard)"

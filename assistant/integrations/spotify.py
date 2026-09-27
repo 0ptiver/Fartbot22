@@ -32,6 +32,10 @@ class SpotifyError(Exception):
     """A problem worth telling the user about, in plain words."""
 
 
+class NotPlaying(SpotifyError):
+    """Spotify took the request, but nothing (or the wrong thing) is playing."""
+
+
 class NotLinked(SpotifyError):
     pass
 
@@ -190,7 +194,7 @@ class Spotify:
             if attempt == 0 and self._open_app:
                 self._open_app()
             await asyncio.sleep(0.75)
-        raise SpotifyError("I couldn't find a Spotify player. Is the Spotify app open and signed in?")
+        raise NotPlaying("I couldn't find a Spotify player. Is the Spotify app open and signed in?")
 
     async def device_id(self) -> str:
         return (await self.device())["id"]
@@ -216,8 +220,12 @@ class Spotify:
 
     # --- actions -----------------------------------------------------------------------
     async def search_all(self, query: str, kind: str, limit: int = 10) -> list[dict]:
-        data = await self._call("GET", "/search", params={"q": query, "type": kind, "limit": limit})
-        return [i for i in ((data or {}).get(kind + "s") or {}).get("items", []) if i]
+        # market=from_token: results for the owner's country, so tracks that can't play there
+        # are marked (is_playable: false) and skipped instead of silently not playing.
+        data = await self._call("GET", "/search", params={"q": query, "type": kind, "limit": limit,
+                                                         "market": "from_token"})
+        return [i for i in ((data or {}).get(kind + "s") or {}).get("items", [])
+                if i and i.get("is_playable") is not False]
 
     async def search(self, query: str, kind: str) -> dict | None:
         items = await self.search_all(query, kind, 5)
@@ -244,6 +252,7 @@ class Spotify:
         return None
 
     async def play(self, query: str | None = None, kind: str = "auto") -> str:
+        self.last_target = None
         # Find the player while searching, instead of one after the other.
         device_task = asyncio.create_task(self.device())
         try:
@@ -289,6 +298,12 @@ class Spotify:
                 label = item["name"] + {"playlist": " (playlist)", "album": " (album)"}.get(item["type"], "")
         else:
             label = "where you left off"
+        # What was asked for, so the music tool can check what the PC is really playing.
+        title = None
+        if body.get("uris") and len(body["uris"]) == 1:
+            title = label.split(" by ")[0]
+        self.last_target = {"label": label, "title": title,
+                            "uri": body.get("context_uri") or (body.get("uris") or [None])[0]}
         device = await device_task
         await self._call("PUT", "/me/player/play", params={"device_id": device["id"]}, json=body)
         # Spotify answers "OK" even when the device then doesn't play (not ready, another
@@ -296,7 +311,7 @@ class Spotify:
         for attempt in range(3):
             await asyncio.sleep(self.verify_delay)
             state = await self._playing_now()
-            if state:
+            if state and _is_what_we_asked(state, body, title):
                 item = state["item"]
                 actual = f"{item.get('name')} by {', '.join(a['name'] for a in item.get('artists', [])[:2])}"
                 where = "" if _is_this_pc(device) else f" on {device.get('name', 'Spotify')}"
@@ -304,10 +319,10 @@ class Spotify:
                     return f"Playing {actual}{where} (Spotify's closest match)."
                 return f"Playing {label}{where}."
             if attempt == 0:
-                await self._call("PUT", "/me/player", json={"device_ids": [device["id"]], "play": False})
+                await self._call("PUT", "/me/player", json={"device_ids": [device["id"]], "play": True})
                 await asyncio.sleep(self.verify_delay)
                 await self._call("PUT", "/me/player/play", params={"device_id": device["id"]}, json=body)
-        raise SpotifyError(
+        raise NotPlaying(
             f"Spotify accepted the request, but nothing is playing on {device.get('name', 'your device')}. "
             "Is the Spotify app open on this PC and signed into the same account? "
             "Run 'python -m assistant spotify devices' to see what Spotify reports.")
@@ -357,6 +372,22 @@ class Spotify:
     async def me(self) -> str:
         data = await self._call("GET", "/me")
         return f"{data.get('display_name') or data.get('id')} ({data.get('product', '?')})"
+
+
+def _is_what_we_asked(state: dict, body: dict, name: str | None = None) -> bool:
+    """Spotify's servers happily say "playing" about the *old* song, or a stale state, while
+    the PC is silent (owner: "he keeps saying I'm playing this on Spotify but nothing
+    happens"). Only the thing we asked for counts (a relinked copy of the same song does)."""
+    item = state.get("item") or {}
+    if body.get("context_uri"):
+        return (state.get("context") or {}).get("uri") == body["context_uri"]
+    uris = body.get("uris")
+    if not uris:
+        return True                                         # "resume": anything playing
+    if item.get("uri") in uris or (item.get("linked_from") or {}).get("uri") in uris:
+        return True
+    # Relinked without saying so: the same song name counts.
+    return bool(name) and _simple(item.get("name", "")) == _simple(name)
 
 
 def _is_this_pc(device: dict) -> bool:

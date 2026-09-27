@@ -21,6 +21,7 @@ BROWSERS = ("firefox", "chrome", "msedge", "brave", "opera", "vivaldi", "arc", "
 MUSIC_APPS = ("spotify",)
 # YouTube-style keys; also work on most players (Netflix, Twitch, Prime use f/space/m).
 KEY_ACTIONS = {"fullscreen": "f", "exit_fullscreen": "escape", "mute": "m", "forward": "l", "back": "j"}
+SETTLE_S = 0.25            # between checks that play/pause really happened
 ACTIONS = ["play", "pause", "toggle", "fullscreen", "exit_fullscreen", "mute", "forward", "back",
            "next", "previous"]
 
@@ -66,6 +67,16 @@ class MediaBackend:
                              (props.artist if props else "") or "",
                              {4: "playing", 5: "paused", 3: "stopped"}.get(status, "other")))
         return out
+
+    def available(self) -> bool:
+        """Can Nova see what Windows is playing at all? (Windows, winrt installed.)"""
+        if sys.platform != "win32":
+            return False
+        import importlib.util
+        try:
+            return importlib.util.find_spec("winrt.windows.media.control") is not None
+        except ModuleNotFoundError:
+            return False
 
     async def command(self, media: Media, action: str) -> bool:
         s = self._sessions[media.id]
@@ -155,10 +166,20 @@ async def video(args: dict, ctx: ToolContext, _media: MediaBackend | None = None
             done.append("already paused")
             continue
         ok = await media_api.command(media, action)
-        if not ok:
-            raise ToolError(f"The video didn't accept '{action}'.")
         if action in ("play", "pause"):
-            media.status = "playing" if action == "play" else "paused"
+            # "Accepted" isn't "happened" (owner: "he says he played the video but nothing
+            # happens"). Check; if it didn't take, press the player's own button; else say so.
+            want = "playing" if action == "play" else "paused"
+            if not (ok and await _settled(media_api, media, want)):
+                if window is None:
+                    window = await asyncio.to_thread(find_video_window, media)
+                if window is None or not await _player_button(window, action, ctx) \
+                        or not await _settled(media_api, media, want):
+                    raise ToolError(f"I tried, but the video didn't {'start' if action == 'play' else 'pause'}. "
+                                    "Click on the video once, then ask again.")
+            media.status = want
+        elif not ok:
+            raise ToolError(f"The video didn't accept '{action}'.")
         done.append({"play": "playing", "pause": "paused", "toggle": "play/pause pressed",
                      "next": "next video", "previous": "previous video"}[action])
     what = f": {media.title}" if media and media.title else ""
@@ -166,7 +187,34 @@ async def video(args: dict, ctx: ToolContext, _media: MediaBackend | None = None
     return text[0].upper() + text[1:] + what + "."
 
 
-async def _click_button(window, names: tuple[str, ...], avoid: tuple[str, ...], ctx: ToolContext) -> bool:
+async def _settled(api: MediaBackend, media: Media, want: str, tries: int = 6) -> bool:
+    """Did the video really end up playing / paused? (Windows' list, re-read a few times.)"""
+    for _ in range(tries):
+        await asyncio.sleep(SETTLE_S)
+        for m in await api.list():
+            if m.app == media.app and m.title == media.title:
+                if m.status == want:
+                    return True
+                break
+        else:
+            return False                               # the video is gone
+    return False
+
+
+async def _player_button(window, action: str, ctx: ToolContext) -> bool:
+    """The player's own Play / Pause button (YouTube: "Play (k)"), else its key."""
+    from assistant.tools import pc
+    if not await asyncio.to_thread(pc.WINDOWS.focus, window.hwnd):
+        return False
+    await asyncio.sleep(0.2)
+    if await _click_button(window, (f"{action} k",), ("playlist", "play all", "next", "previous"), ctx, exact=action):
+        return True
+    await asyncio.to_thread(pc.WINDOWS.press, pc.KEYS["k" if "youtube" in window.title.lower() else "space"])
+    return True
+
+
+async def _click_button(window, names: tuple[str, ...], avoid: tuple[str, ...], ctx: ToolContext,
+                        exact: str | None = None) -> bool:
     """Click the player's own button (found by name, like 'Full screen (f)'). The F key only
     works when the page has the keyboard (not the search box), a button always does."""
     from assistant.tools import grid, uia
@@ -176,7 +224,8 @@ async def _click_button(window, names: tuple[str, ...], avoid: tuple[str, ...], 
         return False
     for e in elements:
         n = uia._norm(e.name).replace("fullscreen", "full screen")
-        if e.kind == "button" and any(n.startswith(x) for x in names) and not any(a in n for a in avoid):
+        if e.kind == "button" and (any(n.startswith(x) for x in names) or n == exact) \
+                and not any(a in n for a in avoid):
             g = grid.controller(ctx)
             await asyncio.to_thread(g.mouse.move, e.rect.x + e.rect.w // 2, e.rect.y + e.rect.h // 2)
             await asyncio.to_thread(g.mouse.click, "left", False)
@@ -249,7 +298,16 @@ async def media(args: dict, ctx: ToolContext, _media: MediaBackend | None = None
         target = paused[0]
     else:
         target = (playing or paused or items)[0]
-    if not await api.command(target, action):
+    ok = await api.command(target, action)
+    if action in ("play", "pause"):
+        want = "playing" if action == "play" else "paused"
+        if not (ok and await _settled(api, target, want)):
+            # Some players ignore Windows' request: the keyboard's play/pause key usually works.
+            from assistant.tools import music
+            await asyncio.to_thread(music.press_media_key, "play_pause")
+            if not await _settled(api, target, want):
+                raise ToolError(f"{_app_name(target)} didn't {'start' if action == 'play' else 'pause'}.")
+    elif not ok:
         raise ToolError(f"{_app_name(target)} didn't accept that.")
     name = f" {target.title}" if target.title else ""
     return {"pause": f"Paused{name}.", "play": f"Playing{name}.", "next": "Next.",

@@ -145,6 +145,14 @@ class Win:
     process: str
 
 
+WS_CAPTION, WS_THICKFRAME = 0x00C00000, 0x00040000
+
+
+def fullscreen_style(style: int) -> bool:
+    """No title bar and no resize border: how browsers and games look in full screen."""
+    return (style & WS_CAPTION) != WS_CAPTION and not style & WS_THICKFRAME
+
+
 class WindowBackend:
     """Win32 via ctypes. Replaced by a fake in tests."""
 
@@ -245,7 +253,12 @@ class WindowBackend:
         if not user32.GetMonitorInfoW(user32.MonitorFromWindow(hwnd, 2), ctypes.byref(info)):
             return False
         m = info.rcMonitor
-        return left <= m.left and top <= m.top and left + w >= m.right and top + h >= m.bottom
+        covers = left <= m.left and top <= m.top and left + w >= m.right and top + h >= m.bottom
+        # A maximised window covers the whole screen too when that screen has no taskbar (the
+        # owner's second monitor), which made Nova say "already full screen" and do nothing.
+        # Real full screen (a video, a game) also drops the title bar and resize border.
+        style = user32.GetWindowLongW(hwnd, -16)                          # GWL_STYLE
+        return covers and fullscreen_style(style)
 
     def active(self) -> Win | None:
         """The window the user is working in: the foreground one, unless that's Nova's own

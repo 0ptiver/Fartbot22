@@ -9,14 +9,21 @@ from assistant.tools.registry import ToolContext, ToolError
 
 
 class FakeMedia:
-    def __init__(self, items):
-        self.items, self.commands = items, []
+    """Like Windows' media list: a command changes the player's status, unless the player
+    ignores it (works=False: "accepted", nothing happens; the owner's case)."""
+
+    def __init__(self, items, works=True):
+        self.items, self.commands, self.works = items, [], works
 
     async def list(self):
-        return self.items
+        return [V.Media(m.id, m.app, m.title, m.artist, m.status) for m in self.items]
 
     async def command(self, media, action):
         self.commands.append((media.title, action))
+        if self.works and action in ("play", "pause"):
+            for m in self.items:
+                if m.title == media.title:
+                    m.status = "playing" if action == "play" else "paused"
         return True
 
 
@@ -26,6 +33,7 @@ class FakeWindows:
     def __init__(self, wins, focus_ok=True, f_works=True):
         self.wins, self.calls, self.full = wins, [], False
         self.focus_ok, self.f_works = focus_ok, f_works
+        self.on_k = None
 
     def list(self):
         return self.wins
@@ -42,14 +50,23 @@ class FakeWindows:
 
     def press(self, vk):
         self.calls.append(("press", vk))
+        if vk == pc.KEYS["k"] and self.on_k:
+            self.on_k()
         if vk == pc.KEYS["f"] and self.f_works:
             self.full = not self.full
         if vk == pc.KEYS["escape"]:
             self.full = False
 
 
-YT = V.Media(0, "308046B0AF4A39CB", "Streamer Gets STALKED by Lil Vape!", "MoreCrown", "paused")
-SPOTIFY = V.Media(1, "Spotify.exe", "My Way", "Kanye West", "playing")
+def yt():
+    return V.Media(0, "308046B0AF4A39CB", "Streamer Gets STALKED by Lil Vape!", "MoreCrown", "paused")
+
+
+def spotify():
+    return V.Media(1, "Spotify.exe", "My Way", "Kanye West", "playing")
+
+
+YT, SPOTIFY = yt(), spotify()
 WINDOWS = [pc.Win(1, "Nova", "msedge.exe"),                                  # the HUD: never this
            pc.Win(2, "Windows PowerShell", "WindowsTerminal.exe"),
            pc.Win(3, "(1) Streamer Gets STALKED by Lil Vape! - YouTube — Mozilla Firefox", "firefox.exe")]
@@ -73,7 +90,7 @@ async def test_owners_case_fullscreen_then_play(settings, wins):
     """'Can you full screen the video and press play' got 'I don't know which video you mean'."""
     intent = match_intent("Can you full screen the video and press play")
     assert intent == ("video", {"actions": ["fullscreen", "play"]})
-    media = FakeMedia([SPOTIFY, YT])
+    media = FakeMedia([spotify(), yt()])
     out = await V.video(intent[1], ToolContext(settings), _media=media)
     assert out == "Full screen, playing: Streamer Gets STALKED by Lil Vape!."
     assert wins.calls[:2] == [("show", 3, "focus"), ("press", pc.KEYS["f"])]   # Firefox, not Nova
@@ -179,3 +196,29 @@ async def test_window_that_wont_come_forward_says_so(settings, wins):
     with pytest.raises(ToolError, match="wouldn't let me switch"):
         await V.video({"actions": ["fullscreen"]}, ToolContext(settings), _media=FakeMedia([YT]))
     assert not any(c[0] == "press" for c in wins.calls)            # never presses keys blind
+
+
+
+async def test_play_that_doesnt_happen_is_not_reported_as_done(settings, wins):
+    """Owner: "he keeps saying I played the video but he isn't doing anything". Windows
+    'accepts' the play but the video stays paused: Nova presses the player's own key, and
+    if that doesn't work either it says so."""
+    media = FakeMedia([yt()], works=False)
+    with pytest.raises(ToolError, match="didn't start"):
+        await V.video({"actions": ["play"]}, ToolContext(settings), _media=media)
+    assert ("press", pc.KEYS["k"]) in wins.calls                   # tried YouTube's own key
+
+
+async def test_players_own_key_rescues_play(settings, wins):
+    media = FakeMedia([yt()], works=False)
+    wins.on_k = lambda: setattr(media.items[0], "status", "playing")
+    out = await V.video({"actions": ["play"]}, ToolContext(settings), _media=media)
+    assert out.startswith("Playing")
+
+
+def test_a_maximised_window_is_not_full_screen():
+    """Owner's second screen has no taskbar: a maximised Firefox covers it all, which counted
+    as full screen, so 'full screen the video' did nothing and said it was done."""
+    maximised = 0x16CF0000          # WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_MAXIMIZE
+    video_full_screen = 0x96000000  # WS_POPUP | WS_VISIBLE | WS_CLIPSIBLINGS
+    assert not pc.fullscreen_style(maximised) and pc.fullscreen_style(video_full_screen)

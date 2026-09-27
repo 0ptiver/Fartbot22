@@ -78,3 +78,14 @@ def test_everyday_commands_skip_the_model(text, expected):
     """Owner: "he talks a ton instead of just doing". The commonest commands are done
     directly and answered with the tool's own short result."""
     assert match_intent(text) == expected
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("play it", ("media", {"action": "play"})),                  # not a song called "it"
+    ("play", ("media", {"action": "play"})),
+    ("put on some drake", ("play_music", {"query": "drake", "kind": "auto"})),
+    ("play something by drake", ("play_music", {"query": "drake", "kind": "auto"})),
+    ("put on my discover weekly playlist", ("play_music", {"query": "discover weekly", "kind": "playlist"})),
+])
+def test_music_phrasings(text, expected):
+    assert match_intent(text) == expected

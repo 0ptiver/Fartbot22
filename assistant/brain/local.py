@@ -213,6 +213,9 @@ class LocalBrain:
                     # twice the talking. A round that starts like a preamble is held back and
                     # dropped if it calls a tool (the result gets confirmed instead).
                     lead: list[TextDelta] | None = [] if allow_tools and not hold else None
+                    # Asked to *do* something: say nothing until it's clear whether a tool was
+                    # used, so a false "done" is never spoken (it gets nudged instead).
+                    doing = not tools_used and _is_action_request(user_text)
                     try:
                         async for ev in self._model_round(conv, allow_tools, out, timings, usage, t0):
                             if hold:
@@ -223,7 +226,7 @@ class LocalBrain:
                                 so_far = "".join(e.text for e in lead).lstrip()
                                 if len(so_far.split()) < 3 and not re.search(r"[.!?,]", so_far):
                                     continue                 # too early to tell
-                                if _PREAMBLE.match(so_far):
+                                if doing or _PREAMBLE.match(so_far):
                                     continue                 # keep holding until the round ends
                                 pending, lead = lead, None
                                 for e in pending:
@@ -239,7 +242,9 @@ class LocalBrain:
                     except _RetryWithoutThink:
                         continue
                     text_parts, calls = out.text, out.calls
-                    if lead and not calls:           # held preamble, but no tool: it was the answer
+                    claimed = lead and not calls and not nudged and _acts_without_tools(
+                        "".join(e.text for e in lead), user_text)
+                    if lead and not calls and not claimed:   # held text, but no tool: it was the answer
                         for e in lead:
                             if first:
                                 e, first = _spaced(e, spoken), False
@@ -459,7 +464,12 @@ _CLAIM = re.compile(
     r"cancel(?:l)?ed|turned (?:on|off)|switched (?:on|off)|up|down)\b"
     r"|\bi(?:'?ve| have)\s+(?:now\s+|just\s+|also\s+)?(?:opened|closed|minimi[sz]ed|maximi[sz]ed|paused|unpaused|"
     r"resumed|started|set|turned|switched|muted|locked|played|cancel(?:l)?ed|done)\b"
-    r"|\b\w+ing\b[^.]{0,80}\b(?:is|are) (?:now )?done\b", re.I)
+    r"|\b\w+ing\b[^.]{0,80}\b(?:is|are) (?:now )?done\b"
+    # Owner: "he keeps saying I played and full screened the video but isn't doing anything".
+    r"|\bi\s+(?:just\s+|also\s+)?(?:opened|closed|paused|unpaused|played|resumed|started|put|made|turned|"
+    r"switched|launched|skipped|full[- ]?screened|maximi[sz]ed|minimi[sz]ed|muted|locked)\b"
+    r"|\bi(?:'?ve| have)\s+(?:now\s+|just\s+|also\s+)?(?:launched|skipped|put|made|full[- ]?screened)\b"
+    r"|\b(?:is|are)\s+(?:now\s+)?playing\b|(?:^|[.!?]\s+)(?:now\s+)?playing\s+\w", re.I)
 
 NUDGE = ("(Note from the system, not the user: you said you would do that but did not call a "
          "tool. Call the right tool now. If no tool can do it, say so in one short sentence.)")
@@ -470,8 +480,12 @@ NUDGE_CLAIM = ("(Note from the system, not the user: you said it was done, but y
 
 _ACTION_REQUEST = re.compile(
     r"\b(?:open|close|minimi[sz]e|maximi[sz]e|pause|unpause|resume|play|turn|set|mute|unmute|lock|"
-    r"full\s?screen|start|stop|switch|launch|cancel|volume|skip|show|hide|search|remind)\b", re.I)
+    r"full\s?screen|start|stop|switch|launch|cancel|volume|skip|show|hide|search|remind|put|make|go)\b", re.I)
 _QUESTION = re.compile(r"^\W*(?:is|are|was|were|does|do|did|when|what|where|why|how|which|who)\b", re.I)
+
+
+def _is_action_request(request: str) -> bool:
+    return bool(_ACTION_REQUEST.search(request)) and not _QUESTION.match(request)
 
 
 def _acts_without_tools(text: str, request: str | None = None) -> bool:

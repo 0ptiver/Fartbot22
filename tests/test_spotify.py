@@ -296,3 +296,116 @@ async def test_this_pc_name_is_not_spoken(secrets, monkeypatch):
     import socket
     monkeypatch.setattr(socket, "gethostname", lambda: "PC")
     assert await FakeSpotify().client().play("gods plan") == "Playing God's Plan by Drake."
+
+
+# --- what the PC really plays (owner: "he keeps saying I'm playing this on Spotify but nothing is happening")
+class WindowsMedia:
+    """Windows' list of what's playing (the volume pop-up's list)."""
+
+    def __init__(self, items=(), available=True):
+        self.items, self._available = list(items), available
+
+    def available(self):
+        return self._available
+
+    async def list(self):
+        return list(self.items)
+
+
+@pytest.fixture
+def pc_media(monkeypatch):
+    from assistant.tools import video
+    fake = WindowsMedia()
+    monkeypatch.setattr(video, "MEDIA", fake)
+    monkeypatch.setattr(music, "HEAR_S", 0)
+    return fake
+
+
+def spotify_ctx(ctx, fake):
+    ctx.services["spotify"] = fake.client()
+    return ctx
+
+
+async def test_said_playing_only_when_the_pc_plays_it(secrets, ctx, pc_media):
+    from assistant.tools.video import Media
+    pc_media.items = [Media(0, "Spotify.exe", "God's Plan", "Drake", "playing")]
+    out = await music.play_music({"query": "gods plan"}, spotify_ctx(ctx, FakeSpotify()))
+    assert out.startswith("Playing God's Plan by Drake")
+
+
+async def test_spotify_says_ok_but_the_pc_is_silent(secrets, ctx, pc_media, monkeypatch):
+    from assistant.tools.video import Media
+    pc_media.items = [Media(0, "Spotify.exe", "Old Song", "Someone", "paused")]
+    tried = []
+
+    async def app_button(target, ctx):
+        tried.append(target["uri"])
+        return False                                   # couldn't press Play in the app either
+    monkeypatch.setattr(music, "play_in_app", app_button)
+    with pytest.raises(ToolError, match="didn't start playing God's Plan"):
+        await music.play_music({"query": "gods plan"}, spotify_ctx(ctx, FakeSpotify()))
+    assert tried == ["spotify:track:1"]
+
+
+async def test_the_apps_own_play_button_rescues_it(secrets, ctx, pc_media, monkeypatch):
+    from assistant.tools.video import Media
+    pc_media.items = [Media(0, "Spotify.exe", "Old Song", "Someone", "paused")]
+
+    async def app_button(target, ctx):
+        pc_media.items = [Media(0, "Spotify.exe", "God's Plan", "Drake", "playing")]
+        return True
+    monkeypatch.setattr(music, "play_in_app", app_button)
+    out = await music.play_music({"query": "gods plan"}, spotify_ctx(ctx, FakeSpotify(starts=False)))
+    assert out == "Playing God's Plan by Drake."
+
+
+async def test_stale_old_song_is_not_success(secrets):
+    """Spotify's servers still say the old song is playing: that's not the new one."""
+    fake = FakeSpotify(starts=False)
+    fake.state = {"is_playing": True, "item": {"uri": "spotify:track:old", "name": "Old Song",
+                                               "artists": [{"name": "Someone"}]}, "context": None}
+    with pytest.raises(sp.NotPlaying):
+        await fake.client().play("gods plan")
+
+
+async def test_without_windows_media_spotifys_word_is_used(secrets, ctx, pc_media):
+    pc_media._available = False
+    out = await music.play_music({"query": "gods plan"}, spotify_ctx(ctx, FakeSpotify()))
+    assert out.startswith("Playing God's Plan")
+
+
+def test_play_button_is_the_pages_not_the_player_bars(monkeypatch):
+    from types import SimpleNamespace as NS
+
+    from assistant.tools import pc
+    monkeypatch.setattr(pc, "WINDOWS", NS(rect=lambda h: (0, 0, 1000, 800)))
+    R = lambda y: NS(x=10, y=y, w=40, h=40)
+    bar = NS(kind="button", name="Play", rect=R(740))                 # bottom player bar: old song
+    big = NS(kind="button", name="Play", rect=R(300))                 # the page's green button
+    row = NS(kind="button", name="Play God's Plan by Drake", rect=R(450))
+    win = NS(hwnd=1)
+    assert music.pick_play_button([bar, big], None, win) is big
+    assert music.pick_play_button([bar, big, row], "God's Plan", win) is row
+    assert music.pick_play_button([bar], None, win) is None
+
+
+async def test_search_skips_songs_that_cant_play_here(secrets):
+    class Unplayable(FakeSpotify):
+        def handler(self, req):
+            if req.url.path == "/v1/search" and req.url.params["type"] == "track":
+                return httpx.Response(200, json={"tracks": {"items": [
+                    {"type": "track", "uri": "spotify:track:x", "name": "God's Plan", "is_playable": False,
+                     "artists": [{"name": "Drake"}]},
+                    {"type": "track", "uri": "spotify:track:1", "name": "God's Plan", "artists": [{"name": "Drake"}]}]}})
+            return super().handler(req)
+    fake = Unplayable()
+    await fake.client().play("gods plan", "track")
+    play = [c for c in fake.calls if c[1] == "/v1/me/player/play"][0]
+    assert play[3] == {"uris": ["spotify:track:1"]}
+
+
+async def test_search_asks_for_this_country(secrets):
+    fake = FakeSpotify()
+    await fake.client().play("gods plan")
+    search = [c for c in fake.calls if c[1] == "/v1/search"][0]
+    assert search[2]["market"] == "from_token"

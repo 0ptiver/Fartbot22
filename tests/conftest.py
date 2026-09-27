@@ -45,3 +45,10 @@ def _no_real_phone_auth(tmp_path, monkeypatch):
     monkeypatch.setattr(auth, "USE_KEYRING", False)
     monkeypatch.setattr(auth, "CRED_FILE", tmp_path / "phone_auth.json")
     monkeypatch.setattr(auth, "STATE_FILE", tmp_path / "phone.json")
+
+
+@pytest.fixture(autouse=True)
+def _quick_media_checks(monkeypatch):
+    """Play/pause are re-checked a few times on the PC; no need to wait in tests."""
+    from assistant.tools import video
+    monkeypatch.setattr(video, "SETTLE_S", 0)

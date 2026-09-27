@@ -267,7 +267,8 @@ async def test_promise_without_action_is_nudged(local_settings, ctx):
     events = await collect(brain, conv, "how late is it", ctx)
     assert any(isinstance(e, ToolFinished) and e.name == "get_time" for e in events)
     assert "did not call a tool" in fake.requests[1][1]["messages"][-1]["content"]
-    assert events[-1].text == "I'll check that for you, sir. It is noon."
+    # The empty promise isn't read out: only what actually happened.
+    assert events[-1].text == "It is noon."
 
 
 async def test_no_nudge_for_plain_answers(local_settings, ctx):
@@ -384,7 +385,8 @@ async def test_ignored_nudge_is_not_said_twice(local_settings, ctx):
         "I will now unpause YouTube and minimize the PowerShell window. The video will be fullscreen shortly.")])
     events = await collect(brain, Conversation(), "unpause it and minimize the PowerShell window", ctx)
     said = "".join(e.text for e in events if isinstance(e, TextDelta))
-    assert said == OWNERS_CLAIM + " Sorry, sir, I wasn't able to do that."
+    # The false "done" is never read out now (owner: "he keeps saying he did it but didn't").
+    assert said == "Sorry, sir, I wasn't able to do that."
     assert said.count("I will now") == 0
 
 
@@ -431,3 +433,21 @@ async def test_normal_answers_stream_straight_away(local_settings, ctx):
     brain, fake = make(local_settings, [text_reply("Paris is the capital, sir.")])
     events = await collect(brain, Conversation(), "capital of france?", ctx)
     assert "".join(e.text for e in events if isinstance(e, TextDelta)) == "Paris is the capital, sir."
+
+
+@pytest.mark.parametrize("said,asked", [
+    ("I played and full screened the video, sir.", "play and full screen the video"),
+    ("Playing Blinding Lights on Spotify, sir.", "put on blinding lights"),
+    ("Blinding Lights is now playing.", "put on blinding lights"),
+    ("I opened Discord.", "open discord please"),
+])
+def test_claims_without_a_tool_are_caught(said, asked):
+    """Owner: "he keeps saying I played and full screened the video but he isn't doing anything"."""
+    from assistant.brain.local import _acts_without_tools
+    assert _acts_without_tools(said, asked)
+
+
+def test_answers_are_not_claims():
+    from assistant.brain.local import _acts_without_tools
+    assert not _acts_without_tools("Playing football is fun.", "do you like sports?")
+    assert not _acts_without_tools("The capital is Paris.", "what is the capital of france")
