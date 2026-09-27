@@ -45,6 +45,7 @@ const NovaHome = (() => {
     cancel_watch: ["i-eye", "violet", () => "Stopping a watch", "wNext"],
     web_search: ["i-search", "violet", (a) => `Searching the web for ${q(a.query)}`],
     escalate: ["i-spark", "violet", () => "Asking Claude"],
+    summarize_page: ["i-spark", "violet", (a) => a.question ? "Asking Claude about this page" : "Having Claude read this page"],
     look_at_screen: ["i-eye", "violet", () => "Looking at your screen"],
     remember: ["i-brain", "pink", (a) => `Remembering ${q(a.text)}`, "wMem"],
     forget: ["i-brain", "pink", () => "Forgetting something", "wMem"],

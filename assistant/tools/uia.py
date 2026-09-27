@@ -102,10 +102,10 @@ UIA = UIABackend()
 _URLISH = re.compile(r"^(?:https?://)?(?:[\w-]+\.)+[a-z]{2,}(?:[/?#:]\S*)?$", re.I)
 
 
-def current_url() -> str:
-    """The address of the page in the browser you're using."""
+def current_url(w=None) -> str:
+    """The address of the page in the browser you're using (or in window `w`)."""
     from assistant.tools import pc
-    w = pc.active_window()
+    w = w or pc.active_window()
     if w.process.lower().removesuffix(".exe") not in ("firefox", "chrome", "msedge", "brave", "opera", "vivaldi"):
         raise ToolError("Open the page in your browser first, then ask again.")
     for v in UIA.edit_values(w.hwnd):

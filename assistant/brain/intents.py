@@ -411,6 +411,15 @@ def everyday_intent(t: str) -> tuple[str, dict] | None:
                         r"|how much (?:" + words + r") (?:do i have|is left|have i got|am i using|is being used|is in use|is used)(?: left)?"
                         r"|(?:" + words + r") usage", t):
             return "system_status", {"what": what}
+    page = r"(?:this|the|that) (?:page|article|site|website|web page|post|thread|video|story)"
+    if re.fullmatch(r"(?:summari[sz]e|sum up|give me (?:a )?(?:summary|tl ?dr|rundown|quick summary) of|tl ?dr"
+                    r"|explain|read me|what(?:'?s| is)(?: the gist of)?) " + page + r"(?: about)?(?: for me)?"
+                    r"|(?:summari[sz]e|sum up|tl ?dr)(?: it| this| that)?|sum (?:it|this|that) up|what(?:'?s| is) (?:the )?(?:gist|summary)", t):
+        return "summarize_page", {}
+    if m := re.fullmatch(r"(?:what|who|when|where|how|why|which|does|is|are)(?: .+)? (?:on|in) " + page + r"(?: say)?"
+                         r"|what does " + page + r" say about (?P<about>.+)", t):
+        q = f"what does it say about {m.group('about')}" if m.group("about") else t
+        return "summarize_page", {"question": q}
     if re.fullmatch(r"(?:empty|clear|clean out|clean) (?:out )?(?:the |my )?(?:recycle bin|recycling bin|bin|trash)", t):
         return "empty_recycle_bin", {}
     # Folders: "open my downloads (folder)"
