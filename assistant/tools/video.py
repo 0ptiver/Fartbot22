@@ -50,11 +50,11 @@ class MediaBackend:
         try:
             from winrt.windows.media.control import (
                 GlobalSystemMediaTransportControlsSessionManager as Manager)
-        except ImportError:
-            log.warning("winrt not installed: run scripts\\update.ps1")
+            mgr = await Manager.request_async()
+            self._sessions = list(mgr.get_sessions())
+        except ImportError as e:   # a winrt piece missing: carry on with keys and the media key
+            log.warning("media sessions unavailable (%s): run scripts\\update.ps1", e)
             return []
-        mgr = await Manager.request_async()
-        self._sessions = list(mgr.get_sessions())
         out = []
         for i, s in enumerate(self._sessions):
             try:

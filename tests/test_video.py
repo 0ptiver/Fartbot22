@@ -115,3 +115,13 @@ def test_video_phrases(text, actions):
 def test_not_video_phrases(text):
     r = match_intent(text)
     assert r is None or r[0] != "video"
+
+
+async def test_missing_winrt_piece_degrades_instead_of_crashing(settings, wins, monkeypatch):
+    """Owner's case: 'No module named winrt.windows.foundation.collections' was spoken as the reply."""
+    monkeypatch.setattr(V.sys, "platform", "win32")          # winrt isn't installed here: ImportError
+    assert await V.MediaBackend().list() == []
+    pressed = []
+    monkeypatch.setattr(music, "press_media_key", pressed.append)
+    out = await V.video({"actions": ["fullscreen", "play"]}, ToolContext(settings), _media=V.MediaBackend())
+    assert out.startswith("Fullscreen") and pressed == ["play_pause"]

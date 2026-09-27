@@ -201,6 +201,18 @@ async def check(full: bool) -> int:
     except Exception:
         line(WARN, "echo cancellation unavailable", "pip install livekit  (Nova may hear itself on speakers)")
 
+    if sys.platform == "win32":
+        try:
+            import importlib
+            importlib.import_module("winrt.windows.foundation.collections")   # get_sessions needs it
+            from winrt.windows.media.control import (
+                GlobalSystemMediaTransportControlsSessionManager as Media)
+            n = len(list((await Media.request_async()).get_sessions()))
+            line(OK, f"video control ready (Windows lists {n} media session{'s' if n != 1 else ''})")
+        except Exception as e:
+            line(WARN, "video control limited (play/pause falls back to the media key)",
+                 f"{type(e).__name__}: {e}. Run scripts\\update.ps1")
+
     from assistant.integrations.spotify import Spotify
     line(OK if Spotify.linked() else WARN, "Spotify " + ("linked" if Spotify.linked() else "not linked"),
          "" if Spotify.linked() else "for music control: python -m assistant spotify login")
