@@ -7,7 +7,8 @@ from __future__ import annotations
 import re
 
 _LEAD = re.compile(r"^(?:(?:hey|ok|okay|so|um|uh|please|can you|could you|would you|will you|"
-                   r"go ahead and|just|tell me|do you know|now|actually|also|then|and)\s+)+")
+                   r"go ahead and|just|tell me|do you know|now|actually|also|then|and|"
+                   r"i want you to|i need you to|i'd like you to|i would like you to)\s+)+")
 # "What's playing?" asked inside a longer sentence ("I'm playing a song, tell me what's playing").
 _NOW_PLAYING_ANYWHERE = re.compile(
     r"\bwhat(?:'?s| is)(?: currently)? playing\b|\bwhat song is (?:this|playing)\b"
@@ -400,7 +401,8 @@ def match_intent(text: str, grid_visible: bool = False, labels: bool = False) ->
         return "now_playing", {}
     if t in ("play", "play it", "play it again", "play again", "press play", "hit play", "play that", "play this"):
         return "media", {"action": "play"}                  # resume what's paused (not a song called "it")
-    m = re.match(r"^(?:play|put on|throw on|stick on) (.+?)(?: on spotify)?$", t)
+    m = re.match(r"^(?:(?:open|go (?:on|to)|launch|start) spotify and |on spotify )?"
+                 r"(?:play|put on|throw on|stick on) (.+?)(?: on spotify)?$", t)
     if m:
         q = m.group(1).strip()
         if q in ("music", "some music", "spotify", "my music", "something", "some tunes", "a song"):

@@ -89,3 +89,10 @@ def test_everyday_commands_skip_the_model(text, expected):
 ])
 def test_music_phrasings(text, expected):
     assert match_intent(text) == expected
+
+
+def test_open_spotify_and_play_is_one_command():
+    """Owner's case: 'open spotify and play my way by kanye west' went to the model, which
+    opened Spotify, failed to play, and then gave made-up advice."""
+    assert match_intent("I want you to open spotify and play my way by Kanye West") == \
+        ("play_music", {"query": "my way by kanye west", "kind": "auto"})

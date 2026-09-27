@@ -101,3 +101,8 @@ def test_kokoro_session_falls_back_to_cpu():
     expected = "CUDAExecutionProvider" if cuda_available() else "CPUExecutionProvider"
     assert sess.get_providers()[0] == expected
     assert make_session(silero_path(), "cpu").get_providers() == ["CPUExecutionProvider"]
+
+
+def test_the_blind_media_toggle_is_hidden_from_the_model(registry):
+    """Owner's case: it pressed play/pause and restarted a paused video."""
+    assert registry._tools["media_key"].internal

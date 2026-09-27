@@ -221,5 +221,7 @@ def register(reg: ToolRegistry) -> None:
         "next, previous, stop, mute. Prefer music_control for Spotify.",
         {"type": "object", "properties": {"action": {"type": "string", "enum": list(_VK)}},
          "required": ["action"], "additionalProperties": False},
-        risk=Risk.SAFE, category="music",
+        # Hidden from the model: a blind toggle. Asked to pause the video and play a song, it
+        # pressed it and restarted the video (owner's case). The `media` tool is exact.
+        risk=Risk.SAFE, category="music", internal=True,
     )(media_key)
