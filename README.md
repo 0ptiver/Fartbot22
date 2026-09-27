@@ -141,9 +141,18 @@ Speech stack (all switchable in `config/config.yaml` → `voice`):
 | "Set a timer for 10 minutes for the pasta" / "remind me at 7 pm to call mum" | timers (announced with a chime) |
 | "Find my tax return" / "read my shopping list" | `find_files`, `read_file` (your own folders only) |
 | "Nova, stand down" … "Nova, wake up" | kill switch / standby |
+| "Gaming mode" / "movie time" / "I'm heading out" / "goodnight" | routines (see below) |
 | "Work out the monthly payment on a $20k loan at 6% over 5 years" | `escalate` → Claude Opus 5 |
 
 `/reset` clears the conversation. `/quit` exits. `Ctrl+C` interrupts a reply.
+
+### Routines
+
+One phrase runs several steps. Built in: **gaming mode** (Steam + Discord, volume 60), **movie time**
+(pause music, volume 80, Netflix), **I'm heading out** (pause music, lock), **goodnight** (pause music,
+volume 20, sleep, which asks first). Add your own in `config/local.yaml` (example in
+`config/local.example.yaml`), then check them with `.venv\Scripts\python -m assistant routines`.
+Routine steps follow the same safety rules as asking for each step separately.
 
 ## Configuration
 

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+
 from assistant.core.config import Settings
-from assistant.tools import expert, files, music, pc, screen, system, timers, web
+from assistant.tools import expert, files, music, pc, routines, screen, system, timers, web
 from assistant.tools.registry import AuditLog, ToolRegistry
 
 TOOL_MODULES = [system, screen, expert, music, files, timers, pc]
@@ -16,4 +18,8 @@ def build_registry(settings: Settings, audit: AuditLog | None = None) -> ToolReg
     # The Claude API brain has Claude's own web search; the local brain uses a free one.
     if settings.brain.backend == "local" and settings.brain.web_search.enabled:
         web.register(reg)
+    # Last, so routine steps can be checked against every other tool.
+    routines.register(reg)
+    for problem in routines.problems(settings, reg):
+        logging.getLogger(__name__).warning("routine config: %s", problem)
     return reg

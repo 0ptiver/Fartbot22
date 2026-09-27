@@ -9,3 +9,14 @@ voice:
 # brain:
 #   local:
 #     model: qwen3:8b
+
+# Your own routines (see the examples at the bottom of config/config.yaml):
+# routines:
+#   study_mode:
+#     phrases: ["study mode", "time to study"]
+#     reply: "Study mode. Good luck."
+#     steps:
+#       - {tool: window, args: {action: close, app: discord}}
+#       - {tool: play_music, args: {query: lofi beats, kind: playlist}}
+#       - {tool: set_timer, args: {minutes: 45, label: study}}
+#   movie_time: null           # switch off a built-in routine

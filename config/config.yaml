@@ -129,3 +129,38 @@ safety:
   # Tools refused outright for remote clients (phone / other PCs).
   remote_blocked_tools: [run_shell, delete_file, move_file, power]
   audit_log: data/audit.jsonl
+
+# Routines: one phrase runs several steps. Say "Nova, gaming mode" (or "Nova, start gaming mode").
+# Each step is a tool (list them with: python -m assistant tools) or a pause (wait: seconds).
+# Steps still ask before anything risky (e.g. sleep). optional: true = don't mention if it fails.
+# Add your own in config/local.yaml under "routines:"; set one to null to switch it off.
+# Check them with: python -m assistant routines
+routines:
+  gaming_mode:
+    phrases: ["gaming mode", "game mode", "time to game", "let's game"]
+    reply: "Gaming mode. Steam and Discord are on their way."
+    steps:
+      - {tool: open_app, args: {name: steam}}
+      - {tool: open_app, args: {name: discord}}
+      - {tool: volume, args: {action: set, level: 60}}
+  movie_time:
+    phrases: ["movie time", "movie mode", "movie night"]
+    reply: "Enjoy the film."
+    steps:
+      - {tool: music_control, args: {action: pause}, optional: true}
+      - {tool: volume, args: {action: set, level: 80}}
+      - {tool: open_website, args: {site: netflix}}
+  heading_out:
+    phrases: ["i'm heading out", "heading out", "i'm going out", "i'm off", "i'm leaving"]
+    reply: "Very good. See you soon."
+    steps:
+      - {tool: music_control, args: {action: pause}, optional: true}
+      - {wait: 2}
+      - {tool: lock_pc}
+  goodnight:
+    phrases: ["goodnight", "good night", "i'm going to bed", "bedtime"]
+    reply: "Goodnight."
+    steps:
+      - {tool: music_control, args: {action: pause}, optional: true}
+      - {tool: volume, args: {action: set, level: 20}}
+      - {tool: power, args: {action: sleep}}

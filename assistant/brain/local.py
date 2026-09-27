@@ -28,6 +28,7 @@ from assistant.brain.prompts import system_prompt, turn_context
 from assistant.core.config import Settings
 from assistant.core.conversation import Conversation
 from assistant.tools.registry import ToolContext, ToolRegistry, ToolResult, _summarize_content
+from assistant.tools.routines import match_routine
 
 
 log = logging.getLogger(__name__)
@@ -174,7 +175,8 @@ class LocalBrain:
         tools_used = False
         nudged = False
         # Common commands ("pause", "what's playing", "play X") skip the model entirely.
-        intent = match_intent(user_text) if self.cfg.fast_commands else None
+        intent = (match_routine(user_text, self.settings) or match_intent(user_text)
+                  if self.cfg.fast_commands else None)
         if intent is not None:
             async for ev in self._fast_command(conv, intent, ctx, t0, timings):
                 yield ev

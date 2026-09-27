@@ -30,6 +30,7 @@ Branch: `claude/jarvis-voice-assistant-lhnfza` (commit and push there after ever
   - `expert.py` = hard tasks via the **official Claude Code CLI on the owner's subscription** (`claude -p`, task on stdin, API keys stripped from env, `--permission-mode dontAsk`, tools WebSearch/WebFetch/Read with Read confined to an empty workspace, `--strict-mcp-config`). Never use `--bare`: it ignores subscription login.
   - `llm.py` `Brain` = Claude API backend (optional, paid).
   - Vision ("what's on my screen") goes to Claude Code by default. A local VL model evicts the chat model from 8 GB VRAM.
+- `tools/pc.py` system_status/lock_pc/power(confirm)/cancel_shutdown/window/open_website (Win32 in swappable backends). `tools/routines.py` config-defined routines, registered last in build_registry.
 - `tools/` registry (JSON schema, risk safe/confirm/blocked, audit log `data/audit.jsonl`, remote policy), system (time/volume/open_app), screen, expert(escalate), web (DuckDuckGo via ddgs), music (Spotify + media keys).
 - `voice/` VoiceLoop (`pipeline.py`):
   - Silero VAD endpointer with speculative STT on pause.
@@ -46,12 +47,8 @@ Branch: `claude/jarvis-voice-assistant-lhnfza` (commit and push there after ever
 ## Status (end of last session)
 - Phases 1–3 done and verified by the owner: voice works, latency ~0.9–1.3 s, barge-in and echo cancellation work on speakers.
 - Phase 4 started. **Spotify playback is parked** (the owner's call): play is "accepted" but nothing plays. Pause/next/now-playing work. Next steps are in PLAN.md under "Spotify playback: parked".
-- **Next (proposed to the owner, awaiting their choice):**
-  1. Safety core: spoken/UI confirmations for `confirm` tools, a "Nova, stand down" kill switch, folder allowlist.
-  2. Quick wins: timers/reminders/alarms, system info (CPU/GPU temp/battery/disk), lock/sleep (confirm), window control, file find/open, open URL.
-  3. Routines (YAML, e.g. "gaming mode").
-  4. **Interactive HUD** (orb, transcript, activity, confirm buttons, settings, memory). It should connect to the core server; the voice loop may need to run inside the server so the HUD sees events.
-  5. Later: Gmail/Calendar, phone access (Tailscale + auth + 2FA), morning briefing, autostart.
+- Phase 4 done in code: safety core (voice confirmations, "stand down" kill switch, folder allowlist), file tools, timers/reminders, PC control, routines. The owner said "it seems to be working" after the PC-control update; routines are not yet tried on the PC.
+- **Next:** the **interactive HUD** (orb, transcript, activity, confirm buttons, settings, memory). It should connect to the core server; the voice loop probably needs to run inside the server so the HUD sees its events. Later: memory, Gmail/Calendar, phone access (Tailscale + auth + 2FA), morning briefing, autostart, Spotify playback.
 
 ## Working conventions
 - Keep PLAN.md checklists updated. Commit messages explain the "why". End commit messages with the attribution lines given by the system.

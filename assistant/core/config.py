@@ -205,6 +205,19 @@ class SafetyConfig(BaseModel):
         return p if p.is_absolute() else ROOT / p
 
 
+class RoutineStep(BaseModel):
+    tool: str | None = None             # a tool name, e.g. open_app
+    args: dict[str, Any] = Field(default_factory=dict)
+    wait: float = 0                     # pause (seconds, max 30) instead of a tool
+    optional: bool = False              # don't mention it if this step fails
+
+
+class RoutineConfig(BaseModel):
+    phrases: list[str] = Field(default_factory=list)   # what you say, e.g. "gaming mode"
+    reply: str = ""                                     # said when it's done
+    steps: list[RoutineStep] = Field(default_factory=list)
+
+
 class Settings(BaseModel):
     assistant: AssistantConfig = Field(default_factory=AssistantConfig)
     brain: BrainConfig = Field(default_factory=BrainConfig)
@@ -212,6 +225,8 @@ class Settings(BaseModel):
     server: ServerConfig = Field(default_factory=ServerConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
+    # Set a routine to null in local.yaml to switch a built-in one off.
+    routines: dict[str, RoutineConfig | None] = Field(default_factory=dict)
 
 
 def _deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:

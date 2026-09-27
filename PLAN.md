@@ -225,7 +225,8 @@ scripts/           # install, run, register-startup
 - [x] Owner: "Playing My Way by Kanye West" was reported but nothing played. Now it prefers this PC's Spotify app (by computer name; avoids web-player tabs and stale devices), verifies playback via /me/player, transfers and retries once, reports honestly if still silent, and names the device. `spotify devices` shows what Spotify reports
 - [ ] Browser (Playwright), keyboard/mouse, clipboard, shell, Discord, Gmail/Calendar
 - [ ] Confirmation buttons in the HUD (voice yes/no is done)
-- [ ] Routines (YAML, e.g. "gaming mode"), MCP servers as a tool source
+- [x] Routines (tools/routines.py): named in config (`routines:`; built-ins gaming_mode, movie_time, heading_out, goodnight; own ones in local.yaml, `null` switches one off). Exact phrase match on the fast path ("Nova, gaming mode", "start gaming mode"), plus a run_routine tool for the model. Every step goes through registry.execute, so confirmations, remote blocks and the audit log apply per step. Steps: tool+args, wait (≤30 s), optional (failure not mentioned). `python -m assistant routines` lists and checks them. Not yet tried on the PC
+- [ ] MCP servers as a tool source
 
 ### Phase 5 — Desktop HUD + memory
 - [ ] Tauri HUD: orb, transcript, tool feed, confirmations, stats, latency overlay, audit log, tray
