@@ -393,8 +393,7 @@ def everyday_intent(t: str) -> tuple[str, dict] | None:
     # YouTube: results in the normal browser ("play X on youtube" opens its results, it can't pick blindly)
     if m := (re.fullmatch(r"(?:search|look up|find|play|put on|watch|pull up) (.+?) on youtube", t)
              or re.fullmatch(r"(?:search|look on|look up on|search on) youtube (?:for )?(.+)", t)
-             or re.fullmatch(r"(?:open|go to|go on|pull up) youtube and (?:search|look|look up|find|play)(?: for)? (.+)", t)
-             or re.fullmatch(r"youtube (?!music$)(.+)", t)):
+             or re.fullmatch(r"(?:open|go to|go on|pull up) youtube and (?:search|look|look up|find|play)(?: for)? (.+)", t)):
         return "open_website", {"site": "youtube", "search": m.group(1)}
     # Power (always asks first)
     pc_word = r"(?:the |my )?(?:pc|computer|laptop|system)"
