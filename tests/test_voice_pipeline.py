@@ -4,6 +4,7 @@ import asyncio
 import threading
 
 import numpy as np
+import pytest
 
 from assistant.brain.llm import Brain
 from assistant.voice.audio import RecordingPlayer, WavMic
@@ -113,3 +114,22 @@ async def test_filler_before_slow_tool(settings, registry):
 
 async def _answer():
     return "expert answer"
+
+
+def test_diagnose_silence():
+    from assistant.voice.pipeline import diagnose_silence
+    assert "held the keys" in diagnose_silence(np.full(3200, 0.2, np.float32))
+    assert "silent" in diagnose_silence(np.zeros(32000, np.float32))
+    assert "couldn't make out" in diagnose_silence(np.full(32000, 0.3, np.float32))
+
+
+def test_normalize_boosts_quiet_audio_only():
+    from assistant.voice.stt.whisper import normalize
+    quiet = np.full(100, 0.02, np.float32)
+    assert np.max(normalize(quiet)) == pytest.approx(0.5)
+    loud = np.full(100, 0.8, np.float32)
+    assert np.max(normalize(loud)) == pytest.approx(0.8)
+    silent = np.zeros(100, np.float32)
+    assert np.max(normalize(silent)) == 0
+    tiny = np.full(100, 0.001, np.float32)
+    assert np.max(normalize(tiny)) == pytest.approx(0.03)  # gain capped at 30x

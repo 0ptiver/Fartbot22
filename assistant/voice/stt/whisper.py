@@ -65,6 +65,7 @@ class WhisperSTT(STTProvider):
             return await asyncio.to_thread(self._transcribe, audio)
 
     def _transcribe(self, audio: np.ndarray) -> Transcript:
+        audio = normalize(audio)
         segments, info = self.model.transcribe(
             audio,
             beam_size=self.cfg.beam_size,
@@ -73,8 +74,19 @@ class WhisperSTT(STTProvider):
             without_timestamps=True,
             vad_filter=False,  # we already ran Silero VAD
         )
-        text = " ".join(s.text.strip() for s in segments if s.no_speech_prob < 0.8).strip()
+        # Whisper's own rule: only drop a segment when it's both "probably silence"
+        # and low-confidence. (Dropping on no_speech_prob alone loses quiet speech.)
+        text = " ".join(s.text.strip() for s in segments
+                        if not (s.no_speech_prob > 0.6 and s.avg_logprob < -1.0)).strip()
         return Transcript(_clean(text), info.language)
+
+
+def normalize(audio: np.ndarray, target_peak: float = 0.5, max_gain: float = 30.0) -> np.ndarray:
+    """Boost quiet microphones so Whisper can hear them (never amplifies pure silence)."""
+    peak = float(np.max(np.abs(audio))) if audio.size else 0.0
+    if peak < 1e-4 or peak >= target_peak:
+        return audio
+    return (audio * min(target_peak / peak, max_gain)).astype(np.float32)
 
 
 # Whisper hallucinates these on silence / noise.

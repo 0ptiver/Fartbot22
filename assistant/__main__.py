@@ -25,6 +25,15 @@ def main(argv: list[str] | None = None) -> None:
         from assistant.voice.cli import main as voice
 
         voice(argv)
+    elif cmd == "mictest":
+        import asyncio
+
+        from assistant.voice.cli import mictest
+
+        device = None
+        if "--input" in argv and argv.index("--input") + 1 < len(argv):
+            device = argv[argv.index("--input") + 1]
+        asyncio.run(mictest(input_device=device))
     elif cmd == "devices":
         from assistant.voice.cli import list_devices
 
@@ -71,6 +80,7 @@ def main(argv: list[str] | None = None) -> None:
         print("  chat [--local] [--debug]   text chat (via server, or in-process)")
         print("  voice [--mode ptt|open_mic] [--wav F --out G]   talk by voice")
         print("  devices             list audio devices")
+        print("  mictest [--input N] record 4 s, show the level, and transcribe it")
         print("  models              download speech models (VAD, TTS, Whisper)")
         print("  doctor [--full]     check setup (Ollama, Claude Code, models, audio)")
         print("  tools               list tools and risk levels")

@@ -147,7 +147,7 @@ Change `brain.local.model` in `config/config.yaml`, then run `ollama pull <model
 | `whisper on cuda failed` in the log | It still works on the CPU, just slower. Update the NVIDIA driver, then `pip install -U ctranslate2 nvidia-cublas-cu12 "nvidia-cudnn-cu12>=9,<10"`. As a quick test, set `stt.whisper.model: small.en`. |
 | Hotkey does nothing | Another app may own `Ctrl+Alt+Space`. Change `voice.ptt_hotkey` (e.g. `right ctrl`). Some games block global hotkeys unless the assistant runs as admin. |
 | It cuts you off mid-sentence (open mic) | Raise `voice.vad.end_silence_ms` to 600. |
-| It hears nothing | Run `python -m assistant devices` and set `voice.input_device`. Check the Windows microphone privacy setting for desktop apps. |
+| "(heard nothing)" | The message says why: keys released too soon, a silent mic, or unclear audio. Run `python -m assistant mictest --input N` to see the level and what Whisper hears. Also check Settings → Privacy & security → Microphone → "Let desktop apps access your microphone". |
 | Voice sounds robotic or too fast | Change `voice.tts.kokoro.voice` / `speed`. |
 
 ## Development

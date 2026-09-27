@@ -110,7 +110,7 @@ class VoiceLoop:
         lat.mark("eot_detected", end.t_detected)
         session, self._stt_session = self._stt_session, None
         self.on_event({"type": "thinking"})
-        self._turn = asyncio.create_task(self._respond(session, lat))
+        self._turn = asyncio.create_task(self._respond(session, lat, end.audio))
 
     async def interrupt(self) -> None:
         self.player.stop()
@@ -120,12 +120,14 @@ class VoiceLoop:
             self.on_event({"type": "interrupted"})
 
     # --- one spoken turn ------------------------------------------------------
-    async def _respond(self, session: STTSession | None, lat: LatencyTracker) -> None:
+    async def _respond(self, session: STTSession | None, lat: LatencyTracker,
+                       audio: np.ndarray | None = None) -> None:
         try:
             text = (await session.finish()).text if session else ""
             lat.mark("stt_done")
             if not text:
-                self.on_event({"type": "idle", "reason": "heard nothing"})
+                self.on_event({"type": "idle", "reason": "heard nothing",
+                               "hint": diagnose_silence(audio)})
                 return
             self.on_event({"type": "transcript", "text": text})
             await self._speak_reply(text, lat)
@@ -191,3 +193,17 @@ class VoiceLoop:
             async for audio in self.tts.synthesize(chunk):
                 lat.mark("tts_first_audio")
                 self.player.play(audio)
+
+
+def diagnose_silence(audio: np.ndarray | None) -> str:
+    """Explain an empty transcript in plain words."""
+    if audio is None or audio.size == 0:
+        return "no audio was recorded"
+    seconds = audio.size / 16000
+    peak = float(np.max(np.abs(audio)))
+    if seconds < 0.4:
+        return f"you only held the keys for {seconds:.1f}s. Hold them the whole time you talk"
+    if peak < 0.01:
+        return (f"the mic is silent (level {peak:.1%}). Wrong mic, muted, or blocked in Windows "
+                "privacy settings? Try: python -m assistant mictest")
+    return f"recorded {seconds:.1f}s at level {peak:.0%} but couldn't make out words. Speak a bit closer?"

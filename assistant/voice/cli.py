@@ -50,7 +50,8 @@ def make_printer(name: str, show_latency: bool):
             if show_latency:
                 print(DIM + ev["report"] + RESET, flush=True)
         elif t == "idle" and ev.get("reason"):
-            print(f"{DIM}  ({ev['reason']}){RESET}", flush=True)
+            hint = f": {ev['hint']}" if ev.get("hint") else ""
+            print(f"{DIM}  ({ev['reason']}{hint}){RESET}", flush=True)
 
     return on_event
 
@@ -140,6 +141,52 @@ def list_devices() -> None:
     print("\nThe same device shows up once per Windows audio system. Prefer the [MME] entry:"
           "\nit accepts any sample rate. Set it in config/config.yaml, e.g.  input_device: 3"
           "\nor try one first:  python -m assistant voice --input 3")
+
+
+async def mictest(seconds: float = 4.0, input_device: str | None = None) -> None:
+    """Record a few seconds with a live level meter, then transcribe it."""
+    import numpy as np
+
+    from assistant.core.config import load_settings
+    from assistant.voice.audio import MicStream
+    from assistant.voice.stt.base import create_stt
+
+    s = load_settings()
+    if input_device is not None:
+        s.voice.input_device = int(input_device) if input_device.isdigit() else input_device
+    mic = MicStream(s.voice.input_device)
+    try:
+        import sounddevice as sd
+        print(f"Mic: {sd.query_devices(s.voice.input_device, 'input')['name']}")
+    except Exception as e:
+        print(f"{RED}{e}{RESET}")
+        return
+    stt = create_stt(s)
+    load = asyncio.create_task(stt.load())
+    print(f"Say something for {seconds:.0f} seconds, e.g. 'Nova, what time is it?'\n")
+    frames, t_end = [], None
+    async for frame, t in mic.frames():
+        t_end = t_end or t + seconds
+        frames.append(frame)
+        level = float(np.max(np.abs(frame)))
+        bar = "#" * min(40, int(level * 80))
+        print(f"\r  level [{bar:<40}] {level:5.1%}", end="", flush=True)
+        if t >= t_end:
+            break
+    mic.close()
+    audio = np.concatenate(frames)
+    peak = float(np.max(np.abs(audio)))
+    print(f"\n\nPeak level: {peak:.1%}", end="  ")
+    if peak < 0.01:
+        print(f"{RED}-> silent. Wrong mic or muted. Run `assistant devices` and try another --input.{RESET}")
+    elif peak < 0.05:
+        print("-> quiet but usable (Nova boosts it). Raising the mic level in Windows sound settings helps.")
+    else:
+        print(f"{GREEN}-> good{RESET}")
+    await load
+    print("Transcribing…")
+    text = (await stt.transcribe(audio)).text if hasattr(stt, "transcribe") else ""
+    print(f"Whisper heard: {text!r}" if text else f"{RED}Whisper heard nothing.{RESET}")
 
 
 def main(argv: list[str]) -> None:
