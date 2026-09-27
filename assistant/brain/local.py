@@ -30,6 +30,51 @@ class OllamaError(Exception):
     pass
 
 
+class ThinkFilter:
+    """Keeps a model's reasoning out of speech.
+
+    - `<think>...</think>` at the start of the reply is dropped.
+    - hold=True (a model that can't turn thinking off and doesn't emit the opening
+      tag): nothing is released until `</think>` arrives; if it never does, the
+      whole reply is released at the end.
+    """
+
+    OPEN, CLOSE = "<think>", "</think>"
+
+    def __init__(self, hold: bool = False):
+        self.state = "hold" if hold else "start"
+        self.buf = ""
+        self._lstrip = False                    # trim blank lines right after </think>
+
+    def feed(self, text: str) -> str:
+        self.buf += text
+        if self.state == "start":
+            head = self.buf.lstrip()
+            if not head or (len(head) < len(self.OPEN) and self.OPEN.startswith(head)):
+                return ""                       # could still be the start of <think>
+            if head.startswith(self.OPEN):
+                self.state, self.buf = "in", head[len(self.OPEN):]
+            else:
+                self.state = "pass"
+        if self.state in ("in", "hold"):
+            idx = self.buf.find(self.CLOSE)
+            if idx < 0:
+                return ""
+            self.state, self.buf = "pass", self.buf[idx + len(self.CLOSE):]
+            self._lstrip = True
+        out, self.buf = self.buf, ""
+        if self._lstrip:
+            out = out.lstrip()
+            self._lstrip = not out
+        return out.replace(self.OPEN, "").replace(self.CLOSE, "")
+
+    def flush(self) -> str:
+        out, self.buf = self.buf, ""
+        if self.state == "in":
+            return ""                           # unterminated reasoning: never speak it
+        return out.replace(self.OPEN, "").replace(self.CLOSE, "").strip() if self.state != "pass" else out
+
+
 class LocalBrain:
     def __init__(self, settings: Settings, registry: ToolRegistry,
                  http: httpx.AsyncClient | None = None, expert: Expert | None = None):
@@ -41,6 +86,7 @@ class LocalBrain:
         self.expert = expert or create_expert(settings)
         self._system = system_prompt(settings, local=True)
         self._think_supported = True
+        self._hold_think = False               # set for models that can't stop thinking
 
     # --- helpers ----------------------------------------------------------------
     def tools(self) -> list[dict[str, Any]]:
@@ -63,6 +109,10 @@ class LocalBrain:
             body["think"] = self.cfg.think
         return body
 
+    async def capabilities(self, model: str | None = None) -> list[str]:
+        r = await self.http.post("/api/show", json={"model": model or self.cfg.model})
+        return r.json().get("capabilities", []) if r.status_code == 200 else []
+
     async def warm_up(self) -> None:
         """Load the model into VRAM now so the first reply isn't slow."""
         try:
@@ -77,8 +127,11 @@ class LocalBrain:
         async with self.http.stream("POST", "/api/chat", json=body) as r:
             if r.status_code != 200:
                 detail = (await r.aread()).decode("utf-8", "replace")
-                if r.status_code == 400 and "think" in detail and self._think_supported:
-                    self._think_supported = False   # model doesn't support the think flag
+                if r.status_code == 400 and "think" in detail and "think" in body:
+                    if body["model"] == self.cfg.model:
+                        # Chat model rejects think=false: it may reason in its reply, so filter it.
+                        self._think_supported = False
+                        self._hold_think = True
                     raise _RetryWithoutThink()
                 if r.status_code == 404:
                     raise OllamaError(f"Model {body['model']} isn't downloaded. "
@@ -108,14 +161,19 @@ class LocalBrain:
                 allow_tools = rounds < self.settings.brain.max_tool_rounds
                 text_parts: list[str] = []
                 calls: list[dict] = []
+                think = ThinkFilter(hold=self._hold_think)
                 try:
                     async for chunk in self._stream(self._body(conv.messages, tools=allow_tools)):
                         msg = chunk.get("message") or {}
-                        if msg.get("content"):
+                        # msg["thinking"] (separated reasoning) is never spoken.
+                        text = think.feed(msg.get("content") or "")
+                        if chunk.get("done"):
+                            text += think.flush()
+                        if text:
                             timings.setdefault("first_token_ms", _ms(t0))
-                            text_parts.append(msg["content"])
-                            spoken.append(msg["content"])
-                            yield TextDelta(msg["content"])
+                            text_parts.append(text)
+                            spoken.append(text)
+                            yield TextDelta(text)
                         calls.extend(msg.get("tool_calls") or [])
                         if chunk.get("done"):
                             usage["input_tokens"] += chunk.get("prompt_eval_count", 0)
@@ -201,12 +259,20 @@ class LocalBrain:
                 path = Path(d) / "screen.jpg"
                 path.write_bytes(base64.b64decode(b64_jpeg))
                 return await self.expert.ask(question, image_path=path)
-        body = {"model": self.cfg.vision_model, "stream": True, "keep_alive": "5m",
+        body = {"model": self.cfg.vision_model, "stream": True, "keep_alive": "5m", "think": False,
                 "messages": [{"role": "user", "content": question, "images": [b64_jpeg]}]}
         out = []
-        async for chunk in self._stream(body):
-            out.append((chunk.get("message") or {}).get("content", ""))
-        return "".join(out).strip()
+        try:
+            async for chunk in self._stream(body):
+                out.append((chunk.get("message") or {}).get("content", ""))
+        except _RetryWithoutThink:
+            body.pop("think")
+            async for chunk in self._stream(body):
+                out.append((chunk.get("message") or {}).get("content", ""))
+        text = "".join(out)
+        if ThinkFilter.CLOSE in text:        # drop any reasoning that leaked into the answer
+            text = text.split(ThinkFilter.CLOSE, 1)[1]
+        return text.replace(ThinkFilter.OPEN, "").strip()
 
     async def ask_expert(self, task: str, context: str = "", image_path=None) -> str:
         return await self.expert.ask(task, context, image_path)

@@ -23,8 +23,8 @@ if (-not (Test-Path config\.env)) { Copy-Item config\.env.example config\.env; W
 
 # --- Local brain (Ollama) and hard-task hand-off (Claude Code, your subscription) ---
 if (Get-Command ollama -ErrorAction SilentlyContinue) {
-    Write-Host "`nPulling local models (qwen3:4b ~2.6 GB, qwen3-vl:4b ~3.3 GB)..."
-    ollama pull qwen3:4b
+    Write-Host "`nPulling local models (qwen3:4b-instruct-2507 ~2.5 GB, qwen3-vl:4b ~3.3 GB)..."
+    ollama pull qwen3:4b-instruct-2507-q4_K_M
     ollama pull qwen3-vl:4b
 } else {
     Write-Host "MISSING: Ollama -> https://ollama.com/download (then re-run this script)" -ForegroundColor Yellow

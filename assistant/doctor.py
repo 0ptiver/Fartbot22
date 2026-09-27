@@ -34,13 +34,23 @@ async def check(full: bool) -> int:
                 version = (await c.get("/api/version")).json().get("version", "?")
             have = {m["name"] for m in tags.get("models", [])}
             line(OK, f"Ollama {version} running at {s.brain.local.host}")
-            for model in (s.brain.local.model, s.brain.local.vision_model):
+            for model, need in ((s.brain.local.model, "tools"), (s.brain.local.vision_model, "vision")):
                 name = model if ":" in model else model + ":latest"
-                if name in have:
-                    line(OK, f"model {model}")
-                else:
+                if name not in have:
                     line(FAIL, f"model {model} not downloaded", f"run: ollama pull {model}")
                     problems += 1
+                    continue
+                async with httpx.AsyncClient(base_url=s.brain.local.host, timeout=10) as c:
+                    caps = (await c.post("/api/show", json={"model": model})).json().get("capabilities", [])
+                if caps and need not in caps:
+                    line(FAIL, f"model {model} has no '{need}' support", f"capabilities: {caps}")
+                    problems += 1
+                elif "thinking" in caps and "instruct" not in model and need == "tools":
+                    line(WARN, f"model {model} is a 'thinking' model",
+                         "slow to answer out loud; use qwen3:4b-instruct-2507-q4_K_M "
+                         "(ollama pull it, then set brain.local.model)")
+                else:
+                    line(OK, f"model {model}")
             if full and (s.brain.local.model in have or f"{s.brain.local.model}:latest" in have):
                 from assistant.brain.local import LocalBrain
                 from assistant.core.conversation import Conversation

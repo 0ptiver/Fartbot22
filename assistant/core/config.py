@@ -29,7 +29,7 @@ class WebSearchConfig(BaseModel):
 
 class LocalLLMConfig(BaseModel):
     host: str = "http://127.0.0.1:11434"
-    model: str = "qwen3:4b"
+    model: str = "qwen3:4b-instruct-2507-q4_K_M"
     vision_model: str = "qwen3-vl:4b"   # used for "what's on my screen" when vision: ollama
     vision: str = "ollama"              # ollama | claude_code
     num_ctx: int = 8192

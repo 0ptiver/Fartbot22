@@ -11,7 +11,7 @@ See [PLAN.md](PLAN.md) for the architecture, chosen stack, costs and phase check
 
 | Job | Who does it | Cost |
 |---|---|---|
-| Everyday chat, PC control, quick facts, web lookups | **A local model in Ollama** (`qwen3:4b`) on your GPU | free |
+| Everyday chat, PC control, quick facts, web lookups | **A local model in Ollama** (`qwen3:4b-instruct-2507`) on your GPU | free |
 | "What's on my screen?" | **A local vision model** (`qwen3-vl:4b`) | free |
 | Hard tasks: research, analysis, writing, code, "ask Claude…" | **Your Claude Pro subscription**, through the official Claude Code CLI | included in Pro |
 | Optional: the Claude API instead of either one | `brain.backend: anthropic` / `expert.backend: anthropic` | paid per token |
@@ -123,8 +123,8 @@ If you switch to the Claude API: Haiku 4.5 conversation is roughly $0.20–0.40 
 
 | Model | VRAM | Notes |
 |---|---|---|
-| `qwen3:4b` (default) | ~3 GB | leaves room for Whisper and the vision model |
-| `qwen3:8b` | ~5.5 GB | smarter. Pair it with `stt.whisper.model: small.en` or `distil-large-v3` so everything fits |
+| `qwen3:4b-instruct-2507-q4_K_M` (default) | ~3 GB | answers straight away and leaves room for Whisper and the vision model |
+| `qwen3:8b` | ~5.5 GB | smarter (Nova turns its "thinking" off). Pair it with `stt.whisper.model: small.en` or `distil-large-v3` so everything fits |
 | `qwen3-vl:4b` (vision) | ~3.5 GB | loaded only when you ask about your screen. Set `local.vision: claude_code` to use your subscription instead |
 
 Change `brain.local.model` in `config/config.yaml`, then run `ollama pull <model>`.
@@ -134,9 +134,10 @@ Change `brain.local.model` in `config/config.yaml`, then run `ollama pull <model
 | Problem | Fix |
 |---|---|
 | "Ollama isn't running" | Start the Ollama app (tray icon). Check with `ollama list`. |
-| "model … isn't downloaded" | `ollama pull qwen3:4b` (or whatever `brain.local.model` says). |
+| "model … isn't downloaded" | `ollama pull qwen3:4b-instruct-2507-q4_K_M` (or whatever `brain.local.model` says). |
 | "Claude Code isn't signed in" | Run `claude` in a terminal, log in, then `/exit`. |
 | "usage limit has been reached" | Your Pro plan's limit for now. It resets after a few hours. Everyday chat keeps working locally. |
+| Slow first word, or it reads its reasoning aloud ("Okay, the user asked…") | You're on a "thinking" model. Use `qwen3:4b-instruct-2507-q4_K_M`. `doctor` warns about this. |
 | Local model picks the wrong tool, or rambles | Try `qwen3:8b` (see the table above), or say "ask Claude …" to force the hand-off. |
 | `No ANTHROPIC_API_KEY` | Only relevant with an `anthropic` backend. Set the key, or switch back to `local` / `claude_code`. |
 | Volume tool errors | `pip install pycaw comtypes` (the installer does this). It needs a default playback device. |

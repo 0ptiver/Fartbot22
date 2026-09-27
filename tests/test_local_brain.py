@@ -92,7 +92,7 @@ async def test_text_turn(local_settings, ctx):
     assert "".join(e.text for e in events if isinstance(e, TextDelta)) == "Good evening, sir."
     assert isinstance(events[-1], TurnComplete) and events[-1].usage["input_tokens"] == 50
     path, body = fake.requests[0]
-    assert path == "/api/chat" and body["model"] == "qwen3:4b" and body["think"] is False
+    assert path == "/api/chat" and body["model"] == "qwen3:4b-instruct-2507-q4_K_M" and body["think"] is False
     assert body["messages"][0]["role"] == "system" and "escalate" in body["messages"][0]["content"]
     assert {t["function"]["name"] for t in body["tools"]} >= {"get_time", "escalate", "web_search"}
     assert [m["role"] for m in conv.messages] == ["user", "assistant"]
@@ -196,3 +196,41 @@ async def test_cancel_keeps_valid_history(local_settings, ctx):
         await task
     assert [m["role"] for m in conv.messages] == ["user", "assistant"]
     assert conv.messages[1]["content"].endswith("[interrupted]")
+
+
+def run_filter(parts, hold=False):
+    from assistant.brain.local import ThinkFilter
+    f = ThinkFilter(hold)
+    return "".join(f.feed(p) for p in parts) + f.flush()
+
+
+def test_think_filter_drops_tagged_reasoning():
+    assert run_filter(["<thi", "nk>Okay the user wants", " hello.</think>", "\n\nHello, sir."]) == "Hello, sir."
+    assert run_filter(["Hello", ", sir."]) == "Hello, sir."
+    assert run_filter(["<think>never closed"]) == ""
+    assert run_filter(["<"]) == "<"
+
+
+def test_think_filter_hold_mode():
+    # Thinking-only models often omit the opening tag.
+    assert run_filter(["Okay, the user asked", " me...", "</think>", "Hello, sir."], hold=True) == "Hello, sir."
+    assert run_filter(["Hello, sir."], hold=True) == "Hello, sir."
+
+
+async def test_thinking_model_reasoning_never_spoken(local_settings, ctx):
+    bad = httpx.Response(400, text='{"error":"think value \\"false\\" is not supported for this model"}')
+    reply = ndjson({"message": {"content": "Okay, the user asked me to say hello. "}, "done": False},
+                   {"message": {"content": "</think>\n\nHello, sir."}, "done": False},
+                   {"message": {"content": ""}, "done": True})
+    brain, fake = make(local_settings, [bad, reply])
+    events = await collect(brain, Conversation(), "hi", ctx)
+    spoken = "".join(e.text for e in events if isinstance(e, TextDelta))
+    assert spoken == "Hello, sir."
+
+
+async def test_separated_thinking_field_ignored(local_settings, ctx):
+    reply = ndjson({"message": {"thinking": "hmm let me think", "content": ""}, "done": False},
+                   {"message": {"content": "Hello, sir."}, "done": True})
+    brain, _ = make(local_settings, [reply])
+    events = await collect(brain, Conversation(), "hi", ctx)
+    assert "".join(e.text for e in events if isinstance(e, TextDelta)) == "Hello, sir."
