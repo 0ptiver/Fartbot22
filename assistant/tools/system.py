@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from assistant.core.launch import launch
 from assistant.tools.registry import Risk, ToolContext, ToolError, ToolRegistry
 
 IS_WINDOWS = sys.platform == "win32"
@@ -106,12 +106,7 @@ def find_shortcut(name: str, dirs: list[Path] | None = None) -> Path | None:
 
 
 def _launch(target: str) -> None:
-    if IS_WINDOWS:
-        os.startfile(target)  # type: ignore[attr-defined]  # no shell parsing
-    elif sys.platform == "darwin":
-        subprocess.Popen(["open", target])
-    else:
-        subprocess.Popen(["xdg-open", target])
+    launch(target)
 
 
 def open_app(args: dict, ctx: ToolContext, _launcher=_launch, _dirs=None) -> str:

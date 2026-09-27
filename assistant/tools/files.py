@@ -4,11 +4,11 @@ Every path goes through core.paths.check_path (allowed folders only, no secrets)
 from __future__ import annotations
 
 import os
-import sys
 import time
 from datetime import datetime
 from pathlib import Path
 
+from assistant.core.launch import launch
 from assistant.core.paths import EXECUTABLE_EXT, PathNotAllowed, allowed_roots, check_path, is_sensitive
 from assistant.tools.registry import Risk, ToolContext, ToolError, ToolRegistry
 
@@ -28,11 +28,7 @@ def _check(ctx: ToolContext, path: str, must_exist: bool = True) -> Path:
 
 
 def _launch(target: str) -> None:
-    if sys.platform == "win32":
-        os.startfile(target)  # type: ignore[attr-defined]
-    else:
-        import subprocess
-        subprocess.Popen(["xdg-open", target])
+    launch(target)
 
 
 # --- find -----------------------------------------------------------------------------

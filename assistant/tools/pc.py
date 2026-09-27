@@ -248,8 +248,8 @@ SITES = {"youtube": "https://www.youtube.com", "google": "https://www.google.com
 
 
 def _open_browser(url: str) -> None:
-    import webbrowser
-    webbrowser.open(url)
+    from assistant.core.launch import launch
+    launch(url)                     # the default browser, detached from Nova's window
 
 
 def open_website(args: dict, ctx: ToolContext, _open=None) -> str:

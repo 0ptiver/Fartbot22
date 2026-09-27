@@ -26,9 +26,9 @@ def _spotify(ctx: ToolContext) -> Spotify:
     sp = ctx.services.get("spotify")
     if sp is None:
         def open_app() -> None:
-            import os
             if sys.platform == "win32":
-                os.startfile("spotify:")  # type: ignore[attr-defined]
+                from assistant.core.launch import launch
+                launch("spotify:")
         sp = ctx.services["spotify"] = Spotify(open_app=open_app)
     return sp
 
