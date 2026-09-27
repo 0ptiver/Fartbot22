@@ -310,7 +310,7 @@ def memory_intent(raw: str, t: str) -> tuple[str, dict] | None:
 _SITES = {"youtube", "google", "netflix", "twitch", "reddit", "gmail", "amazon", "twitter", "facebook",
           "instagram", "tiktok", "wikipedia", "github", "chatgpt", "claude", "google maps", "maps",
           "outlook", "prime video", "disney plus", "hulu", "ebay"}
-_NOT_AN_APP = re.compile(r"\b(?:file|folder|document|documents|downloads|pictures|photo|tab|window|link|"
+_NOT_AN_APP = re.compile(r"\b(?:news|file|folder|document|documents|downloads|pictures|photo|tab|window|link|"
                          r"grid|numbers|settings for|and|then|with|it|that|this|routine|timer|video|movie|music|song|playlist|"
                          r"dictation|recording|lesson|mode|watching|over|again)\b")
 _THIS = r"(?:this|that|it|the|this window|that window|the window|current window|the app|this app)"
@@ -340,6 +340,9 @@ def everyday_intent(t: str) -> tuple[str, dict] | None:
     if m := re.fullmatch(r"(minimi[sz]e|maximi[sz]e|restore) " + _THIS, n):
         action = {"minimi": "minimize", "maximi": "maximize"}.get(m.group(1)[:6], "restore")
         return "window", {"action": action, "app": "this"}
+    if m := re.fullmatch(r"(?:open|go to|launch|pull up|load)(?: up)? (?:the )?(?:website |site |page )?"
+                         r"((?:https?://)?(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?:/\S*)?)", t):
+        return "open_website", {"site": m.group(1)}               # "open bbc.co.uk": an address, not an app
     if re.fullmatch(r"(?:close|quit|exit) " + _THIS, n):
         return "window", {"action": "close", "app": "this"}
     m = re.fullmatch(r"(open|launch|start|close|quit|exit|switch to|bring up|go to) (?:up )?(?:the |my )?(.+?)"
@@ -361,6 +364,10 @@ def match_intent(text: str, grid_visible: bool = False, labels: bool = False) ->
     t = _clean(text)
     if not t:
         return None
+    from assistant.tools.learn import learn_intent
+    learned = learn_intent(t)
+    if learned:
+        return learned
     mem = memory_intent(text, t)
     if mem:
         return mem

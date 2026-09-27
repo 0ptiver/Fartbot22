@@ -189,7 +189,6 @@ async def test_whole_lesson_by_voice(settings, registry, monkeypatch):
     ("watch what I do", {"action": "start"}), ("let me show you something", {"action": "start"}),
     ("learn this", {"action": "start"}), ("call it evening setup", {"action": "save", "name": "evening setup"}),
     ("forget the evening setup routine", {"action": "delete", "name": "evening setup"}),
-    ("what have you learned", {"action": "list"}),
 ])
 def test_phrases(text, expected):
     assert match_intent(text) == ("teach", expected)

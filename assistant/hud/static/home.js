@@ -62,6 +62,7 @@ const NovaHome = (() => {
     dictation: ["i-keys", "blue", (a) => a.on ? "Dictation on" : "Dictation off"],
     run_routine: ["i-bolt", "amber", (a) => `Routine: ${a.name || ""}`],
     show_page: ["i-home", "blue", (a) => `Showing ${a.page || "a page"}`],
+    lessons: ["i-brain", "pink", (a) => a.action === "forget" ? "Forgetting a lesson" : "Listing what I've learned", "wMem"],
     set_voice: ["i-wave", "pink", () => "Changing my voice"],
     subtitles: ["i-cc", "violet", (a) => a.on ? "Subtitles on" : "Subtitles off"],
     create_note: ["i-keys", "blue", () => "Writing a note"],
@@ -197,11 +198,43 @@ const NovaHome = (() => {
     list.replaceChildren();
     const sorted = [...(items || [])].sort((a, b) => (b.created || 0) - (a.created || 0));
     for (const m of sorted.slice(0, 4)) list.append(el("li", "", m.text));
-    $("memCount").textContent = items && items.length ? `${items.length} thing${items.length === 1 ? "" : "s"}` : "";
+    nMem = (items || []).length;
+    counts();
     $("memEmpty").hidden = sorted.length > 0;
     if (memSeen !== null && (items || []).length !== memSeen) flash("wMem");
     memSeen = (items || []).length;
   }
+  let nLessons = null, nMem = 0;
+  function counts() {
+    const parts = [];
+    if (nMem) parts.push(`${nMem} thing${nMem === 1 ? "" : "s"}`);
+    if (nLessons) parts.push(`${nLessons} lesson${nLessons === 1 ? "" : "s"}`);
+    $("memCount").textContent = parts.join(" · ");
+  }
+  function lessons(items, send) {
+    const list = $("learnedList");
+    list.replaceChildren();
+    for (const x of items || []) {
+      const li = el("li");
+      const text = el("div");
+      text.append(el("b", "", `“${x.said}”`), el("span", "", x.what.replace(/^“[^”]*”\s*(→|means)\s*/, (m, w) => w === "means" ? "means " : "→ ") +
+        (x.uses ? `  ·  used ${x.uses}×` : "")));
+      const del = el("button", "x", "✕");
+      del.type = "button";
+      del.title = "Forget this";
+      del.setAttribute("aria-label", `Forget what you learned about ${x.said}`);
+      del.onclick = () => send({ type: "lesson_delete", id: x.id });
+      li.append(text, del);
+      list.append(li);
+    }
+    const n = (items || []).length;
+    $("learnedEmpty").hidden = n > 0;
+    $("learnedCount").textContent = n ? `${n}` : "";
+    if (nLessons !== null && n > nLessons) flash("wMem");
+    nLessons = n;
+    counts();
+  }
+
   function state(label, s) {
     $("heroState").textContent = label;
     $("heroMute").setAttribute("aria-pressed", String(!!s.muted));
@@ -238,5 +271,5 @@ const NovaHome = (() => {
     });
   }
 
-  return { init, handle, media, next, vitals, memories, state, flash, describe };
+  return { init, handle, media, next, vitals, memories, lessons, state, flash, describe };
 })();

@@ -68,12 +68,6 @@ class FakeExpert:
         return self.answer
 
 
-@pytest.fixture
-def local_settings(settings):
-    settings.brain.backend = "local"
-    return settings
-
-
 def make(settings, replies, expert=None):
     fake = FakeOllama(replies)
     reg = build_registry(settings, AuditLog(settings.safety.audit_path()))

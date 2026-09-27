@@ -31,7 +31,7 @@ const PAGES = {
   activity: ["Activity", "Every tool Nova used, and how it went."],
   timers: ["Timers & watches", "Timers, reminders, alarms and things Nova is watching for."],
   routines: ["Routines", "One phrase, several actions. Click one to run it."],
-  brain: ["Brain", "Everything Nova has been asked to remember."],
+  brain: ["Brain", "What Nova remembers, and what it has learned from your corrections."],
   voice: ["Voice", "How Nova sounds, and who it listens to."],
   phone: ["Phone", "Reach Nova from your phone, privately, over Tailscale."],
 };
@@ -105,6 +105,7 @@ function handle(ev, replay) {
     case "timers": return timersIn(ev);
     case "memories": NovaHome.memories(ev.items); return NovaBrain.memories(ev.items);
     case "media": return NovaHome.media(ev.items);
+    case "lessons": return NovaHome.lessons(ev.items, send);
     case "navigate": if (!replay) selectTab(ev.page); return;
     case "memory_used": if (!replay) NovaBrain.used(ev.ids); return;
     case "toast": return toast(ev.text);

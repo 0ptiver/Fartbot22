@@ -578,3 +578,18 @@ body[data-page="home"] .core { display: none; }
   .hero-orb { height: 240px; }
   .confirm.floating { right: 16px; bottom: 84px; }
 }
+
+/* --- Brain page: what Nova learned from you --------------------------------------------------- */
+.brain-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; margin: 0 28px; }
+.brain-body .brain-stage { margin: 0; }
+.learned { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.learned-list { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+.learned-list li { display: grid; grid-template-columns: minmax(0, 1fr) 26px; gap: 6px; align-items: start; padding: 9px 10px;
+  border-radius: 12px; background: rgba(255,255,255,.035); border: 1px solid var(--line); animation: rise .25s ease-out; }
+.learned-list b { display: block; font-size: 13px; font-weight: 600; }
+.learned-list span { display: block; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.learned-list .x { border: none; background: none; color: var(--faint); width: 26px; height: 26px; border-radius: 7px; }
+.learned-list .x:hover { color: var(--red); background: rgba(248,113,113,.1); }
+@media (max-width: 860px) {
+  .brain-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(260px, 1fr) auto; margin: 0 16px; }
+}

@@ -160,6 +160,12 @@ def vitals(_gpu=None) -> dict[str, Any]:
     return ev
 
 
+def lessons_event() -> dict[str, Any]:
+    from assistant.brain.lessons import get_lessons
+    return {"type": "lessons", "items": [{"id": x.id, "said": x.said, "what": x.describe(), "uses": x.uses,
+                                          "created": x.created} for x in reversed(get_lessons().items())]}
+
+
 def memories(store) -> dict[str, Any]:
     items = [] if store is None else [{"id": m.id, "text": m.text, "created": m.created} for m in store.all()]
     return {"type": "memories", "items": items}
@@ -306,6 +312,9 @@ def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=Non
                 await asyncio.to_thread(memory.add, msg["text"][:300])
             except (SecretRefused, ValueError) as e:
                 await ws_send({"type": "toast", "text": str(e)})
+        elif kind == "lesson_delete" and isinstance(msg.get("id"), str):
+            from assistant.brain.lessons import get_lessons
+            get_lessons().delete(msg["id"])
         elif kind == "mem_delete" and memory is not None and isinstance(msg.get("id"), int):
             await asyncio.to_thread(memory.delete, [msg["id"]])
         elif kind == "routine_delete" and isinstance(msg.get("name"), str):
@@ -391,6 +400,7 @@ def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=Non
                     "show_ignored": settings.hud.show_ignored, "backlog": list(hub.backlog)})
         await send(timers(scheduler, settings, watchers))
         await send(memories(memory))
+        await send(lessons_event())
         hub.clients.add(queue)
 
         async def pump() -> None:
@@ -518,6 +528,9 @@ async def start_hud(settings: Settings, loop, hub: Hub, scheduler=None, memory=N
         memory = get_store(settings)
     if memory is not None:
         watch_memory(memory, hub, asyncio.get_running_loop())
+    from assistant.brain.lessons import get_lessons
+    aio = asyncio.get_running_loop()
+    get_lessons().listeners.append(lambda: aio.call_soon_threadsafe(hub.publish, lessons_event()))
     app = create_hud_app(settings, loop, hub, token, scheduler, memory=memory, watchers=watchers, phone=phone)
     server = _QuietServer(app, sock)
     task = asyncio.create_task(server.serve())

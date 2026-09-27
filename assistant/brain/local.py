@@ -160,9 +160,136 @@ class LocalBrain:
                         raise OllamaError(chunk["error"])
                     yield chunk
 
-    # --- main loop ----------------------------------------------------------------
+    # --- learning from the user (brain/lessons.py) ----------------------------------------
     async def run_turn(self, conv: Conversation, user_text: str, ctx: ToolContext,
                        extra_context: dict[str, str] | None = None) -> AsyncIterator[Event]:
+        """Every request: corrections ("no, I meant ..."), teaching ("when I say X, Y"),
+        preferences said in passing, and things learned before, then the request itself.
+        A request that fixes a mistake is remembered for next time."""
+        from assistant.brain import lessons as L
+
+        ctx.services.setdefault("brain", self)
+        store = L.get_lessons()
+        who = self.settings.assistant.address_user_as
+        sir = f", {who}" if who else ""
+        last = getattr(conv, "last_action", None)
+        recent = last if last and time.time() - last["at"] < L.FIX_WINDOW_S else None
+        awaiting = getattr(conv, "awaiting_fix", None)
+        conv.awaiting_fix = None
+        original: str | None = None
+        request = user_text
+        is_fix, fix = L.correction(user_text)
+        if awaiting:
+            if _NEVER_MIND.match(user_text):
+                async for ev in self._say(conv, user_text, f"All right{sir}."):
+                    yield ev
+                return
+            original, request = awaiting, (fix if is_fix and fix else user_text)
+        elif is_fix:
+            if recent is None:
+                request = fix or user_text           # "I meant ten minutes": nothing to correct, just do it
+            elif not fix:
+                conv.awaiting_fix = recent["text"]
+                async for ev in self._say(conv, user_text, f"Sorry{sir}. What should I have done?"):
+                    yield ev
+                return
+            else:
+                original, request = recent["text"], fix
+        else:
+            taught = L.teaching(user_text)
+            if taught:
+                lesson = store.learn_meaning(taught[0], taught[1], user_text)
+                reply = (f"Got it. When you say “{taught[0]}”, I'll {taught[1]}." if lesson
+                         else "I couldn't learn that one.")
+                async for ev in self._say(conv, user_text, reply):
+                    yield ev
+                return
+            pref = L.preference(user_text)
+            if pref:
+                async for ev in self._say(conv, user_text, await self._note_preference(pref, ctx, sir)):
+                    yield ev
+                return
+            lesson = store.match(user_text)
+            if lesson is not None:
+                store.used(lesson)
+                if lesson.means:
+                    request = lesson.means
+                else:
+                    async for ev in self._replay(conv, user_text, lesson, ctx):
+                        yield ev
+                    return
+        if original is not None and not self._fast_path(request, ctx):
+            # A fragment ("the BBC one"): the model gets it with what it corrects.
+            request = f'{user_text}\n(This corrects my previous request, "{original}". Do what I actually meant now.)'
+        calls: list[dict] = []
+        async for ev in self._turn(conv, request, ctx, extra_context):
+            if isinstance(ev, ToolStarted):
+                calls.append({"tool": ev.name, "args": ev.input, "ok": None})
+            elif isinstance(ev, ToolFinished):
+                for c in reversed(calls):
+                    if c["tool"] == ev.name and c["ok"] is None:
+                        c["ok"] = not ev.is_error
+                        break
+            elif isinstance(ev, TurnComplete) and original is not None:
+                done = [{"tool": c["tool"], "args": c["args"]} for c in calls if c["ok"]]
+                if store.learn_calls(original, done, user_text):
+                    note = " Noted for next time."
+                    yield TextDelta(note)
+                    ev.text = (ev.text + note).strip()
+            yield ev
+        if any(c["ok"] and c["tool"] not in L.NOT_ACTIONS for c in calls):
+            conv.last_action = {"text": original or user_text, "at": time.time()}
+
+    def _fast_path(self, text: str, ctx: ToolContext) -> bool:
+        grid = ctx.services.get("grid")
+        return bool(match_routine(text, self.settings) or match_intent(
+            text, grid_visible=bool(grid and grid.grid is not None), labels=bool(grid and grid.labels is not None)))
+
+    async def _say(self, conv: Conversation, user_text: str, reply: str) -> AsyncIterator[Event]:
+        conv.messages.append({"role": "user", "content": user_text})
+        conv.messages.append({"role": "assistant", "content": reply})
+        conv.trim()
+        yield TextDelta(reply)
+        yield TurnComplete(reply, {}, {"input_tokens": 0, "output_tokens": 0}, "learned")
+
+    async def _note_preference(self, pref: str, ctx: ToolContext, sir: str) -> str:
+        from assistant.core.memory import SecretRefused, get_store
+        store = ctx.services.get("memory") or get_store(self.settings)
+        if store is None:
+            return f"Noted{sir}."
+        try:
+            await asyncio.to_thread(store.add, pref)
+        except SecretRefused:
+            return "I won't keep that: it looks like a password or card number."
+        except ValueError:
+            return f"Noted{sir}."
+        return f"Noted{sir}. I'll remember that."
+
+    async def _replay(self, conv: Conversation, user_text: str, lesson, ctx: ToolContext) -> AsyncIterator[Event]:
+        """Do what the user taught for this request, the way that fixed it last time."""
+        t0 = time.perf_counter()
+        said: list[str] = []
+        for i, call in enumerate(lesson.calls):
+            cid = f"learned_{i}"
+            yield ToolStarted(cid, call["tool"], dict(call.get("args") or {}))
+            started = time.perf_counter()
+            res = await self.registry.execute(call["tool"], dict(call.get("args") or {}), ctx)
+            text = res.content if isinstance(res.content, str) else _summarize_content(res.content, 300)
+            yield ToolFinished(cid, call["tool"], res.is_error, _summarize_content(text, 200), _ms(started))
+            said.append(text.strip())
+            if res.is_error:
+                break
+        spoken = " ".join(s for s in said if s) or "Done."
+        conv.messages.append({"role": "user", "content": user_text})
+        conv.messages.append({"role": "assistant", "content": spoken})
+        conv.trim()
+        conv.last_action = {"text": user_text, "at": time.time()}
+        yield TextDelta(spoken)
+        yield TurnComplete(spoken, {"total_ms": _ms(t0)}, {"input_tokens": 0, "output_tokens": 0}, "learned")
+
+    # --- main loop ----------------------------------------------------------------
+    async def _turn(self, conv: Conversation, user_text: str, ctx: ToolContext,
+                    extra_context: dict[str, str] | None = None) -> AsyncIterator[Event]:
         ctx.services.setdefault("brain", self)
         t0 = time.perf_counter()
         timings: dict[str, float] = {}
@@ -175,10 +302,6 @@ class LocalBrain:
         tools_used = False
         nudged = False
         # Common commands ("pause", "what's playing", "play X") skip the model entirely.
-        # "No, I meant Steam" / "I said ten minutes": the correction *is* the request.
-        m = _CORRECTION.match(user_text)
-        if m and len(m.group(1).split()) >= 1:
-            user_text = m.group(1)
         grid = ctx.services.get("grid")
         from assistant.brain.intents import _clean
         from assistant.tools.teach import teach_intent
@@ -440,6 +563,7 @@ class _Round:
         self.calls: list[dict] = []
 
 
+_NEVER_MIND = re.compile(r"^\W*(?:never ?mind|forget it|nothing|cancel|it'?s fine|no|nah|don'?t worry)\b", re.I)
 _CORRECTION = re.compile(r"^\s*(?:no[,.!]?\s+|nope[,.!]?\s+|sorry[,.!]?\s+|actually[,.!]?\s+)*"
                          r"(?:i meant|i said|i mean)\s+(.+?)\s*$", re.I)
 

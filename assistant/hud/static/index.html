@@ -196,6 +196,7 @@
             <input id="brainSearch" type="search" placeholder="Search memories…" aria-label="Search memories" autocomplete="off">
             <span id="brainStats" class="brain-stats"></span>
           </div>
+          <div class="brain-body">
           <div class="brain-stage">
             <canvas id="brain" aria-label="Nova's memories around its brain"></canvas>
             <div id="brainTip" class="brain-tip" hidden></div>
@@ -208,6 +209,12 @@
               </div>
             </div>
             <p id="brainEmpty" class="brain-empty" hidden>Nothing remembered yet.<br>Say “Nova, remember that…” or teach me below.</p>
+          </div>
+          <aside class="learned glass">
+            <div class="w-head"><h4 class="sub">Learned from you</h4><span class="w-note" id="learnedCount"></span></div>
+            <ol id="learnedList" class="learned-list"></ol>
+            <p id="learnedEmpty" class="w-empty">Nothing yet. When I get something wrong, correct me (“no, I meant …”) and I'll remember. Or teach me: “when I say the news, open bbc.co.uk”.</p>
+          </aside>
           </div>
           <form id="teach" class="composer" autocomplete="off">
             <input id="teachInput" type="text" maxlength="300" placeholder="Teach Nova something… e.g. My dog is called Max" aria-label="Teach Nova something">

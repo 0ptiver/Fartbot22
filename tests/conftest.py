@@ -52,3 +52,18 @@ def _quick_media_checks(monkeypatch):
     """Play/pause are re-checked a few times on the PC; no need to wait in tests."""
     from assistant.tools import video
     monkeypatch.setattr(video, "SETTLE_S", 0)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_lessons_learned(tmp_path, monkeypatch):
+    """Nor what Nova learned from corrections (data/lessons.json)."""
+    from assistant.brain import lessons
+    monkeypatch.setattr(lessons, "LESSONS_FILE", tmp_path / "lessons.json")
+    monkeypatch.setattr(lessons, "_STORE", None)
+
+
+@pytest.fixture
+def local_settings(settings):
+    """Settings for the local (Ollama) brain."""
+    settings.brain.backend = "local"
+    return settings
