@@ -527,6 +527,9 @@ def match_intent(text: str, grid_visible: bool = False, labels: bool = False,
                  r"(?:play|put on|throw on|stick on) (.+?)(?: on spotify)?$", t)
     if m:
         q = m.group(1).strip()
+        from assistant.tools.system import is_game
+        if not t.endswith("on spotify") and is_game(q):
+            return "open_app", {"name": q}                   # "play gta": the game, not a song
         if q in ("music", "some music", "spotify", "my music", "something", "some tunes", "a song"):
             return "media", {"action": "play"}
         q = re.sub(r"^(?:something|anything|a song|some songs|some music|songs|music) by ", "", q)

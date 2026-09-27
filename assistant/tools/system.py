@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -111,56 +113,184 @@ def volume(args: dict, ctx: ToolContext, _ep=None) -> str:
 
 # --- open app --------------------------------------------------------------
 def _start_menu_dirs() -> list[Path]:
+    """Start Menu (all users + mine) and both Desktops: Steam puts its games' shortcuts there."""
     dirs = []
     for var in ("ProgramData", "APPDATA"):
         base = os.environ.get(var)
         if base:
             dirs.append(Path(base) / "Microsoft" / "Windows" / "Start Menu" / "Programs")
+    for var in ("USERPROFILE", "PUBLIC"):
+        base = os.environ.get(var)
+        if base:
+            dirs.append(Path(base) / "Desktop")
     return dirs
 
 
+def _words(text: str) -> list[str]:
+    return re.sub(r"[^a-z0-9 ]+", " ", text.lower().replace("&", " and ")).split()
+
+
+def name_score(want: str, name: str) -> int | None:
+    """How well a spoken app name matches a shortcut's name (lower is better, None = no match).
+    'steam' = 'Steam'; 'gta' ~ 'Grand Theft Auto V' (initials); 'rockstar' ~ 'Rockstar Games Launcher'."""
+    w, n = " ".join(_words(want)), " ".join(_words(name))
+    if not w or not n:
+        return None
+    if n == w or n.replace(" ", "") == w.replace(" ", ""):
+        return 0                                          # "five m" = "FiveM"
+    if n.startswith(w) or n.replace(" ", "").startswith(w.replace(" ", "")):
+        return 1
+    if f" {w}" in f" {n}":
+        return 2
+    if all(x in n.split() for x in w.split()):
+        return 3
+    initials = "".join(x[0] for x in n.split())
+    if len(w) >= 2 and " " not in w and initials.startswith(w):
+        return 4
+    return None
+
+
 def find_shortcut(name: str, dirs: list[Path] | None = None) -> Path | None:
-    """Find a Start Menu shortcut whose name best matches `name`."""
-    want = name.lower().strip()
-    best: tuple[int, Path] | None = None
+    """Find a Start Menu / Desktop shortcut (.lnk, or Steam's .url) whose name best matches `name`."""
+    best: tuple[int, int, Path] | None = None
     for d in dirs if dirs is not None else _start_menu_dirs():
         if not d.exists():
             continue
-        for lnk in d.rglob("*.lnk"):
+        for lnk in [*d.rglob("*.lnk"), *d.rglob("*.url")]:
             stem = lnk.stem.lower()
-            if "uninstall" in stem:
+            if "uninstall" in stem or "readme" in stem or "help" == stem:
                 continue
-            if stem == want:
-                score = 0
-            elif stem.startswith(want):
-                score = 1
-            elif want in stem:
-                score = 2
-            else:
-                continue
-            if best is None or (score, len(stem)) < (best[0], len(best[1].stem)):
-                best = (score, lnk)
-    return best[1] if best else None
+            score = name_score(name, lnk.stem)
+            if score is not None and (best is None or (score, len(stem)) < best[:2]):
+                best = (score, len(stem), lnk)
+    return best[2] if best else None
+
+
+_GAME_LINKS = ("steam://", "com.epicgames.launcher://", "uplay://", "origin://", "origin2://", "battlenet://")
+_KNOWN_GAMES = {"fivem", "five m", "gta", "gta 5", "gta v", "gta five", "minecraft", "roblox", "fortnite", "valorant",
+                "league of legends", "rocket league", "apex", "apex legends", "counter strike", "cs2", "call of duty",
+                "warzone", "overwatch", "rust", "red dead", "red dead redemption", "red dead redemption 2"}
+_GAMES_CACHE: tuple[float, list[Path]] = (0.0, [])
+
+
+def game_shortcuts(dirs: list[Path] | None = None) -> list[Path]:
+    """Store-launcher game shortcuts (Steam, Epic, Ubisoft, EA, Battle.net) on the Start menu and desktops."""
+    global _GAMES_CACHE
+    if dirs is None and time.monotonic() - _GAMES_CACHE[0] < 60:
+        return _GAMES_CACHE[1]
+    found = []
+    for d in dirs if dirs is not None else _start_menu_dirs():
+        if d.exists():
+            for f in d.rglob("*.url"):
+                try:
+                    if any(x in f.read_text(errors="ignore")[:2000].lower() for x in _GAME_LINKS):
+                        found.append(f)
+                except OSError:
+                    continue
+    if dirs is None:
+        _GAMES_CACHE = (time.monotonic(), found)
+    return found
+
+
+def is_game(name: str, dirs: list[Path] | None = None) -> bool:
+    """'play gta' is the game, not a song called 'gta'."""
+    n = " ".join(_words(name))
+    if n in _KNOWN_GAMES:
+        return True
+    return any((sc := name_score(name, f.stem)) is not None and sc <= 4 for f in game_shortcuts(dirs)) if len(n) >= 2 else False
+
+
+_APPS_CACHE: tuple[float, list[tuple[str, str]]] = (0.0, [])
+
+
+def start_apps() -> list[tuple[str, str]]:
+    """Every app in the Start menu, Store apps too (Xbox, WhatsApp...): (name, AppUserModelID).
+    Windows only; read once every 10 minutes (PowerShell takes about a second)."""
+    global _APPS_CACHE
+    if not IS_WINDOWS:
+        return []
+    if time.monotonic() - _APPS_CACHE[0] < 600:
+        return _APPS_CACHE[1]
+    import json
+    import subprocess
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                              "Get-StartApps | Select-Object Name, AppID | ConvertTo-Json -Compress"],
+                             capture_output=True, text=True, timeout=8,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
+        rows = json.loads(out or "[]")
+        rows = [rows] if isinstance(rows, dict) else rows
+        apps = [(r["Name"], r["AppID"]) for r in rows if r.get("Name") and r.get("AppID")]
+    except (OSError, ValueError, subprocess.SubprocessError):
+        apps = []
+    _APPS_CACHE = (time.monotonic(), apps)
+    return apps
+
+
+def find_start_app(name: str, apps: list[tuple[str, str]] | None = None) -> tuple[str, str] | None:
+    best = None
+    for app_name, app_id in (apps if apps is not None else start_apps()):
+        if "uninstall" in app_name.lower():
+            continue
+        score = name_score(name, app_name)
+        if score is not None and (best is None or (score, len(app_name)) < best[:2]):
+            best = (score, len(app_name), app_name, app_id)
+    return (best[2], best[3]) if best else None
+
+
+OPEN_WAIT_S = 4.0          # how long to watch for the app's window before saying "starting"
+_GENERIC = {"microsoft", "games", "game", "launcher", "app", "the", "for", "and", "of", "desktop", "client"}
+
+
+def _app_windows(label: str) -> set[int]:
+    """Windows that look like they belong to this app (title or process name)."""
+    from assistant.tools import pc
+    words = [w for w in _words(label) if w not in _GENERIC and len(w) > 1] or _words(label)
+    found = set()
+    for w in pc.WINDOWS.list():
+        text = " ".join(_words(f"{w.title} {w.process.removesuffix('.exe')}")).split()
+        if any(x in text for x in words):
+            found.add(w.hwnd)
+    return found
 
 
 def _launch(target: str) -> None:
     launch(target)
 
 
-def open_app(args: dict, ctx: ToolContext, _launcher=_launch, _dirs=None) -> str:
+def open_app(args: dict, ctx: ToolContext, _launcher=_launch, _dirs=None, _apps=None) -> str:
     name = args["name"].strip()
     aliases = {k.lower(): v for k, v in ctx.settings.tools.app_aliases.items()}
     target = aliases.get(name.lower())
+    label = name
     if target is None:
         lnk = find_shortcut(name, _dirs)
-        if lnk is None:
-            raise ToolError(f"I couldn't find an app called '{name}' in the Start Menu or aliases.")
-        target = str(lnk)
-        label = lnk.stem
-    else:
-        label = name
+        lnk_score = name_score(name, lnk.stem) if lnk else None
+        app = find_start_app(name, _apps) if lnk_score != 0 else None
+        if app and (lnk is None or name_score(name, app[0]) < lnk_score):
+            label, target = app[0], f"shell:AppsFolder\\{app[1]}"
+        elif lnk is not None:
+            label, target = lnk.stem, str(lnk)
+        else:
+            raise ToolError(f"I couldn't find an app called '{name}' on this PC.")
+    try:
+        before = _app_windows(label)
+    except Exception:
+        before = None                                     # can't look at windows: just open it
     _launcher(target)
-    return f"Opened {label}."
+    if before is None:
+        return f"Opened {label}."
+    # Say "opened" only when its window really shows up (the launcher saying OK isn't proof).
+    deadline = time.monotonic() + OPEN_WAIT_S
+    while True:
+        if _app_windows(label) - before:
+            return f"Opened {label}."
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.25)
+    if before:
+        return f"{label} is already open."
+    return f"Starting {label}. It can take a moment to appear."
 
 
 def register(reg: ToolRegistry) -> None:
@@ -189,8 +319,8 @@ def register(reg: ToolRegistry) -> None:
     )(volume)
     reg.tool(
         "open_app",
-        "Open an application by name (e.g. 'spotify', 'discord', 'notepad', 'steam'). "
-        "Looks up configured aliases, then Start Menu shortcuts.",
+        "Open an application or game by name (e.g. 'spotify', 'discord', 'steam', 'gta'). "
+        "Looks up aliases, Start Menu and desktop shortcuts, and Store apps.",
         {
             "type": "object",
             "properties": {"name": {"type": "string", "minLength": 1, "maxLength": 100}},

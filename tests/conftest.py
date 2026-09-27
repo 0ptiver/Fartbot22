@@ -74,3 +74,10 @@ def _no_real_location(tmp_path, monkeypatch):
     """Nor the owner's city (data/location.json)."""
     from assistant.tools import quick
     monkeypatch.setattr(quick, "LOCATION_FILE", tmp_path / "location.json")
+
+
+@pytest.fixture(autouse=True)
+def _no_waiting_for_app_windows(monkeypatch):
+    """open_app watches for the app's window for a few seconds on the PC; not in tests."""
+    from assistant.tools import system
+    monkeypatch.setattr(system, "OPEN_WAIT_S", 0)
