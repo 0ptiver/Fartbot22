@@ -12,140 +12,204 @@
 <script src="voice.js" defer></script>
 </head>
 <body>
-<header class="top">
-  <div class="brand">
-    <span class="conn" id="conn" title="Connecting"></span>
-    <span id="name">NOVA</span>
-    <span id="lockBadge" class="lock-badge" hidden title="Voice lock: only your voice is obeyed">🔒</span>
-  </div>
-  <div class="top-actions">
-    <button id="brainBtn" class="chip" type="button" aria-pressed="false" title="Nova's memory: everything it has been asked to remember">Brain</button>
-    <button id="ccBtn" class="chip" type="button" aria-pressed="false" title="Live subtitles of what your PC is playing, translated into English">CC</button>
-    <button id="modeBtn" class="chip" type="button" title="Switch between answering only when called by name, and answering everything">Wake word</button>
-    <button id="muteBtn" class="icon-btn" type="button" aria-pressed="false" title="Turn the microphone off / on">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path class="mic" d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z"/><path class="mic" d="M5 11a7 7 0 0 0 14 0M12 18v3"/><path class="slash" d="M4 4l16 16"/></svg>
-      <span class="sr">Microphone</span>
-    </button>
-  </div>
-</header>
+<svg class="sprite" aria-hidden="true">
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M3 12h4l3-7 4 14 3-7h4"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></symbol>
+  <symbol id="i-brain" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="6" r="1.6"/><circle cx="19" cy="6" r="1.6"/><circle cx="5" cy="18" r="1.6"/><circle cx="19" cy="18" r="1.6"/><path d="M6.3 7.2 9.6 10M17.7 7.2 14.4 10M6.3 16.8l3.3-2.8M17.7 16.8l-3.3-2.8"/></symbol>
+  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M3 10v4M7 7v10M11 4v16M15 8v8M19 10v4"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></symbol>
+  <symbol id="i-micoff" viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M4 4l16 16"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
+  <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v8M6.4 6.6a8 8 0 1 0 11.2 0"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M4 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-cc" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10.5 10a2.2 2.2 0 1 0 0 4M17 10a2.2 2.2 0 1 0 0 4"/></symbol>
+  <symbol id="i-ear" viewBox="0 0 24 24"><path d="M7 9a5 5 0 0 1 10 0c0 3-3 4-3 7a3 3 0 0 1-6 0"/><path d="M10 9a2 2 0 0 1 4 0"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+</svg>
 
-<section class="stage">
-  <canvas id="orb" aria-hidden="true"></canvas>
-  <p id="stateText" class="state" aria-live="polite">Connecting…</p>
-  <div class="controls">
-    <button id="stopBtn" type="button" class="ctl" title="Stop talking / cancel what Nova is doing">Stop</button>
-    <button id="standBtn" type="button" class="ctl" title="Kill switch: Nova ignores everything until woken">Stand down</button>
-  </div>
-</section>
+<div class="app">
+  <nav class="rail" aria-label="Sections">
+    <div class="rail-logo" title="Nova"><span class="conn" id="conn" title="Connecting"></span></div>
+    <button type="button" data-tab="chat" aria-current="page" title="Chat"><svg><use href="#i-chat"/></svg><span>Chat</span></button>
+    <button type="button" data-tab="activity" title="Activity"><svg><use href="#i-pulse"/></svg><span>Activity</span><b class="badge" id="actBadge" hidden></b></button>
+    <button type="button" data-tab="timers" title="Timers and watches"><svg><use href="#i-clock"/></svg><span>Timers</span><b class="badge" id="timerBadge" hidden></b></button>
+    <button type="button" data-tab="routines" title="Routines"><svg><use href="#i-bolt"/></svg><span>Routines</span></button>
+    <button type="button" data-tab="brain" title="Nova's memory"><svg><use href="#i-brain"/></svg><span>Brain</span></button>
+    <button type="button" data-tab="voice" title="Voice and voice lock"><svg><use href="#i-wave"/></svg><span>Voice</span></button>
+  </nav>
 
-<section id="confirm" class="confirm" hidden aria-live="assertive">
-  <p class="q"><span id="confirmWho">Nova</span> wants to <strong id="confirmText"></strong></p>
-  <div class="bar"><div id="confirmBar"></div></div>
-  <div class="yn">
-    <button id="yesBtn" type="button" class="yes">Yes <kbd>Y</kbd></button>
-    <button id="noBtn" type="button" class="no">No <kbd>N</kbd></button>
-  </div>
-</section>
+  <div class="work">
+    <header class="topbar">
+      <div class="titles">
+        <h1 id="pageTitle">Chat</h1>
+        <p id="pageSub">Talk or type. Everything stays on this PC.</p>
+      </div>
+      <div class="top-actions">
+        <span id="lockBadge" class="pill ok" hidden title="Voice lock: only your voice is obeyed"><svg><use href="#i-lock"/></svg><span>Voice lock</span></span>
+        <button id="ccBtn" class="pill" type="button" aria-pressed="false" title="Live subtitles of what your PC is playing, translated into English"><svg><use href="#i-cc"/></svg><span>Subtitles</span></button>
+        <button id="modeBtn" class="pill" type="button" title="Switch between answering only when called by name, and answering everything"><svg><use href="#i-ear"/></svg><span id="modeLabel">Wake word</span></button>
+      </div>
+    </header>
 
-<section id="brainView" class="brain-view" hidden>
-  <div class="brain-bar">
-    <input id="brainSearch" type="search" placeholder="Search memories…" aria-label="Search memories" autocomplete="off">
-    <span id="brainStats" class="brain-stats"></span>
+    <main class="pages">
+      <section id="tab-chat" class="page chat-page">
+        <div id="chatScroll" class="scroll">
+          <div id="chatEmpty" class="welcome">
+            <p class="eyebrow">Good to see you</p>
+            <h2 id="greeting">Good evening, sir.</h2>
+            <p class="muted">Say “Nova, …” or type below. A few things to try:</p>
+            <div id="suggest" class="suggest">
+              <button type="button" data-say="What's my PC doing?">What's my PC doing?</button>
+              <button type="button" data-say="Set a timer for 10 minutes">Set a timer for 10 minutes</button>
+              <button type="button" data-say="Show the grid">Show the grid</button>
+              <button type="button" data-say="What do you remember about me?">What do you remember about me?</button>
+            </div>
+          </div>
+          <ol id="chat" class="chat"></ol>
+        </div>
+        <form id="ask" class="composer" autocomplete="off">
+          <input id="askInput" type="text" maxlength="2000" placeholder="Type to Nova…" aria-label="Type a request">
+          <button type="submit" title="Send (Enter)"><svg><use href="#i-send"/></svg><span class="sr">Send</span></button>
+        </form>
+      </section>
+
+      <section id="tab-activity" class="page" hidden>
+        <div class="scroll">
+          <label class="toggle"><input type="checkbox" id="showIgnored"><span class="switch"></span> Show speech Nova ignored</label>
+          <ol id="activity" class="feed"></ol>
+          <p class="empty" id="actEmpty">Nothing yet. Every tool Nova uses shows up here, with how long it took.</p>
+        </div>
+      </section>
+
+      <section id="tab-timers" class="page" hidden>
+        <div class="scroll">
+          <ol id="timers" class="timers"></ol>
+          <p class="empty" id="timersEmpty">No timers or watches.<br>Try “Nova, set a timer for 10 minutes” or “Nova, tell me when my download finishes”.</p>
+        </div>
+      </section>
+
+      <section id="tab-routines" class="page" hidden>
+        <div class="scroll">
+          <div id="routines" class="routines"></div>
+          <p class="hint">Teach one by showing: “Nova, watch what I do”. Or add them in <code>config\local.yaml</code>.</p>
+        </div>
+      </section>
+
+      <section id="tab-brain" class="page" hidden>
+        <div id="brainView" class="brain-view">
+          <div class="brain-bar">
+            <input id="brainSearch" type="search" placeholder="Search memories…" aria-label="Search memories" autocomplete="off">
+            <span id="brainStats" class="brain-stats"></span>
+          </div>
+          <div class="brain-stage">
+            <canvas id="brain" aria-label="Nova's memories around its brain"></canvas>
+            <div id="brainTip" class="brain-tip" hidden></div>
+            <div id="brainCard" class="brain-card" hidden>
+              <p id="brainCardText"></p>
+              <p id="brainCardWhen" class="small"></p>
+              <div class="brain-card-actions">
+                <button id="brainForget" type="button" class="btn danger">Forget</button>
+                <button id="brainClose" type="button" class="btn">Close</button>
+              </div>
+            </div>
+            <p id="brainEmpty" class="brain-empty" hidden>Nothing remembered yet.<br>Say “Nova, remember that…” or teach me below.</p>
+          </div>
+          <form id="teach" class="composer" autocomplete="off">
+            <input id="teachInput" type="text" maxlength="300" placeholder="Teach Nova something… e.g. My dog is called Max" aria-label="Teach Nova something">
+            <button type="submit" title="Remember it"><svg><use href="#i-plus"/></svg><span class="sr">Remember</span></button>
+          </form>
+        </div>
+      </section>
+
+      <section id="tab-voice" class="page" hidden>
+        <div class="scroll">
+          <div class="voice-grid">
+            <div class="card lock-card" id="lockCard">
+              <div class="card-head">
+                <h3><svg><use href="#i-lock"/></svg>Voice lock</h3>
+                <span id="lockState" class="lock-state">off</span>
+              </div>
+              <p id="lockText" class="small">Only obey your voice: people in game chat, the TV or visitors are ignored.</p>
+              <div class="lock-actions">
+                <button id="lockLearn" type="button" class="btn primary">Learn my voice</button>
+                <button id="lockToggle" type="button" class="btn" hidden>Turn off</button>
+                <button id="lockForget" type="button" class="btn" hidden>Forget my voice</button>
+              </div>
+              <label class="lock-slider" id="lockSliderRow" hidden>Strictness <output id="lockVal"></output>
+                <input type="range" id="lockSlider" min="0.5" max="0.95" step="0.01"></label>
+              <p class="small faint">Only numbers describing your voice are kept, never recordings.</p>
+            </div>
+
+            <div class="card">
+              <div class="card-head"><h3><svg><use href="#i-wave"/></svg>Voice designer</h3></div>
+              <p class="empty" id="voiceUnavailable" hidden>The voice designer needs Nova's Kokoro voice to be running.</p>
+              <div id="voiceDesigner">
+                <div class="presets" id="voicePresets" aria-label="Starting points"></div>
+                <h4 class="sub">Mix of voices</h4>
+                <div id="voiceMix" class="mix"></div>
+                <button id="voiceAdd" type="button" class="link-btn">+ Blend in another voice</button>
+                <div class="sliders">
+                  <label>Speed <output id="speedVal"></output>
+                    <input type="range" id="voiceSpeed" min="0.7" max="1.4" step="0.01"></label>
+                  <label>Pitch <output id="pitchVal"></output>
+                    <input type="range" id="voicePitch" min="-4" max="4" step="0.5"></label>
+                  <label class="accent">Accent
+                    <select id="voiceLang"><option value="en-gb">British</option><option value="en-us">American</option></select></label>
+                </div>
+                <input id="voiceText" type="text" maxlength="200" class="field" placeholder="Preview line (optional)" aria-label="Preview line">
+                <div class="voice-actions">
+                  <button id="voicePreview" type="button" class="btn">▶ Preview</button>
+                  <button id="voiceSave" type="button" class="btn primary">Save as Nova's voice</button>
+                </div>
+                <p class="hint">Or just say “Nova, change your voice to deep butler”.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
   </div>
-  <div class="brain-stage">
-    <canvas id="brain" aria-label="Nova's memories around its brain"></canvas>
-    <div id="brainTip" class="brain-tip" hidden></div>
-    <div id="brainCard" class="brain-card" hidden>
-      <p id="brainCardText"></p>
-      <p id="brainCardWhen" class="small"></p>
-      <div class="brain-card-actions">
-        <button id="brainForget" type="button" class="no">Forget</button>
-        <button id="brainClose" type="button" class="ctl">Close</button>
+
+  <aside class="core" aria-label="Nova">
+    <div class="orb-wrap">
+      <canvas id="orb" aria-hidden="true"></canvas>
+    </div>
+    <p id="name" class="name">NOVA</p>
+    <p id="stateText" class="state" aria-live="polite">Connecting…</p>
+    <div class="controls">
+      <button id="stopBtn" type="button" class="ctl" title="Stop talking / cancel what Nova is doing (Esc)"><svg><use href="#i-stop"/></svg><span>Stop</span></button>
+      <button id="standBtn" type="button" class="ctl" title="Kill switch: Nova ignores everything until woken"><svg><use href="#i-power"/></svg><span id="standLabel">Stand down</span></button>
+      <button id="muteBtn" type="button" class="ctl" aria-pressed="false" title="Turn the microphone off / on"><svg><use id="muteIcon" href="#i-mic"/></svg><span id="muteLabel">Mic on</span></button>
+    </div>
+
+    <section id="confirm" class="confirm" hidden aria-live="assertive">
+      <p class="q"><span id="confirmWho">Nova</span> wants to <strong id="confirmText"></strong></p>
+      <div class="bar"><div id="confirmBar"></div></div>
+      <div class="yn">
+        <button id="yesBtn" type="button" class="btn yes">Yes <kbd>Y</kbd></button>
+        <button id="noBtn" type="button" class="btn no">No <kbd>N</kbd></button>
+      </div>
+    </section>
+
+    <div class="core-block" id="upNext" hidden>
+      <h4 class="sub">Up next</h4>
+      <ol id="nextList" class="next-list"></ol>
+    </div>
+
+    <div class="core-block">
+      <h4 class="sub">This PC</h4>
+      <div id="vitals" class="vitals">
+        <div class="vital" data-k="cpu"><span>CPU</span><b>–</b><i><em></em></i></div>
+        <div class="vital" data-k="ram"><span>Memory</span><b>–</b><i><em></em></i></div>
+        <div class="vital" data-k="gpu_temp"><span>GPU temp</span><b>–</b><i><em></em></i></div>
+        <div class="vital" data-k="vram"><span>GPU memory</span><b>–</b><i><em></em></i></div>
       </div>
     </div>
-    <p id="brainEmpty" class="brain-empty" hidden>Nothing remembered yet.<br>Say “Nova, remember that…” or teach me below.</p>
-  </div>
-  <form id="teach" class="ask" autocomplete="off">
-    <input id="teachInput" type="text" maxlength="300" placeholder="Teach Nova something… e.g. My dog is called Max" aria-label="Teach Nova something">
-    <button type="submit" title="Remember it">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-      <span class="sr">Remember</span>
-    </button>
-  </form>
-</section>
-
-<nav class="tabs" role="tablist">
-  <button role="tab" type="button" data-tab="chat" aria-selected="true">Chat</button>
-  <button role="tab" type="button" data-tab="activity" aria-selected="false">Activity <span class="badge" id="actBadge" hidden></span></button>
-  <button role="tab" type="button" data-tab="timers" aria-selected="false">Timers <span class="badge" id="timerBadge" hidden></span></button>
-  <button role="tab" type="button" data-tab="routines" aria-selected="false">Routines</button>
-  <button role="tab" type="button" data-tab="voice" aria-selected="false">Voice</button>
-</nav>
-
-<main>
-  <section id="tab-chat" class="panel" role="tabpanel">
-    <ol id="chat" class="chat"></ol>
-    <p class="empty" id="chatEmpty">Say “Nova, …” or type below.</p>
-  </section>
-  <section id="tab-activity" class="panel" role="tabpanel" hidden>
-    <label class="toggle"><input type="checkbox" id="showIgnored"> Show speech Nova ignored</label>
-    <ol id="activity" class="feed"></ol>
-    <p class="empty" id="actEmpty">Nothing yet. Tools Nova uses show up here.</p>
-  </section>
-  <section id="tab-timers" class="panel" role="tabpanel" hidden>
-    <ol id="timers" class="timers"></ol>
-    <p class="empty" id="timersEmpty">No timers. Try “Nova, set a timer for 10 minutes” or “Nova, tell me when my download finishes”.</p>
-  </section>
-  <section id="tab-routines" class="panel" role="tabpanel" hidden>
-    <div id="routines" class="routines"></div>
-    <p class="hint">Add your own in <code>config\local.yaml</code>, then check them with <code>python -m assistant routines</code>.</p>
-  </section>
-  <section id="tab-voice" class="panel" role="tabpanel" hidden>
-    <p class="empty" id="voiceUnavailable" hidden>The voice designer needs Nova's Kokoro voice to be running.</p>
-    <div class="lock-card" id="lockCard">
-      <div class="lock-head">
-        <h3 class="sub">Voice lock</h3>
-        <span id="lockState" class="lock-state">off</span>
-      </div>
-      <p id="lockText" class="small">Only obey your voice: people in game chat, the TV or visitors are ignored.</p>
-      <div class="lock-actions">
-        <button id="lockLearn" type="button" class="ctl">Learn my voice</button>
-        <button id="lockToggle" type="button" class="ctl" hidden>Turn off</button>
-        <button id="lockForget" type="button" class="ctl" hidden>Forget my voice</button>
-      </div>
-      <label class="lock-slider" id="lockSliderRow" hidden>Strictness <output id="lockVal"></output>
-        <input type="range" id="lockSlider" min="0.5" max="0.95" step="0.01"></label>
-    </div>
-    <div id="voiceDesigner">
-      <div class="presets" id="voicePresets" aria-label="Starting points"></div>
-      <h3 class="sub">Mix of voices</h3>
-      <div id="voiceMix" class="mix"></div>
-      <button id="voiceAdd" type="button" class="link-btn">+ Blend in another voice</button>
-      <div class="sliders">
-        <label>Speed <output id="speedVal"></output>
-          <input type="range" id="voiceSpeed" min="0.7" max="1.4" step="0.01"></label>
-        <label>Pitch <output id="pitchVal"></output>
-          <input type="range" id="voicePitch" min="-4" max="4" step="0.5"></label>
-        <label class="accent">Accent
-          <select id="voiceLang"><option value="en-gb">British</option><option value="en-us">American</option></select></label>
-      </div>
-      <input id="voiceText" type="text" maxlength="200" class="field" placeholder="Preview line (optional)" aria-label="Preview line">
-      <div class="voice-actions">
-        <button id="voicePreview" type="button" class="ctl">▶ Preview</button>
-        <button id="voiceSave" type="button" class="yes">Save as Nova's voice</button>
-      </div>
-      <p class="hint">Or just say “Nova, change your voice to deep butler”.</p>
-    </div>
-  </section>
-</main>
-
-<form id="ask" class="ask" autocomplete="off">
-  <input id="askInput" type="text" maxlength="2000" placeholder="Type to Nova…" aria-label="Type a request">
-  <button type="submit" title="Send (Enter)">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h14M13 6l6 6-6 6"/></svg>
-    <span class="sr">Send</span>
-  </button>
-</form>
+  </aside>
+</div>
 
 <div id="toast" class="toast" hidden role="status"></div>
 

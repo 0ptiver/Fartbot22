@@ -254,3 +254,44 @@ async def test_memory_changes_reach_the_window(tmp_path):
     await asyncio.sleep(0.05)
     ev = q.get_nowait()
     assert ev["type"] == "memories" and ev["items"][0]["text"] == "My name is Ollie"
+
+
+def test_every_element_the_scripts_use_is_on_the_page():
+    """The UI overhaul moved everything around: a script looking up a missing id would break
+    the whole window on the PC, so check the page against all three scripts."""
+    import re
+    from pathlib import Path
+    static = Path(hud.__file__).parent / "static"
+    page = (static / "index.html").read_text(encoding="utf-8")
+    ids = set(re.findall(r'\bid="([^"]+)"', page))
+    for name in ("hud.js", "brain.js", "voice.js"):
+        used = set(re.findall(r'\$\("([A-Za-z0-9_-]+)"\)', (static / name).read_text(encoding="utf-8")))
+        assert used - ids == set(), f"{name} looks up ids the page doesn't have"
+    for tab in re.findall(r'data-tab="([a-z]+)"', page):
+        assert f'id="tab-{tab}"' in page
+
+
+def test_vitals_for_this_pc_panel(monkeypatch):
+    calls = []
+    def gpu():
+        calls.append(1)
+        return {"name": "RTX", "temp": 71, "util": 5, "mem_used": 2000, "mem_total": 8000}
+    monkeypatch.setattr(hud, "_VITALS", {"at": 0.0, "ev": None})
+    ev = hud.vitals(gpu)
+    assert ev["type"] == "vitals" and ev["gpu_temp"] == 71 and ev["vram"] == 25
+    assert 0 <= ev["cpu"] <= 100 and 0 <= ev["ram"] <= 100
+    hud.vitals(gpu)                                   # cached: nvidia-smi isn't run per window
+    assert len(calls) == 1
+
+
+def test_vitals_without_an_nvidia_gpu(monkeypatch):
+    monkeypatch.setattr(hud, "_VITALS", {"at": 0.0, "ev": None})
+    ev = hud.vitals(lambda: None)
+    assert ev["gpu_temp"] is None and ev["vram"] is None
+
+
+def test_timers_carry_their_start_for_the_progress_bar(settings, tmp_path):
+    sched = Scheduler(tmp_path / "rem.json", settings.assistant.timezone)
+    r = sched.add("timer", time.time() + 60, "tea")
+    [item] = hud.timers(sched, settings)["items"]
+    assert item["created"] == r.created and item["due"] - item["created"] == pytest.approx(60, abs=2)

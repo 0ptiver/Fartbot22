@@ -22,7 +22,16 @@ const S = {
   ws: null, name: "Nova", user: "sir", routines: [], confirmTimeout: 12,
   state: "idle", level: 0, mode: "wake", standby: false, muted: false,
   live: null, confirmShown: null, confirmTimer: null, unseenAct: 0, tab: "chat",
-  timers: [], clockSkew: 0, showIgnored: false, retry: 0,
+  timers: [], clockSkew: 0, showIgnored: false, retry: 0, chips: new Map(),
+};
+
+const PAGES = {
+  chat: ["Chat", "Talk or type. Everything stays on this PC."],
+  activity: ["Activity", "Every tool Nova used, and how it went."],
+  timers: ["Timers & watches", "Timers, reminders, alarms and things Nova is watching for."],
+  routines: ["Routines", "One phrase, several actions. Click one to run it."],
+  brain: ["Brain", "Everything Nova has been asked to remember."],
+  voice: ["Voice", "How Nova sounds, and who it listens to."],
 };
 
 // --- connection ------------------------------------------------------------------------------
@@ -72,7 +81,9 @@ function hello(ev) {
   $("confirmWho").textContent = S.name;
   document.title = S.name;
   $("askInput").placeholder = `Type to ${S.name}…`;
+  greet();
   $("chat").replaceChildren();
+  S.chips.clear();
   $("activity").replaceChildren();
   S.live = null;
   S.unseenAct = 0;
@@ -91,6 +102,7 @@ function handle(ev, replay) {
     case "memories": return NovaBrain.memories(ev.items);
     case "memory_used": if (!replay) NovaBrain.used(ev.ids); return;
     case "toast": return toast(ev.text);
+    case "vitals": return vitals(ev);
     case "voice": return NovaVoice.info(ev);
     case "transcript":
       closeLive();
@@ -112,7 +124,7 @@ function handle(ev, replay) {
       else if (ev.type === "stopped") addSys("sys", "Stopped");
       break;
     case "tool":
-      addSys("sys tool", `Using ${pretty(ev.name, false)}…`);
+      toolChip(ev.name);
       activity("run", pretty(ev.name), "", ev.ts);
       break;
     case "tool_done": {
@@ -120,7 +132,7 @@ function handle(ev, replay) {
       const detail = (ev.summary || "") + (ev.ms != null ? `  ·  ${(ev.ms / 1000).toFixed(1)} s` : "");
       if (item) finishActivity(item, ev.is_error ? "bad" : "ok", detail);
       else activity(ev.is_error ? "bad" : "ok", pretty(ev.name), detail, ev.ts);
-      if (ev.is_error) addSys("sys tool err", `${pretty(ev.name)} didn't work`);
+      toolDone(ev.name, !!ev.is_error, ev.ms);
       break;
     }
     case "announcement":
@@ -179,6 +191,25 @@ function addMsg(cls, text) {
   return li;
 }
 function addSys(cls, text) { const li = el("li", cls, text); $("chat").append(li); scrollChat(); return li; }
+
+// Tools Nova uses show as small chips under the conversation, ticked off as they finish.
+function toolChip(name) {
+  let row = $("chat").lastElementChild;
+  if (!row || !row.classList.contains("chips")) { row = el("li", "chips"); $("chat").append(row); }
+  const chip = el("span", "chip");
+  chip.append(el("i"), document.createTextNode(pretty(name)));
+  row.append(chip);
+  S.chips.set(name, chip);
+  scrollChat();
+}
+function toolDone(name, bad, ms) {
+  let chip = S.chips.get(name);
+  if (!chip) { toolChip(name); chip = S.chips.get(name); }
+  S.chips.delete(name);
+  chip.classList.add(bad ? "bad" : "ok");
+  if (bad) chip.lastChild.textContent = pretty(name) + " didn't work";
+  if (ms != null) chip.append(el("span", "ms", `${(ms / 1000).toFixed(1)} s`));
+}
 function closeLive() {
   if (!S.live) return;
   S.live.classList.remove("live");
@@ -186,7 +217,7 @@ function closeLive() {
   S.live = null;
 }
 function scrollChat() {
-  const p = $("tab-chat");
+  const p = $("chatScroll");
   if (p.scrollHeight - p.scrollTop - p.clientHeight < 160) requestAnimationFrame(() => { p.scrollTop = p.scrollHeight; });
 }
 function trim(list, max) { while (list.children.length > max) list.firstChild.remove(); }
@@ -252,13 +283,17 @@ function renderState() {
   $("stateText").textContent = (LABEL[S.state] || LABEL.idle)();
   $("muteBtn").setAttribute("aria-pressed", String(!!S.muted));
   $("muteBtn").title = S.muted ? "Microphone is off: click to turn it on" : "Turn the microphone off";
+  $("muteLabel").textContent = S.muted ? "Mic off" : "Mic on";
+  $("muteIcon").setAttribute("href", S.muted ? "#i-micoff" : "#i-mic");
   const stand = $("standBtn");
-  stand.textContent = S.standby ? "Wake up" : "Stand down";
+  $("standLabel").textContent = S.standby ? "Wake up" : "Stand down";
   stand.classList.toggle("wake", !!S.standby);
   $("ccBtn").setAttribute("aria-pressed", String(!!S.subs));
   const open = S.mode === "open_mic";
-  $("modeBtn").textContent = open ? "Open mic" : "Wake word";
+  $("modeLabel").textContent = open ? "Open mic" : "Wake word";
   $("modeBtn").classList.toggle("open", open);
+  const c = COLORS[S.state] || COLORS.idle;
+  document.documentElement.style.setProperty("--glow", c.join(", "));
 }
 
 const COLORS = {
@@ -379,49 +414,89 @@ function renderTimers() {
   const now = Date.now() / 1000 + S.clockSkew;
   const existing = new Map([...list.children].map((li) => [li.dataset.id, li]));
   const keep = new Set();
+  const card = (id, cls, title, sub, onCancel, cancelLabel) => {
+    const li = el("li", cls);
+    li.dataset.id = id;
+    li.append(el("div", "label", title), el("div", "kind", sub), el("span", "left"));
+    const x = el("button", "x", "✕");
+    x.type = "button";
+    x.title = cancelLabel;
+    x.setAttribute("aria-label", `${cancelLabel}: ${title}`);
+    x.onclick = onCancel;
+    li.append(x);
+    list.append(li);
+    return li;
+  };
   for (const t of S.timers) {
     keep.add(t.id);
     let li = existing.get(t.id);
     if (!li) {
-      li = el("li", "timer");
-      li.dataset.id = t.id;
-      const info = el("div");
-      info.append(el("div", "label", t.text || (t.kind === "alarm" ? "Alarm" : t.kind === "timer" ? "Timer" : "Reminder")));
       const at = new Date(t.due * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-      info.append(el("div", "kind", `${t.kind} · ${at}`));
-      const x = el("button", "x", "✕");
-      x.type = "button";
-      x.title = "Cancel";
-      x.setAttribute("aria-label", `Cancel ${t.kind} ${t.text || ""}`);
-      x.onclick = () => send({ type: "cancel_timer", id: t.id });
-      li.append(info, el("span", "left"), x);
-      list.append(li);
+      li = card(t.id, "timer", t.text || (t.kind === "alarm" ? "Alarm" : t.kind === "timer" ? "Timer" : "Reminder"),
+        `${t.kind} · ${at}`, () => send({ type: "cancel_timer", id: t.id }), "Cancel");
+      const prog = el("div", "prog");
+      prog.append(el("em"));
+      li.append(prog);
     }
-    li.querySelector(".left").textContent = fmtLeft(t.due - now);
+    const left = t.due - now;
+    li.querySelector(".left").textContent = fmtLeft(left);
+    li.classList.toggle("soon", left < 60);
+    const total = t.created ? t.due - t.created : 0;
+    const frac = total > 0 ? Math.min(1, Math.max(0, left / total)) : 1;
+    li.querySelector(".prog em").style.transform = `scaleX(${frac})`;
   }
   for (const w of S.watches || []) {
     const id = "w:" + w.id;
     keep.add(id);
-    let li = existing.get(id);
-    if (!li) {
-      li = el("li", "timer watching");
-      li.dataset.id = id;
-      const info = el("div");
-      info.append(el("div", "label", w.text.charAt(0).toUpperCase() + w.text.slice(1)), el("div", "kind", "watching for it"));
-      const x = el("button", "x", "✕");
-      x.type = "button";
-      x.title = "Stop watching";
-      x.setAttribute("aria-label", `Stop watching for ${w.text}`);
-      x.onclick = () => send({ type: "cancel_watch", id: w.id });
-      li.append(info, el("span", "left eye", "◉"), x);
-      list.append(li);
+    if (!existing.get(id)) {
+      const li = card(id, "timer watching", w.text.charAt(0).toUpperCase() + w.text.slice(1), "watch",
+        () => send({ type: "cancel_watch", id: w.id }), "Stop watching");
+      li.querySelector(".left").textContent = "Watching for it";
     }
   }
   for (const [id, li] of existing) if (!keep.has(id)) li.remove();
   const count = S.timers.length + (S.watches || []).length;
   $("timerBadge").hidden = count === 0;
   $("timerBadge").textContent = String(count);
+  renderUpNext(now);
   empties();
+}
+
+// The next few timers and watches, always visible under the orb.
+function renderUpNext(now) {
+  const items = [...S.timers].sort((a, b) => a.due - b.due).slice(0, 3);
+  const watches = (S.watches || []).slice(0, Math.max(0, 4 - items.length));
+  $("upNext").hidden = items.length + watches.length === 0;
+  const list = $("nextList");
+  list.replaceChildren();
+  for (const t of items) {
+    const li = el("li");
+    li.append(el("span", "", t.text || t.kind.charAt(0).toUpperCase() + t.kind.slice(1)), el("b", "", fmtLeft(t.due - now)));
+    list.append(li);
+  }
+  for (const w of watches) {
+    const li = el("li", "w");
+    li.append(el("span", "", w.text.charAt(0).toUpperCase() + w.text.slice(1)), el("b", "", "watching"));
+    list.append(li);
+  }
+}
+
+// --- this PC ---------------------------------------------------------------------------------
+function vitals(ev) {
+  const show = (k, text, pct, warn, hot) => {
+    const v = document.querySelector(`.vital[data-k="${k}"]`);
+    if (!v) return;
+    v.querySelector("b").textContent = text;
+    v.querySelector("em").style.width = `${Math.max(0, Math.min(100, pct))}%`;
+    v.classList.toggle("warn", pct >= warn && pct < hot);
+    v.classList.toggle("hot", pct >= hot);
+  };
+  const pct = (x) => (x == null ? ["–", 0] : [`${x}%`, x]);
+  show("cpu", ...pct(ev.cpu), 75, 92);
+  show("ram", ...pct(ev.ram), 80, 92);
+  show("vram", ...pct(ev.vram), 85, 95);
+  if (ev.gpu_temp == null) show("gpu_temp", "–", 0, 101, 101);
+  else show("gpu_temp", `${ev.gpu_temp}°C`, ev.gpu_temp, 80, 88);
 }
 
 // --- routines --------------------------------------------------------------------------------
@@ -430,9 +505,11 @@ function renderRoutines() {
   box.replaceChildren();
   for (const r of S.routines) {
     const card = el("div", "routine-card");
-    const b = el("button", "routine");
+    const b = el("button", "routine" + (r.learned ? " learned" : ""));
     b.type = "button";
-    b.append(el("b", "", r.label), el("span", "", (r.learned ? "taught · " : "") + `“${r.phrase}”`));
+    const ic = el("span", "r-ic");
+    ic.append(icon(r.learned ? "i-brain" : "i-bolt"));
+    b.append(ic, el("b", "", r.label), el("span", "", (r.learned ? "taught · " : "") + `“${r.phrase}”`));
     b.onclick = () => send({ type: "routine", name: r.name });
     card.append(b);
     if (r.learned) {
@@ -463,26 +540,45 @@ function toast(text) {
   toastTimer = setTimeout(() => { t.hidden = true; }, 5000);
 }
 
-function showBrain(on) {
-  document.body.classList.toggle("brain", on);
-  $("brainView").hidden = !on;
-  $("brainBtn").setAttribute("aria-pressed", String(on));
-  NovaBrain.show(on);
-  try { sessionStorage.setItem("novaView", on ? "brain" : "hud"); } catch (e) { /* ignore */ }
+function icon(id) {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  const use = document.createElementNS(ns, "use");
+  use.setAttribute("href", "#" + id);
+  svg.append(use);
+  return svg;
+}
+
+function greet() {
+  const h = new Date().getHours();
+  const part = h < 5 ? "evening" : h < 12 ? "morning" : h < 18 ? "afternoon" : "evening";
+  $("greeting").textContent = `Good ${part}${S.user ? ", " + S.user : ""}.`;
+  for (const b of document.querySelectorAll("#suggest button")) b.title = `Ask ${S.name}`;
 }
 
 // --- UI wiring -------------------------------------------------------------------------------
 function selectTab(name) {
+  if (!PAGES[name]) name = "chat";
   S.tab = name;
-  for (const b of document.querySelectorAll(".tabs button")) b.setAttribute("aria-selected", String(b.dataset.tab === name));
-  for (const p of document.querySelectorAll("main > .panel")) p.hidden = p.id !== "tab-" + name;
+  for (const b of document.querySelectorAll(".rail button[data-tab]")) {
+    if (b.dataset.tab === name) b.setAttribute("aria-current", "page");
+    else b.removeAttribute("aria-current");
+  }
+  for (const p of document.querySelectorAll(".pages > .page")) p.hidden = p.id !== "tab-" + name;
+  $("pageTitle").textContent = PAGES[name][0];
+  $("pageSub").textContent = PAGES[name][1];
+  NovaBrain.show(name === "brain");
   if (name === "activity") { S.unseenAct = 0; badge(); }
   if (name === "voice") send({ type: "voice_get" });
-  if (name === "chat") scrollChat();
+  if (name === "chat") { scrollChat(); if (!S.confirmShown) $("askInput").focus({ preventScroll: true }); }
+  try { sessionStorage.setItem("novaTab", name); } catch (e) { /* ignore */ }
 }
 
 function init() {
-  for (const b of document.querySelectorAll(".tabs button")) b.onclick = () => selectTab(b.dataset.tab);
+  for (const b of document.querySelectorAll(".rail button[data-tab]")) b.onclick = () => selectTab(b.dataset.tab);
+  for (const b of document.querySelectorAll("#suggest button")) {
+    b.onclick = () => { send({ type: "text", text: b.dataset.say }); $("askInput").focus(); };
+  }
   $("ask").addEventListener("submit", (e) => {
     e.preventDefault();
     const v = $("askInput").value.trim();
@@ -494,7 +590,6 @@ function init() {
   $("yesBtn").onclick = () => answer(true);
   $("noBtn").onclick = () => answer(false);
   $("stopBtn").onclick = () => send({ type: "stop" });
-  $("brainBtn").onclick = () => showBrain($("brainView").hidden);
   $("ccBtn").onclick = () => send({ type: "subtitles", on: !S.subs });
   $("standBtn").onclick = () => send({ type: S.standby ? "resume" : "stand_down" });
   $("muteBtn").onclick = () => send({ type: "mute", on: !S.muted });
@@ -511,7 +606,10 @@ function init() {
     else if (e.key === "Escape") send({ type: "stop" });
   });
   setInterval(renderTimers, 1000);
-  try { if (sessionStorage.getItem("novaView") === "brain") setTimeout(() => showBrain(true), 0); } catch (e) { /* ignore */ }
+  let tab = "chat";
+  try { tab = sessionStorage.getItem("novaTab") || "chat"; } catch (e) { /* ignore */ }
+  setTimeout(() => selectTab(tab), 0);
+  greet();
   renderState();
   requestAnimationFrame(drawOrb);
   if (!key) {

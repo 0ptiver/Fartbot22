@@ -184,12 +184,18 @@ Only one Nova runs at a time. `scripts\update.ps1` stops it for the update and s
 
 ## The window (HUD)
 
-`python -m assistant voice` also opens Nova's window: the orb shows what Nova is doing
-(listening, thinking, speaking, waiting for a yes/no, standing down), and below it are the
-conversation, what Nova did (Activity), your timers (with cancel buttons) and your routines
-(one click each). You can type to Nova at the bottom. **Yes/No** buttons appear whenever Nova asks
-before doing something (or press Y / N). **Stop** (or Esc) cuts Nova off, **Stand down** is the
-kill switch, and the microphone button mutes Nova's hearing.
+`python -m assistant voice` also opens Nova's window, laid out like a command centre:
+
+- **Left:** the sections: Chat, Activity (every tool Nova used and how long it took), Timers
+  (countdown cards with progress bars, plus "tell me when" watches), Routines (one click each),
+  Brain (everything Nova remembers) and Voice (voice lock and the voice designer).
+- **Middle:** the section you picked. Chat shows the tools Nova used as small chips under its
+  reply (green when done, red when they failed), and you can type to Nova at the bottom.
+- **Right:** the orb (its colour shows what Nova is doing), **Stop** (or Esc), **Stand down** (the
+  kill switch), the mic button, the **Yes/No** card whenever Nova asks first (or press Y / N),
+  what's coming up next, and live CPU, memory and GPU readings.
+
+In a narrow window the sections move to the bottom and the orb goes on top.
 
 Closed it? `.venv\Scripts\python -m assistant hud` reopens it. Don't want it?
 `voice --no-hud`, or `hud: {enabled: false}` in `config/local.yaml`.

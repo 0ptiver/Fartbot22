@@ -86,10 +86,38 @@ def _lock_status(lock) -> dict | None:
 
 def timers(scheduler, settings: Settings, watchers=None) -> dict[str, Any]:
     items = [] if scheduler is None else [
-        {"id": r.id, "kind": r.kind, "text": r.text, "due": r.due} for r in scheduler.upcoming()]
+        {"id": r.id, "kind": r.kind, "text": r.text, "due": r.due, "created": r.created}
+        for r in scheduler.upcoming()]
     watching = [] if watchers is None else [{"id": w.id, "text": w.describe()} for w in watchers.items.values()]
     return {"type": "timers", "items": items, "watches": watching, "now": time.time(),
             "routines": _routines(settings)}
+
+
+_VITALS: dict[str, Any] = {"at": 0.0, "ev": None}
+VITALS_EVERY_S = 3.0
+
+
+def vitals(_gpu=None) -> dict[str, Any]:
+    """CPU, RAM, GPU temperature and VRAM for the HUD's "This PC" panel. Cached for a few
+    seconds so several windows don't each start nvidia-smi."""
+    now = time.monotonic()
+    if _VITALS["ev"] is not None and now - _VITALS["at"] < VITALS_EVERY_S - 0.1:
+        return _VITALS["ev"]
+    ev: dict[str, Any] = {"type": "vitals", "cpu": None, "ram": None, "gpu_temp": None, "vram": None}
+    try:
+        import psutil
+        ev["cpu"] = round(psutil.cpu_percent(interval=None))
+        ev["ram"] = round(psutil.virtual_memory().percent)
+    except Exception:
+        pass
+    if _gpu is None:
+        from assistant.tools.pc import gpu_stats as _gpu
+    g = _gpu()
+    if g:
+        ev["gpu_temp"] = g["temp"]
+        ev["vram"] = round(100 * g["mem_used"] / max(g["mem_total"], 1))
+    _VITALS.update(at=now, ev=ev)
+    return ev
 
 
 def memories(store) -> dict[str, Any]:
@@ -275,6 +303,7 @@ def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=Non
         async def pump() -> None:
             last_tick = 0.0
             last_timers = 0.0
+            last_vitals = 0.0
             while True:
                 try:
                     ev = await asyncio.wait_for(queue.get(), STATUS_EVERY_S)
@@ -288,6 +317,9 @@ def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=Non
                 if now - last_timers >= 1.0:
                     last_timers = now
                     await send(timers(scheduler, settings, watchers))
+                if now - last_vitals >= VITALS_EVERY_S:
+                    last_vitals = now
+                    await send(await asyncio.to_thread(vitals))
 
         pumper = asyncio.create_task(pump())
         try:
@@ -420,7 +452,7 @@ def _find_browser() -> str | None:
 def window_command(browser: str, url: str) -> list[str]:
     # Its own browser profile: no extensions, no shared cookies, nothing else can read the page.
     profile = ROOT / "data" / "hud-browser"
-    return [browser, f"--app={url}", f"--user-data-dir={profile}", "--window-size=460,820",
+    return [browser, f"--app={url}", f"--user-data-dir={profile}", "--window-size=1180,760",
             "--no-first-run", "--no-default-browser-check", "--disable-extensions",
             "--disable-sync", "--disable-background-networking"]
 
