@@ -26,7 +26,7 @@ const NovaHome = (() => {
   // [icon, colour group, title from the arguments, the card it lights up]
   const TOOLS = {
     open_app: ["i-app", "blue", (a) => `Opening ${cap(a.name || "an app")}`],
-    window: ["i-window", "blue", (a) => ({ focus: `Switching to ${cap(a.app || "it")}`, close: `Closing ${a.app === "this" ? "the window" : cap(a.app || "it")}`,
+    window: ["i-window", "blue", (a) => ({ focus: `Switching to ${cap(a.app || "it")}`, close: `Closing ${a.app === "this" ? "the window" : cap(a.app || "it")}`, quit: `Quitting ${cap(a.app || "it")}`,
       minimize: "Minimising the window", maximize: "Maximising the window", restore: "Restoring the window",
       show_desktop: "Showing the desktop", list: "Looking at open windows" })[a.action] || "Managing windows"],
     open_website: ["i-globe", "blue", (a) => a.search ? `Searching ${cap(a.site || "the web")} for ${q(a.search)}` : `Opening ${cap(a.site || "the browser")}`],
