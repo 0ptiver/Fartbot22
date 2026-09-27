@@ -21,6 +21,7 @@ import logging
 import httpx
 
 from assistant.brain.expert import Expert, ExpertError, create_expert
+from assistant.brain.intents import match_intent
 from assistant.brain.llm import (BrainError, Event, TextDelta, ToolFinished, ToolStarted,
                                  TurnComplete, _ms)
 from assistant.brain.prompts import system_prompt, turn_context
@@ -172,6 +173,12 @@ class LocalBrain:
         rounds = 0
         tools_used = False
         nudged = False
+        # Common commands ("pause", "what's playing", "play X") skip the model entirely.
+        intent = match_intent(user_text) if self.cfg.fast_commands else None
+        if intent is not None:
+            async for ev in self._fast_command(conv, intent, ctx, t0, timings):
+                yield ev
+            return
         # "Ask Claude ..." goes straight to the expert; no chance for the small model to skip it.
         forced = direct_escalation(user_text, conv)
         try:
@@ -252,6 +259,25 @@ class LocalBrain:
         conv.trim()
         timings["total_ms"] = _ms(t0)
         yield TurnComplete("".join(spoken).strip(), timings, usage, "end_turn")
+
+    async def _fast_command(self, conv: Conversation, intent: tuple[str, dict], ctx: ToolContext,
+                            t0: float, timings: dict) -> AsyncIterator[Event]:
+        name, args = intent
+        cid = "fast_1"
+        yield ToolStarted(cid, name, args)
+        started = time.perf_counter()
+        res = await self.registry.execute(name, args, ctx)
+        timings["tools_ms"] = _ms(started)
+        text = res.content if isinstance(res.content, str) else _summarize_content(res.content, 300)
+        yield ToolFinished(cid, name, res.is_error, _summarize_content(text, 200), _ms(started))
+        spoken = text.strip() or "Done."
+        timings["first_token_ms"] = _ms(t0)
+        yield TextDelta(spoken)
+        # Record it in the conversation as plain text, so the model knows what happened.
+        conv.messages.append({"role": "assistant", "content": spoken})
+        conv.trim()
+        timings["total_ms"] = _ms(t0)
+        yield TurnComplete(spoken, timings, {"input_tokens": 0, "output_tokens": 0}, "fast_command")
 
     async def _model_round(self, conv: Conversation, allow_tools: bool, out: "_Round",
                            timings: dict, usage: dict, t0: float) -> AsyncIterator[TextDelta]:

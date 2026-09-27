@@ -41,6 +41,7 @@ class LocalLLMConfig(BaseModel):
     think: bool = False                 # Qwen3 "thinking" adds seconds of silence; off for voice
     temperature: float = 0.6
     timeout_s: float = 60
+    fast_commands: bool = True          # "pause", "what's playing", "play X": no model call
 
 
 class ClaudeCodeConfig(BaseModel):

@@ -195,17 +195,14 @@ class Spotify:
     async def device_id(self) -> str:
         return (await self.device())["id"]
 
-    async def _is_playing(self, uris: list[str] | None, context: str | None) -> bool:
+    async def _playing_now(self) -> dict | None:
+        """What is actually playing (None if nothing). Spotify may play a relinked copy of the
+        requested track (a different URI for the same song in your country), so we don't
+        insist on the exact URI: anything playing right after our request counts."""
         state = await self._call("GET", "/me/player")
-        if not state or not state.get("is_playing"):
-            return False
-        item_uri = (state.get("item") or {}).get("uri")
-        ctx = (state.get("context") or {}).get("uri")
-        if uris:
-            return item_uri in uris
-        if context:
-            return ctx == context or item_uri is not None
-        return True
+        if not state or not state.get("is_playing") or not state.get("item"):
+            return None
+        return state
 
     async def _player(self, method: str, path: str, **kw) -> Any:
         try:
@@ -296,11 +293,16 @@ class Spotify:
         await self._call("PUT", "/me/player/play", params={"device_id": device["id"]}, json=body)
         # Spotify answers "OK" even when the device then doesn't play (not ready, another
         # tab, a stale entry). Check, and if needed hand playback over explicitly and retry.
-        uris, context = body.get("uris"), body.get("context_uri")
         for attempt in range(3):
             await asyncio.sleep(self.verify_delay)
-            if await self._is_playing(uris, context):
-                return f"Playing {label} on {device.get('name', 'Spotify')}."
+            state = await self._playing_now()
+            if state:
+                item = state["item"]
+                actual = f"{item.get('name')} by {', '.join(a['name'] for a in item.get('artists', [])[:2])}"
+                where = "" if _is_this_pc(device) else f" on {device.get('name', 'Spotify')}"
+                if body.get("uris") and item.get("name", "").lower() not in label.lower():
+                    return f"Playing {actual}{where} (Spotify's closest match)."
+                return f"Playing {label}{where}."
             if attempt == 0:
                 await self._call("PUT", "/me/player", json={"device_ids": [device["id"]], "play": False})
                 await asyncio.sleep(self.verify_delay)
@@ -355,6 +357,11 @@ class Spotify:
     async def me(self) -> str:
         data = await self._call("GET", "/me")
         return f"{data.get('display_name') or data.get('id')} ({data.get('product', '?')})"
+
+
+def _is_this_pc(device: dict) -> bool:
+    import socket
+    return device.get("name", "").lower() == socket.gethostname().lower()
 
 
 def _simple(text: str) -> str:

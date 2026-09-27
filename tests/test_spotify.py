@@ -21,6 +21,10 @@ def secrets(monkeypatch):
     return store
 
 
+NAMES = {"spotify:track:1": ("God's Plan", "Drake"), "spotify:track:7": ("Hotline Bling", "Drake"),
+         "spotify:track:c": ("My Way", "Kanye West"), "spotify:track:a": ("My Way", "Fetty Wap")}
+
+
 @pytest.fixture(autouse=True)
 def fast_verify(monkeypatch):
     monkeypatch.setattr(sp.Spotify, "verify_delay", 0)
@@ -33,6 +37,7 @@ class FakeSpotify:
         self.starts, self.starts_after_transfer = starts, starts_after_transfer
         self.state = None
         self.transferred = False
+        self.relink = {}
 
     def handler(self, req: httpx.Request):
         path, q = req.url.path, dict(req.url.params)
@@ -56,7 +61,9 @@ class FakeSpotify:
                 return httpx.Response(403, json={"error": {"reason": "PREMIUM_REQUIRED"}})
             if self.starts or (self.starts_after_transfer and self.transferred):
                 uri = (body or {}).get("uris", [None])[0] or "spotify:track:ctx"
-                self.state = {"is_playing": True, "item": {"uri": uri, "name": "x"},
+                name, artist = NAMES.get(uri, ("Some Song", "Someone"))
+                uri = self.relink.get(uri, uri)
+                self.state = {"is_playing": True, "item": {"uri": uri, "name": name, "artists": [{"name": artist}]},
                               "context": {"uri": (body or {}).get("context_uri")}, "device": {"name": "PC"}}
             return httpx.Response(204)
         if path == "/v1/me/player" and req.method == "PUT":
@@ -275,3 +282,17 @@ async def test_transfer_then_retry_recovers(secrets):
     fake = FakeSpotify(starts=False, starts_after_transfer=True)
     assert (await fake.client().play("gods plan")) == "Playing God's Plan by Drake on PC."
     assert fake.transferred
+
+
+
+async def test_relinked_track_counts_as_playing(secrets):
+    """Spotify may play a market-specific copy of the song with a different URI."""
+    fake = FakeSpotify()
+    fake.relink = {"spotify:track:1": "spotify:track:1-US"}
+    assert await fake.client().play("gods plan") == "Playing God's Plan by Drake on PC."
+
+
+async def test_this_pc_name_is_not_spoken(secrets, monkeypatch):
+    import socket
+    monkeypatch.setattr(socket, "gethostname", lambda: "PC")
+    assert await FakeSpotify().client().play("gods plan") == "Playing God's Plan by Drake."

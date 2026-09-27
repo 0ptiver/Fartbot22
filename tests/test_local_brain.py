@@ -334,3 +334,27 @@ async def test_screenshot_described_by_claude(local_settings, ctx, monkeypatch, 
     assert "A red error dialog." in conv.messages[2]["content"]
     assert len(fake.requests) == 2          # no local vision model call
     assert not list((tmp_path / "ws").rglob("*.jpg"))   # screenshot deleted afterwards
+
+
+async def test_fast_command_skips_the_model(local_settings, ctx, monkeypatch):
+    calls = []
+
+    async def fake_now_playing(args, c):
+        calls.append(args)
+        return "Playing One Dance by Drake."
+    brain, fake = make(local_settings, [])
+    brain.registry.get("now_playing").handler = fake_now_playing
+    conv = Conversation()
+    events = await collect(brain, conv, "I'm playing a song, tell me what's playing", ctx)
+    assert fake.requests == []                                   # no model call at all
+    assert calls == [{}]
+    assert "".join(e.text for e in events if isinstance(e, TextDelta)) == "Playing One Dance by Drake."
+    assert [m["role"] for m in conv.messages] == ["user", "assistant"]
+    assert isinstance(events[-1], TurnComplete)
+
+
+async def test_fast_commands_can_be_disabled(local_settings, ctx):
+    local_settings.brain.local.fast_commands = False
+    brain, fake = make(local_settings, [text_reply("Paused, sir.")])
+    await collect(brain, Conversation(), "pause", ctx)
+    assert len(fake.requests) == 1
