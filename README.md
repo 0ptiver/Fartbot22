@@ -142,6 +142,7 @@ Speech stack (all switchable in `config/config.yaml` → `voice`):
 | "Find my tax return" / "read my shopping list" | `find_files`, `read_file` (your own folders only) |
 | "Nova, stand down" … "Nova, wake up" | kill switch / standby |
 | "Show the grid" … "click 14" / "zoom 14" / "double click 3" / "scroll down" / "hide the grid" | voice mouse (numbers work without "Nova" while the grid is showing) |
+| "Show the grid on screen 2" / "on the other monitor" … "next screen" | voice mouse on another screen (screen 1 = your main one) |
 | "Hit play on the video" / "pause the video" | media key (any browser or player) |
 | "Gaming mode" / "movie time" / "I'm heading out" / "goodnight" | routines (see below) |
 | "Work out the monthly payment on a $20k loan at 6% over 5 years" | `escalate` → Claude Opus 5 |

@@ -10,12 +10,19 @@ from tests.test_barge import make
 from tests.voice_helpers import FakeTTS
 
 
-class FakeMouse:
-    def __init__(self):
-        self.log = []
+MAIN = G.Region(0, 0, 2560, 1600)
+LEFT = G.Region(-1920, 200, 1920, 1080)           # a second screen to the left of the laptop
 
-    def screen(self):
-        return G.Region(0, 0, 2560, 1600)
+
+class FakeMouse:
+    def __init__(self, screens=(MAIN,), at=(10, 10)):
+        self.log, self.screens, self.at = [], list(screens), at
+
+    def monitors(self):
+        return self.screens
+
+    def cursor(self):
+        return self.at
 
     def move(self, x, y):
         self.log.append(("move", x, y))
@@ -34,8 +41,8 @@ class FakeOverlay:
     def __init__(self):
         self.shown = None
 
-    def show(self, grid):
-        self.shown = grid
+    def show(self, grid, screen=None):
+        self.shown, self.screen = grid, screen
 
     def hide(self):
         self.shown = None
@@ -103,7 +110,32 @@ async def test_mouse_is_blocked_remotely(settings, registry):
 def test_real_backend_refuses_off_windows(monkeypatch):
     monkeypatch.setattr(G, "IS_WINDOWS", False)
     with pytest.raises(ToolError, match="Windows"):
-        G.MouseBackend().screen()
+        G.MouseBackend().monitors()
+
+
+def test_screen_order_and_choice():
+    right = G.Region(2560, 0, 1920, 1080)
+    screens = G.order_screens([(False, right), (True, MAIN), (False, LEFT)])
+    assert screens == [MAIN, LEFT, right]                         # main first, then left to right
+    assert G.pick_screen(screens, None, (-500, 700)) == LEFT      # where the mouse is
+    assert G.pick_screen(screens, None, None) == MAIN
+    assert G.pick_screen(screens, "2", None) == LEFT
+    assert G.pick_screen(screens, "right", None) == right and G.pick_screen(screens, "left", None) == LEFT
+    assert G.pick_screen(screens, "next", None, current=right) == MAIN
+    with pytest.raises(ToolError, match="1 to 3"):
+        G.pick_screen(screens, "4", None)
+    with pytest.raises(ToolError, match="only have one"):
+        G.pick_screen([MAIN], "2", None)
+
+
+def test_grid_on_a_second_screen_clicks_there(settings):
+    c = G.GridController(mouse=FakeMouse([MAIN, LEFT], at=(100, 100)), overlay=FakeOverlay())
+    ctx = ToolContext(settings, services={"grid": c})
+    assert G.mouse_grid({"action": "show"}, ctx).startswith("Grid on screen 1. Say")
+    assert "screen 2" in G.mouse_grid({"action": "show", "screen": "next"}, ctx)
+    assert c.overlay.screen == LEFT and c.grid.region == LEFT
+    G.mouse({"action": "click", "cell": 1}, ctx)
+    assert c.mouse.log[0] == ("move", -1920 + 96, 200 + 90)       # negative x: left of the main screen
 
 
 @pytest.mark.parametrize("text,visible,expected", [
@@ -120,6 +152,12 @@ def test_real_backend_refuses_off_windows(monkeypatch):
     ("scroll down a lot", False, ("mouse", {"action": "scroll_down", "amount": 10})),
     ("drag 5 to 12", True, ("mouse", {"action": "drag", "cell": 5, "to": 12})),
     ("click the play button", False, None),                     # the model handles descriptions
+    ("show the grid on screen 2", False, ("mouse_grid", {"action": "show", "screen": "2"})),
+    ("Grid on the other monitor", False, ("mouse_grid", {"action": "show", "screen": "next"})),
+    ("show the grid on my second screen", False, ("mouse_grid", {"action": "show", "screen": "2"})),
+    ("next screen", True, ("mouse_grid", {"action": "show", "screen": "next"})),
+    ("next screen", False, None),
+    ("switch to the main screen", True, ("mouse_grid", {"action": "show", "screen": "main"})),
     # Owner's case: "Can you now hit play on the video on my screen?" got "I can't see your screen".
     ("Can you now hit play on the video on my screen?", False, ("media_key", {"action": "play_pause"})),
     ("Pause the video", False, ("media_key", {"action": "play_pause"})),

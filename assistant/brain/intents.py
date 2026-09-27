@@ -76,6 +76,20 @@ _PC_RULES = [
 
 
 _N = r"(?:number )?(\d{1,3})"
+# "screen 2", "the second monitor", "the other display", "left screen"
+_SCREEN = (r"(?:(?:screen|monitor|display) (\d)"
+           r"|(main|primary|first|second|2nd|third|3rd|other|next|left|right|laptop) (?:screen|monitor|display))")
+_SCREEN_WORDS = {"primary": "main", "first": "main", "laptop": "main", "second": "2", "2nd": "2",
+                 "third": "3", "3rd": "3", "other": "next"}
+
+
+def _screen_arg(m: re.Match) -> dict:
+    num, word = m.group(1), m.group(2)
+    if num:
+        return {"screen": num}
+    if word:
+        return {"screen": _SCREEN_WORDS.get(word, word)}
+    return {}
 _CLICKS = {"click": "click", "click on": "click", "press": "click", "tap": "click", "select": "click",
            "double click": "double_click", "double click on": "double_click",
            "right click": "right_click", "right click on": "right_click",
@@ -89,9 +103,14 @@ def grid_intent(t: str, visible: bool = False) -> tuple[str, dict] | None:
     from assistant.voice.textnorm import normalize_words
 
     n = " ".join(normalize_words(t))
-    if re.match(r"^(?:show|open|bring up|turn on|give me)(?: me)?(?: the| a| my)? (?:mouse )?grid$"
-                r"|^(?:mouse )?grid(?: on)?$", n):
-        return "mouse_grid", {"action": "show"}
+    m = re.match(r"^(?:(?:show|open|bring up|turn on|give me|put)(?: me)?(?: the| a| my)? (?:mouse )?grid"
+                 r"|(?:mouse )?grid)(?: on)?(?: (?:on|for) (?:the |my )?" + _SCREEN + ")?$", n)
+    if m:
+        return "mouse_grid", {"action": "show", **_screen_arg(m)}
+    m = re.match(r"^(?:(?:switch|move|go|change)(?: the grid)? to (?:the |my )?" + _SCREEN
+                 + r"|(?:next|other|switch|change) (?:screen|monitor|display)s?)$", n)
+    if m and visible:
+        return "mouse_grid", {"action": "show", "screen": _screen_arg(m).get("screen", "next")}
     if re.match(r"^(?:hide|close|cancel|remove|turn off|get rid of|clear)(?: the| that)? (?:mouse )?grid$"
                 r"|^grid off$", n) or (visible and re.match(r"^(?:cancel|never mind|close it|hide it)$", n)):
         return "mouse_grid", {"action": "hide"}

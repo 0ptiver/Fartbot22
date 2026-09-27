@@ -1,7 +1,8 @@
 """Voice mouse: a numbered grid over the screen, then "click 14", "zoom 14", "scroll down".
 
-Like Windows Voice Access's mouse grid. The first grid covers the whole main screen;
-"zoom N" splits cell N into a 3x3 grid for precision. Clicking hides the grid again.
+Like Windows Voice Access's mouse grid. The first grid covers the screen the mouse is on
+(or "screen 2", "the other screen"); "zoom N" splits cell N into a 3x3 grid for precision.
+Clicking hides the grid again.
 
 The overlay is click-through and never takes focus, so clicks and key presses still go to
 the app underneath. All Win32 calls live in small backends so the logic is tested with fakes.
@@ -66,10 +67,41 @@ class MouseBackend:
         import ctypes
         return ctypes.windll.user32  # type: ignore[attr-defined]
 
-    def screen(self) -> Region:
+    def monitors(self) -> list[Region]:
+        """Every screen in real pixels: the main one first, then the others left to right."""
+        import ctypes
+        from ctypes import wintypes
+
         u = self._user32()
         _dpi_aware()
-        return Region(0, 0, u.GetSystemMetrics(0), u.GetSystemMetrics(1))   # main screen, real pixels
+
+        class MONITORINFO(ctypes.Structure):
+            _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
+                        ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
+
+        found: list[tuple[bool, Region]] = []
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HMONITOR, wintypes.HDC,
+                            ctypes.POINTER(wintypes.RECT), wintypes.LPARAM)
+        def cb(hmon, _hdc, _rect, _data):
+            info = MONITORINFO()
+            info.cbSize = ctypes.sizeof(MONITORINFO)
+            if u.GetMonitorInfoW(hmon, ctypes.byref(info)):
+                r = info.rcMonitor
+                found.append((bool(info.dwFlags & 1), Region(r.left, r.top, r.right - r.left, r.bottom - r.top)))
+            return True
+
+        u.EnumDisplayMonitors(None, None, cb, 0)
+        if not found:
+            return [Region(0, 0, u.GetSystemMetrics(0), u.GetSystemMetrics(1))]
+        return order_screens(found)
+
+    def cursor(self) -> tuple[int, int]:
+        import ctypes
+        from ctypes import wintypes
+        pt = wintypes.POINT()
+        self._user32().GetCursorPos(ctypes.byref(pt))
+        return pt.x, pt.y
 
     def move(self, x: int, y: int) -> None:
         _dpi_aware()
@@ -96,6 +128,39 @@ class MouseBackend:
             time.sleep(0.02)
             self.move(x0 + (x1 - x0) * i // steps, y0 + (y1 - y0) * i // steps)
         u.mouse_event(0x4, 0, 0, 0, 0)
+
+
+def order_screens(found: list[tuple[bool, Region]]) -> list[Region]:
+    """Screen 1 = the main screen, then the rest from left to right."""
+    main = [r for primary, r in found if primary]
+    rest = sorted((r for primary, r in found if not primary), key=lambda r: (r.x, r.y))
+    return main + rest
+
+
+def pick_screen(screens: list[Region], which: str | int | None, cursor: tuple[int, int] | None,
+                current: Region | None = None) -> Region:
+    """which: None (the screen the mouse is on), 1.., 'next', 'left', 'right', 'main'."""
+    if which in (None, ""):
+        if cursor:
+            for r in screens:
+                if r.x <= cursor[0] < r.x + r.w and r.y <= cursor[1] < r.y + r.h:
+                    return r
+        return screens[0]
+    w = str(which).lower()
+    if w in ("main", "primary", "first"):
+        return screens[0]
+    if w in ("next", "other"):
+        if current in screens:
+            return screens[(screens.index(current) + 1) % len(screens)]
+        return screens[1 % len(screens)]
+    if w == "left":
+        return min(screens, key=lambda r: r.x)
+    if w == "right":
+        return max(screens, key=lambda r: r.x)
+    if w.isdigit() and 1 <= int(w) <= len(screens):
+        return screens[int(w) - 1]
+    n = len(screens)
+    raise ToolError("You only have one screen." if n == 1 else f"Pick a screen from 1 to {n}.")
 
 
 _dpi_done = False
@@ -139,9 +204,9 @@ class TkOverlay:
         if self._error:
             raise ToolError(self._error)
 
-    def show(self, grid: Grid) -> None:
+    def show(self, grid: Grid, screen: Region | None = None) -> None:
         self._start()
-        self._q.put(("show", grid))
+        self._q.put(("show", (grid, screen or grid.region)))
 
     def hide(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -167,11 +232,14 @@ class TkOverlay:
         self._click_through(root)
         self._ready.set()
 
-        def draw(grid: Grid) -> None:
+        def draw(grid: Grid, screen: Region) -> None:
             canvas.delete("all")
+            # The window covers one screen; drawing is relative to that screen's corner.
+            root.geometry(f"{screen.w}x{screen.h}+{screen.x}+{screen.y}")
+            ox, oy = screen.x, screen.y
+            g0 = grid
+            grid = Grid(Region(g0.region.x - ox, g0.region.y - oy, g0.region.w, g0.region.h), g0.cols, g0.rows)
             r = grid.region
-            screen_w, screen_h = root.winfo_screenwidth(), root.winfo_screenheight()
-            root.geometry(f"{screen_w}x{screen_h}+0+0")
             canvas.create_rectangle(r.x, r.y, r.x + r.w, r.y + r.h, outline="#000000", width=4)
             canvas.create_rectangle(r.x, r.y, r.x + r.w, r.y + r.h, outline="#5ad8ff", width=2)
             for c in range(1, grid.cols):
@@ -201,7 +269,7 @@ class TkOverlay:
                 while True:
                     cmd, arg = self._q.get_nowait()
                     if cmd == "show":
-                        draw(arg)
+                        draw(*arg)
                     elif cmd == "hide":
                         root.withdraw()
             except queue.Empty:
@@ -234,16 +302,22 @@ class GridController:
     rows: int = 6
     grid: Grid | None = None
     history: list[Grid] = field(default_factory=list)
+    screen: Region | None = None
 
     @property
     def visible(self) -> bool:
         return self.grid is not None
 
-    def show(self) -> str:
-        self.grid = Grid(self.mouse.screen(), self.cols, self.rows)
+    def show(self, which: str | int | None = None) -> str:
+        screens = self.mouse.monitors()
+        cursor = self.mouse.cursor() if which in (None, "") else None
+        self.screen = pick_screen(screens, which, cursor, self.screen if self.grid else None)
+        self.grid = Grid(self.screen, self.cols, self.rows)
         self.history = []
-        self.overlay.show(self.grid)
-        return f"Grid on. Say 'click' and a number from 1 to {self.grid.count}, or 'zoom' and a number to get closer."
+        self.overlay.show(self.grid, self.screen)
+        where = f" on screen {screens.index(self.screen) + 1}" if len(screens) > 1 else " on"
+        return (f"Grid{where}. Say 'click' and a number from 1 to {self.grid.count}, "
+                "or 'zoom' and a number to get closer.")
 
     def hide(self) -> str:
         self.grid, self.history = None, []
@@ -262,14 +336,14 @@ class GridController:
             raise ToolError("That's as close as it goes. Say 'click' and a number.")
         self.history.append(g)
         self.grid = Grid(cell, 3, 3)
-        self.overlay.show(self.grid)
+        self.overlay.show(self.grid, self.screen)
         return f"Zoomed in on {n}."
 
     def back(self) -> str:
         if not self.history:
             return self.hide()
         self.grid = self.history.pop()
-        self.overlay.show(self.grid)
+        self.overlay.show(self.grid, self.screen)
         return "Zoomed out."
 
     def point(self, n: int | None) -> tuple[int, int] | None:
@@ -323,7 +397,7 @@ def mouse_grid(args: dict, ctx: ToolContext) -> str:
     g = controller(ctx)
     action = args["action"]
     if action == "show":
-        return g.show()
+        return g.show(args.get("screen"))
     if action == "hide":
         return g.hide()
     if action == "back":
@@ -342,7 +416,9 @@ def register(reg: ToolRegistry) -> None:
              "cell for precision, go back, or hide it. Use when the user wants to click something.",
              {"type": "object", "properties": {
                  "action": {"type": "string", "enum": ["show", "zoom", "back", "hide"]},
-                 "cell": {"type": "integer", "minimum": 1, "maximum": 400}},
+                 "cell": {"type": "integer", "minimum": 1, "maximum": 400},
+                 "screen": {"type": "string", "description": "with show: '1', '2'..., 'next', 'left', "
+                            "'right' or 'main'. Leave out for the screen the mouse is on.", "maxLength": 8}},
               "required": ["action"], "additionalProperties": False},
              risk=Risk.SAFE, category="mouse")(mouse_grid)
     reg.tool("mouse", "Click, double-click, right-click, move to, scroll or drag at a numbered grid "
