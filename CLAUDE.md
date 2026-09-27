@@ -1,0 +1,59 @@
+# CLAUDE.md — handoff notes for Claude
+
+Read this first. Then read PLAN.md (phase checklist + history) and README.md (user-facing docs).
+
+## What this is
+**Nova**: a voice-first personal assistant (JARVIS-style) for the owner's Windows 11 gaming laptop.
+British-butler personality, calls the owner "sir". The code package is `assistant/`, so renaming is config-only.
+Branch: `claude/jarvis-voice-assistant-lhnfza` (commit and push there after every milestone).
+
+## The owner
+- Not a developer. Explain things simply, give copy-paste PowerShell commands, and ask for screenshots.
+- They test on the real PC and send screenshots. **I can't run anything on their hardware.**
+- Hardware: i9-14900HX, RTX 5070 Laptop 8 GB (Blackwell), 32 GB RAM. Mic: Fifine SC3 (`input_device: 3` in their `config/local.yaml`). Output: **Realtek speakers**, so echo matters. Computer name `LAPTOP-VKHGAOUV`.
+- Has Claude Pro, Ollama, Spotify Premium, and Claude Code installed and signed in. Budget: free or subscription only, no API fees.
+- Cares a lot about **security/privacy**. Wants an **interactive interface (HUD)** at the end.
+- Tell them to update with `powershell -ExecutionPolicy Bypass -File scripts\update.ps1`. **Never tell them to run `pip install` directly**: it reinstalls CPU onnxruntime over onnxruntime-gpu and the voice drops to ~650 ms (a warning is printed at startup when that happens).
+
+## My sandbox (Linux cloud container)
+- Blocked: huggingface.co, github release downloads, ollama.com, developer.spotify.com. PyPI works. There's no GPU, audio device or Ollama.
+- So real models can't run here. Test with fakes: `tests/fakes.py` (Claude), a fake Ollama (httpx MockTransport), a fake `claude` executable, a fake Spotify API, and `tests/data/what_time.wav` (espeak) with real Silero VAD.
+- `.venv` (Python 3.12, `uv`). Run `.venv/bin/python -m pytest -q` (~200 tests, ~6 s) and `.venv/bin/python -m pyflakes assistant tests`.
+- **Beware unbounded loops in tests**: fixtures set delays to 0, and a while loop keyed on elapsed time hangs pytest. Use `timeout 100` when running tests.
+- `pkill -f pytest` also kills your own shell (exit 144).
+
+## Architecture (assistant/)
+- `core/` config (`config/config.yaml` defaults + git-ignored `config/local.yaml` overrides, deep-merged), secrets (env/.env then Windows Credential Manager via keyring), FastAPI server (`/ws`, local token + Origin/Host checks, 127.0.0.1 only), session, conversation.
+- `brain/`
+  - `local.py` `LocalBrain` = everyday model in Ollama (`qwen3:4b-instruct-2507-q4_K_M`; the **instruct** variant, because the thinking variants read their reasoning aloud). Includes a ThinkFilter, a warm-up with identical settings (for the prompt cache), a nudge when the model promises without acting, a direct "ask Claude…" route, and the `intents.py` fast path.
+  - `intents.py` = regex fast path for music commands, with no model call.
+  - `expert.py` = hard tasks via the **official Claude Code CLI on the owner's subscription** (`claude -p`, task on stdin, API keys stripped from env, `--permission-mode dontAsk`, tools WebSearch/WebFetch/Read with Read confined to an empty workspace, `--strict-mcp-config`). Never use `--bare`: it ignores subscription login.
+  - `llm.py` `Brain` = Claude API backend (optional, paid).
+  - Vision ("what's on my screen") goes to Claude Code by default. A local VL model evicts the chat model from 8 GB VRAM.
+- `tools/` registry (JSON schema, risk safe/confirm/blocked, audit log `data/audit.jsonl`, remote policy), system (time/volume/open_app), screen, expert(escalate), web (DuckDuckGo via ddgs), music (Spotify + media keys).
+- `voice/` VoiceLoop (`pipeline.py`):
+  - Silero VAD endpointer with speculative STT on pause.
+  - faster-whisper large-v3-turbo on cuda.
+  - Kokoro TTS on GPU via onnxruntime-gpu, using `models/kokoro-v1.0.gpu.onnx`: STFT rewritten as a Conv by `tts/onnx_fix.py`, with a +1e-20 bias for PyTorch-style edge-bin phase. Accepted by *sound* (spectral distance), because a sample-exact match is impossible: atan(imag/real) sign flips.
+  - Kokoro takes ~72 ms on GPU, ~240 ms with the original model, ~650 ms on CPU.
+  - Wake mode: say "Nova" in the sentence (transcript-based, no hotkey; the `keyboard` hook glitched the owner's keyboard). 6 s follow-up window that doesn't chain.
+  - Barge-in "verified" (echo-aware), stop words, pause-and-continue merge.
+  - AEC: WebRTC AEC3 via `livekit` (`voice/aec.py`), plus a text echo check (`textnorm.py`) used only within 2 s after speaking and never for requests that use the name.
+  - `speechtext.py` speaks symbols as words. Latency report after each reply.
+- `integrations/spotify.py`: PKCE login (`assistant spotify login`), tokens in keyring, prefers this PC's device, verifies playback.
+- CLI: `python -m assistant {voice|chat|serve|doctor [--full]|models [--recheck|--debug-stft]|ttsbench [--profile]|mictest|devices|spotify ...|tools|audit|secrets set NAME}`.
+
+## Status (end of last session)
+- Phases 1–3 done and verified by the owner: voice works, latency ~0.9–1.3 s, barge-in and echo cancellation work on speakers.
+- Phase 4 started. **Spotify playback is parked** (the owner's call): play is "accepted" but nothing plays. Pause/next/now-playing work. Next steps are in PLAN.md under "Spotify playback: parked".
+- **Next (proposed to the owner, awaiting their choice):**
+  1. Safety core: spoken/UI confirmations for `confirm` tools, a "Nova, stand down" kill switch, folder allowlist.
+  2. Quick wins: timers/reminders/alarms, system info (CPU/GPU temp/battery/disk), lock/sleep (confirm), window control, file find/open, open URL.
+  3. Routines (YAML, e.g. "gaming mode").
+  4. **Interactive HUD** (orb, transcript, activity, confirm buttons, settings, memory). It should connect to the core server; the voice loop may need to run inside the server so the HUD sees events.
+  5. Later: Gmail/Calendar, phone access (Tailscale + auth + 2FA), morning briefing, autostart.
+
+## Working conventions
+- Keep PLAN.md checklists updated. Commit messages explain the "why". End commit messages with the attribution lines given by the system.
+- Write tests with fakes for everything, and reproduce owner-reported bugs as tests (see test names citing the "owner's case").
+- Be honest about what was and wasn't tested on real hardware.
