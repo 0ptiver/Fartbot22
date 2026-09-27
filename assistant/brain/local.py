@@ -177,6 +177,7 @@ class LocalBrain:
         awaiting = getattr(conv, "awaiting_fix", None)
         conv.awaiting_fix = None
         original: str | None = None
+        learn = True
         request = user_text
         is_fix, fix = L.correction(user_text)
         if awaiting:
@@ -195,6 +196,9 @@ class LocalBrain:
                 return
             else:
                 original, request = recent["text"], fix
+                learn = L.explicit(user_text)
+                if recent.get("lesson"):              # a learned shortcut was wrong: drop it
+                    store.delete(recent["lesson"])
         else:
             taught = L.teaching(user_text)
             if taught:
@@ -222,7 +226,17 @@ class LocalBrain:
             # A fragment ("the BBC one"): the model gets it with what it corrects.
             request = f'{user_text}\n(This corrects my previous request, "{original}". Do what I actually meant now.)'
         calls: list[dict] = []
+        spoke = False
         async for ev in self._turn(conv, request, ctx, extra_context):
+            if isinstance(ev, TextDelta) and ev.text.strip():
+                spoke = True
+            if isinstance(ev, TurnComplete) and not spoke:
+                # Never silent (owner: "it just doesn't do it or respond"): the model said nothing.
+                ok = [c for c in calls if c["ok"]]
+                filler = ("Done." if ok else f"Sorry{sir}, that didn't work." if calls
+                          else f"Sorry{sir}, I didn't catch that. Could you say it again?")
+                yield TextDelta(filler)
+                ev.text = filler
             if isinstance(ev, ToolStarted):
                 calls.append({"tool": ev.name, "args": ev.input, "ok": None})
             elif isinstance(ev, ToolFinished):
@@ -230,7 +244,7 @@ class LocalBrain:
                     if c["tool"] == ev.name and c["ok"] is None:
                         c["ok"] = not ev.is_error
                         break
-            elif isinstance(ev, TurnComplete) and original is not None:
+            elif isinstance(ev, TurnComplete) and original is not None and learn:
                 done = [{"tool": c["tool"], "args": c["args"]} for c in calls if c["ok"]]
                 if store.learn_calls(original, done, user_text):
                     note = " Noted for next time."
@@ -283,7 +297,7 @@ class LocalBrain:
         conv.messages.append({"role": "user", "content": user_text})
         conv.messages.append({"role": "assistant", "content": spoken})
         conv.trim()
-        conv.last_action = {"text": user_text, "at": time.time()}
+        conv.last_action = {"text": user_text, "at": time.time(), "lesson": lesson.id}
         yield TextDelta(spoken)
         yield TurnComplete(spoken, {"total_ms": _ms(t0)}, {"input_tokens": 0, "output_tokens": 0}, "learned")
 
@@ -604,7 +618,10 @@ NUDGE_CLAIM = ("(Note from the system, not the user: you said it was done, but y
 
 _ACTION_REQUEST = re.compile(
     r"\b(?:open|close|minimi[sz]e|maximi[sz]e|pause|unpause|resume|play|turn|set|mute|unmute|lock|"
-    r"full\s?screen|start|stop|switch|launch|cancel|volume|skip|show|hide|search|remind|put|make|go)\b", re.I)
+    r"full\s?screen|start|stop|switch|launch|cancel|volume|skip|show|hide|search|remind|put|make|go|"
+    r"fire|get|pull|bring|load|run|kill|shut|change|give|take|send|type|click|press|find|move|delete|"
+    r"create|write|save|add|remove|raise|lower|increase|decrease|crank|boost|max|minimi[sz]e|restore|"
+    r"quit|exit|reopen|refresh|reload|record|clip|watch)\b", re.I)
 _QUESTION = re.compile(r"^\W*(?:is|are|was|were|does|do|did|when|what|where|why|how|which|who)\b", re.I)
 
 

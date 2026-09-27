@@ -140,3 +140,51 @@ async def test_what_have_you_learned_also_lists_shown_routines(ctx):
     assert match_intent("what have you learned") == ("lessons", {"action": "list"})
     teach.save_learned({"evening_setup": {"label": "Evening setup", "steps": []}})
     assert "Evening setup" in await lessons({"action": "list"}, ctx)
+
+
+async def test_polite_openers_are_not_lessons(local_settings, ctx):
+    """Owner: "it's barely responding, I tell it to do something and it doesn't do it".
+    'Sorry, can you open the weather' right after another request was learned as a correction,
+    so the first request started doing the wrong thing."""
+    brain, fake = make(local_settings, [
+        tool_reply("open_website", {"site": "the news"}), text_reply("Done."),
+        tool_reply("open_website", {"site": "weather.com"}), text_reply("Done."),
+    ])
+    fake_sites(brain)
+    conv = Conversation()
+    await collect(brain, conv, "get me the news", ctx)
+    await collect(brain, conv, "Sorry, can you get me the weather", ctx)
+    assert L.get_lessons().items() == []
+    assert L.correction("Actually, open steam") == (False, "")
+    assert not L.explicit("No, open steam") and L.explicit("no, I meant steam")
+
+
+async def test_correcting_a_learned_shortcut_drops_it(local_settings, ctx):
+    brain, fake = make(local_settings, [tool_reply("open_website", {"site": "bbc.co.uk/sport"}), text_reply("Done.")])
+    opened = fake_sites(brain)
+    store = L.get_lessons()
+    store.learn_calls("get me the news", [{"tool": "open_website", "args": {"site": "bbc.co.uk"}}], "no, I meant bbc.co.uk")
+    conv = Conversation()
+    await collect(brain, conv, "get me the news", ctx)                       # replays the lesson
+    await collect(brain, conv, "no, I meant bbc.co.uk/sport", ctx)
+    assert opened == ["bbc.co.uk", "bbc.co.uk/sport"]
+    [lesson] = store.items()
+    assert lesson.calls == [{"tool": "open_website", "args": {"site": "bbc.co.uk/sport"}}]
+
+
+async def test_claims_after_fire_up_are_caught(local_settings, ctx):
+    brain, fake = make(local_settings, [text_reply("Discord is now open, sir."),
+                                        tool_reply("open_app", {"name": "discord"}), text_reply("Done, sir.")])
+    brain.registry._tools["open_app"].handler = lambda a, c: "Discord is open."
+    events = await collect(brain, Conversation(), "fire up discord", ctx)
+    assert any(getattr(e, "name", None) == "open_app" for e in events)
+    assert "now open" not in said(events)
+
+
+async def test_nova_is_never_silent(local_settings, ctx):
+    """An empty reply from the model used to mean no answer at all."""
+    brain, fake = make(local_settings, [text_reply(""), tool_reply("open_app", {"name": "discord"}), text_reply("")])
+    brain.registry._tools["open_app"].handler = lambda a, c: "Discord is open."
+    assert said(await collect(brain, Conversation(), "tell me something", ctx)) == \
+        "Sorry, sir, I didn't catch that. Could you say it again?"
+    assert said(await collect(brain, Conversation(), "fire up discord", ctx)) == "Done."

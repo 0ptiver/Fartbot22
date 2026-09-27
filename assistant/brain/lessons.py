@@ -23,7 +23,9 @@ from dataclasses import asdict, dataclass, field
 
 from assistant.core.config import ROOT
 
-LESSONS_FILE = ROOT / "data" / "lessons.json"
+# v2: lessons from the first version could be learned from "Sorry, can you ..." (a new request,
+# not a correction) and made Nova do the wrong thing, so they're left behind.
+LESSONS_FILE = ROOT / "data" / "lessons-v2.json"
 MAX_LESSONS = 200
 FIX_WINDOW_S = 300            # a correction must come within 5 minutes of what it corrects
 # Tools that look things up rather than do things: nothing to learn from them.
@@ -183,9 +185,20 @@ _NEG = re.compile(
     r"|(?:no+|nope|nah|oops|sorry|actually|not quite|incorrect)\b[\s,.!-]*)+", re.I)
 _STRONG = re.compile(r"\b(?:wrong|not (?:that|this|it|what|right|quite)|incorrect|that'?s not)\b", re.I)
 _LEAD_FIX = re.compile(r"^(?:i (?:meant|mean|said|wanted|want(?: you to)?|asked(?: for)?)|it should (?:be|have been)|"
-                       r"you should have|should be|try|instead|use|do|just)\s+", re.I)
+                       r"it (?:was|is)|it'?s|you should have|should be|try|instead|use|do|just)\s+", re.I)
+_EXPLICIT = re.compile(r"^(?:i (?:meant|mean|said|wanted|asked)|it should|it (?:was|is)|it'?s|you should have|should be)\b", re.I)
 _PLEASANTRY = re.compile(r"^(?:thanks?|thank you|that'?s (?:fine|ok|okay|all)|nevermind|never mind|all good|"
                          r"i'?m good|it'?s fine|forget it|ok|okay)?[\s.!]*$", re.I)
+
+
+def explicit(text: str) -> bool:
+    """A correction clear enough to learn from: "no, I meant X", "wrong one, X", "that's not
+    what I asked". "Sorry, can you open Steam" or a bare "no, X" is done but never learned:
+    it may just be a new request (owner: Nova started doing the wrong things)."""
+    t = text.strip()
+    m = _NEG.match(t)
+    rest = t[m.end():] if m else t
+    return bool(_EXPLICIT.match(rest) or (m and _STRONG.search(m.group(0))))
 
 
 def correction(text: str) -> tuple[bool, str]:
@@ -199,6 +212,8 @@ def correction(text: str) -> tuple[bool, str]:
         return False, ""
     if m and not lead and not _STRONG.search(m.group(0)) and not re.search(r"[,.!-]", m.group(0)):
         return False, ""               # "no way that's crazy": a bare "no" needs a pause or "I meant"
+    if m and not lead and not _STRONG.search(m.group(0)) and not re.match(r"\s*(?:no+|nope|nah)\b", m.group(0), re.I):
+        return False, ""               # "Sorry, can you open Steam" / "Actually, ..." is just a request
     fix = rest[lead.end():] if lead else rest
     fix = fix.strip(" .!,")
     if _PLEASANTRY.match(fix):
