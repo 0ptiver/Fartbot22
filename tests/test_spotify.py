@@ -142,7 +142,7 @@ async def test_no_active_device_retries_with_device(secrets):
 
 async def test_premium_and_now_playing(secrets):
     fake = FakeSpotify(premium=False)
-    with pytest.raises(sp.SpotifyError, match="Premium"):
+    with pytest.raises(sp.NotPlaying, match="PREMIUM_REQUIRED"):     # the music tool then tries the app
         await fake.client().play("gods plan")
     assert await FakeSpotify().client().now_playing() == "Nothing is playing on Spotify."
     playing = {"is_playing": True, "item": {"name": "One Dance", "artists": [{"name": "Drake"}, {"name": "Wizkid"}]}}
@@ -168,7 +168,7 @@ async def test_music_control_falls_back_to_media_keys(monkeypatch, ctx):
 async def test_tool_errors_are_friendly(monkeypatch, ctx, secrets):
     fake = FakeSpotify(premium=False)
     ctx.services["spotify"] = fake.client()
-    with pytest.raises(ToolError, match="Premium"):
+    with pytest.raises(ToolError, match="didn't start playing God's Plan.*PREMIUM_REQUIRED"):
         await music.play_music({"query": "gods plan"}, ctx)
 
 
@@ -409,3 +409,25 @@ async def test_search_asks_for_this_country(secrets):
     await fake.client().play("gods plan")
     search = [c for c in fake.calls if c[1] == "/v1/search"][0]
     assert search[2]["market"] == "from_token"
+
+
+
+async def test_servers_refuse_but_the_app_plays_it(secrets, ctx, pc_media, monkeypatch):
+    """Owner's case: Premium account, yet the servers said 403 and Nova said "needs Premium".
+    Now the song is opened in the Spotify app on the PC and its own Play button pressed."""
+    from assistant.tools.video import Media
+
+    class Refusing(FakeSpotify):
+        def handler(self, req):
+            if req.url.path == "/v1/me/player/play":
+                return httpx.Response(403, json={"error": {"status": 403, "message": "Player command failed: Restriction violated", "reason": "UNKNOWN"}})
+            return super().handler(req)
+
+    async def app_button(target, ctx):
+        assert target["uri"] == "spotify:track:c"
+        pc_media.items = [Media(0, "Spotify.exe", "My Way", "Kanye West", "playing")]
+        return True
+    monkeypatch.setattr(music, "play_in_app", app_button)
+    fake = type("F", (Refusing, SearchFake), {})()
+    ctx.services["spotify"] = fake.client()
+    assert await music.play_music({"query": "my way by kanye west"}, ctx) == "Playing My Way by Kanye West."

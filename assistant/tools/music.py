@@ -61,8 +61,9 @@ async def play_music(args: dict, ctx: ToolContext) -> str:
         return said or f"Playing {target['label']}."
     if await play_in_app(target, ctx) and await hear_spotify(target):
         return f"Playing {target['label']}."
-    raise ToolError(f"Spotify didn't start playing {target['label']}. Is the Spotify app open and signed in? "
-                    "Pressing play in Spotify once usually wakes it up.")
+    why = f" ({failure})" if failure else ""
+    raise ToolError(f"Spotify didn't start playing {target['label']}{why}. Is the Spotify app open and "
+                    "signed in? Pressing play in Spotify once usually wakes it up.")
 
 
 async def hear_spotify(target: dict) -> bool | None:

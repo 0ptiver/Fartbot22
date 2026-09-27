@@ -105,6 +105,10 @@ def main(argv: list[str] | None = None) -> None:
                 from assistant.tools import music, video
                 from assistant.tools.registry import ToolContext, ToolError
                 query = " ".join(argv[1:]) or "Blinding Lights by The Weeknd"
+                try:
+                    print("Spotify account (as Nova sees it): " + await spotify.Spotify().me())
+                except spotify.SpotifyError as e:
+                    print(f"Spotify account: {e}")
                 ctx = ToolContext(load_settings())
                 print(f"Asking Nova to play: {query}")
                 try:

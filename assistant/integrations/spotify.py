@@ -11,12 +11,15 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import logging
 import secrets
 import time
 from typing import Any
 from urllib.parse import urlencode
 
 import httpx
+
+log = logging.getLogger(__name__)
 
 from assistant.core.secrets import get_secret, set_secret
 
@@ -34,6 +37,11 @@ class SpotifyError(Exception):
 
 class NotPlaying(SpotifyError):
     """Spotify took the request, but nothing (or the wrong thing) is playing."""
+
+
+class Refused(SpotifyError):
+    """Spotify's servers said 403 to a player command. Not always "no Premium": the owner has
+    Premium and still got it (owner's case). The reason Spotify gives is kept."""
 
 
 class NotLinked(SpotifyError):
@@ -160,7 +168,15 @@ class Spotify:
         if r.status_code == 404 and "NO_ACTIVE_DEVICE" in r.text:
             raise SpotifyError("NO_ACTIVE_DEVICE")
         if r.status_code == 403:
-            raise SpotifyError("Spotify refused that. Playback control needs Spotify Premium.")
+            try:
+                err = r.json().get("error") or {}
+            except ValueError:
+                err = {}
+            reason = err.get("reason") or err.get("message") or r.text[:120]
+            log.warning("Spotify 403 on %s %s: %s", method, path, r.text[:300])
+            if reason == "PREMIUM_REQUIRED":
+                raise Refused("Spotify's servers say this account can't be remote-controlled (PREMIUM_REQUIRED).")
+            raise Refused(f"Spotify's servers refused that ({reason}).")
         if r.status_code == 429:
             raise SpotifyError("Spotify is rate limiting requests. Try again in a moment.")
         if r.status_code >= 400:
@@ -304,8 +320,13 @@ class Spotify:
             title = label.split(" by ")[0]
         self.last_target = {"label": label, "title": title,
                             "uri": body.get("context_uri") or (body.get("uris") or [None])[0]}
-        device = await device_task
-        await self._call("PUT", "/me/player/play", params={"device_id": device["id"]}, json=body)
+        try:
+            device = await device_task
+            await self._call("PUT", "/me/player/play", params={"device_id": device["id"]}, json=body)
+        except Refused as e:
+            # The servers won't do it: the Spotify app on this PC still can (the music tool
+            # opens it there and presses Play).
+            raise NotPlaying(str(e)) from e
         # Spotify answers "OK" even when the device then doesn't play (not ready, another
         # tab, a stale entry). Check, and if needed hand playback over explicitly and retry.
         for attempt in range(3):
