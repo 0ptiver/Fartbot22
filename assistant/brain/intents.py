@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 
 _LEAD = re.compile(r"^(?:(?:hey|ok|okay|so|um|uh|please|can you|could you|would you|will you|"
-                   r"go ahead and|just|tell me|do you know)\s+)+")
+                   r"go ahead and|just|tell me|do you know|now|actually|also|then|and)\s+)+")
 # "What's playing?" asked inside a longer sentence ("I'm playing a song, tell me what's playing").
 _NOW_PLAYING_ANYWHERE = re.compile(
     r"\bwhat(?:'?s| is)(?: currently)? playing\b|\bwhat song is (?:this|playing)\b"
@@ -75,13 +75,75 @@ _PC_RULES = [
 ]
 
 
-def match_intent(text: str) -> tuple[str, dict] | None:
+_N = r"(?:number )?(\d{1,3})"
+_CLICKS = {"click": "click", "click on": "click", "press": "click", "tap": "click", "select": "click",
+           "double click": "double_click", "double click on": "double_click",
+           "right click": "right_click", "right click on": "right_click",
+           "middle click": "middle_click", "middle click on": "middle_click"}
+_AMOUNT = {"a bit": 2, "a little": 2, "a little bit": 2, "a lot": 10, "lots": 10, "more": 5}
+
+
+def grid_intent(t: str, visible: bool = False) -> tuple[str, dict] | None:
+    """Voice mouse: 'show the grid', 'click 14', 'zoom 14', 'scroll down', 'drag 5 to 12'.
+    With the grid showing, a bare number zooms and 'back'/'cancel' work too."""
+    from assistant.voice.textnorm import normalize_words
+
+    n = " ".join(normalize_words(t))
+    if re.match(r"^(?:show|open|bring up|turn on|give me)(?: me)?(?: the| a| my)? (?:mouse )?grid$"
+                r"|^(?:mouse )?grid(?: on)?$", n):
+        return "mouse_grid", {"action": "show"}
+    if re.match(r"^(?:hide|close|cancel|remove|turn off|get rid of|clear)(?: the| that)? (?:mouse )?grid$"
+                r"|^grid off$", n) or (visible and re.match(r"^(?:cancel|never mind|close it|hide it)$", n)):
+        return "mouse_grid", {"action": "hide"}
+    if visible and re.match(r"^(?:back|go back|zoom out|undo)$", n):
+        return "mouse_grid", {"action": "back"}
+    m = re.match(r"^(?:zoom|zoom in|zoom into|zoom in on|zoom on|go into)(?: to)? " + _N + "$", n)
+    if m or (visible and (m := re.match(r"^" + _N + "$", n))):
+        return "mouse_grid", {"action": "zoom", "cell": int(m.group(1))}
+    m = re.match(r"^(" + "|".join(sorted(_CLICKS, key=len, reverse=True)) + r")(?: " + _N + r")?"
+                 r"(?: (?:it|that|there|here))?$", n)
+    if m and (m.group(2) or visible or m.group(1) in ("click", "double click", "right click")):
+        args = {"action": _CLICKS[m.group(1)]}
+        if m.group(2):
+            args["cell"] = int(m.group(2))
+        return "mouse", args
+    m = re.match(r"^(?:move|go|put|hover)(?: the)?(?: mouse| cursor)?(?: to| over| on)? " + _N + "$", n)
+    if m:
+        return "mouse", {"action": "move", "cell": int(m.group(1))}
+    m = re.match(r"^scroll (up|down)(?: (\d{1,2}|" + "|".join(_AMOUNT) + r"))?(?: (?:on|at|in) " + _N + ")?$", n)
+    if m:
+        amount = m.group(2)
+        args = {"action": f"scroll_{m.group(1)}",
+                "amount": int(amount) if amount and amount.isdigit() else _AMOUNT.get(amount or "", 3)}
+        if m.group(3):
+            args["cell"] = int(m.group(3))
+        return "mouse", args
+    m = re.match(r"^drag(?: from)? " + _N + " (?:to|onto|over to) " + _N + "$", n)
+    if m:
+        return "mouse", {"action": "drag", "cell": int(m.group(1)), "to": int(m.group(2))}
+    return None
+
+
+# "Hit play on the video on my screen": the media key reaches YouTube/Netflix in any browser.
+_VIDEO = re.compile(
+    r"^(?:hit |press |click )?(?:play|pause|unpause|resume|stop)(?: on)? (?:the |this |my |that )?"
+    r"(?:video|youtube|youtube video|movie|film|clip|show|episode|stream)"
+    r"(?: (?:on|in) (?:my |the )?(?:screen|browser|firefox|chrome|edge|youtube))?$"
+    r"|^(?:hit|press) (?:play|pause)$")
+
+
+def match_intent(text: str, grid_visible: bool = False) -> tuple[str, dict] | None:
     t = _clean(text)
     if not t:
         return None
     timer = _timer_intent(t)
     if timer:
         return timer
+    grid = grid_intent(t, grid_visible)
+    if grid:
+        return grid
+    if _VIDEO.match(t):
+        return "media_key", {"action": "play_pause"}
     for pattern, tool, args in _PC_RULES:
         if pattern.match(t):
             return tool, dict(args)

@@ -495,6 +495,9 @@ class VoiceLoop:
             self.on_event({"type": "ignored", "text": text, "reason": "sounded like my own voice"})
             return None
         in_follow_up = time.perf_counter() < self._follow_up_until
+        if not addressed and self._grid_command(text):
+            self._named = False
+            return text              # grid showing: "click 14" needs no name (no follow-up either)
         if not addressed and not in_follow_up:
             self.on_event({"type": "ignored", "text": text, "reason": "not addressed to me"})
             return None
@@ -509,6 +512,13 @@ class VoiceLoop:
             self._after_reply()
             return None
         return rest if addressed else text
+
+    def _grid_command(self, text: str) -> bool:
+        grid = self.ctx.services.get("grid")
+        if grid is None or not grid.visible:
+            return False
+        from assistant.brain.intents import _clean, grid_intent
+        return grid_intent(_clean(text), visible=True) is not None
 
     async def announce(self, text: str) -> None:
         """Say something Nova starts itself (a reminder going off). Waits for a quiet moment:

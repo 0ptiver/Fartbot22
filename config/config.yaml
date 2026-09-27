@@ -112,6 +112,9 @@ hud:
   show_ignored: false            # also list speech Nova ignored (e.g. people in your game)
 
 tools:
+  # Voice mouse ("Nova, show the grid" ... "click 14"): cells across and down the main screen.
+  grid_cols: 10
+  grid_rows: 6
   # Friendly names -> launch targets (a URI, an exe path, or a Start Menu shortcut name).
   app_aliases:
     spotify: "spotify:"
@@ -135,7 +138,7 @@ safety:
   # Per-tool overrides of the risk level declared in code: safe | confirm | blocked
   risk_overrides: {}
   # Tools refused outright for remote clients (phone / other PCs).
-  remote_blocked_tools: [run_shell, delete_file, move_file, power, press_key, window]
+  remote_blocked_tools: [run_shell, delete_file, move_file, power, press_key, window, mouse, mouse_grid]
   audit_log: data/audit.jsonl
 
 # Routines: one phrase runs several steps. Say "Nova, gaming mode" (or "Nova, start gaming mode").
