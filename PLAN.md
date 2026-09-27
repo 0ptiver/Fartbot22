@@ -27,7 +27,7 @@ Wake phrase: **"Hey Nova"**. The name lives only in `config/config.yaml` (`assis
 | Kill switch | `Ctrl+Alt+End` + "Nova, stand down" | | configurable |
 | VAD | Silero VAD (ONNX, CPU), 400 ms end-of-speech | ~1 ms per frame | tunable 250–700 ms |
 | STT | **faster-whisper** `large-v3-turbo` int8_float16 on GPU | Free, ~150–250 ms per utterance on this GPU | Deepgram Nova streaming ($200 free credit, then ~$0.46/h) |
-| Brain (chat) | **Local `qwen3:4b-instruct-2507` in Ollama**, streaming + tools | Free, private, ~0.2–0.4 s to first word on the RTX 5070 | Claude API (`claude-haiku-4-5`) |
+| Brain (chat) | **Local `qwen3:4b-instruct-2507` in Ollama**, streaming + tools | Free, private, ~60 ms to first word on the RTX 5070 (measured) | Claude API (`claude-haiku-4-5`) |
 | Brain (hard tasks) | **Claude Code CLI on the owner's Claude Pro subscription**, via the `escalate` tool | No API fees; the official, unmodified CLI signs itself in | Claude API (`claude-opus-5`) |
 | Vision | Local `qwen3-vl:4b` | Free | Claude Code (subscription) |
 | Web search | Free DuckDuckGo (`ddgs`) for the local brain | No key | Claude server tool on the API backend |
@@ -163,6 +163,7 @@ scripts/           # install, run, register-startup
 - [x] Filler line ("One moment, sir.") before slow tools
 - [x] `doctor` command. Flags verified against the real Claude Code 2.1.283. 67 tests passing
 - [x] Verified on the Windows PC with `doctor --full`: Ollama 0.34.4, Claude Code 2.1.283, subscription hand-off 2.3 s, RTX 5070 detected
+- [x] Fix: warm-up now uses the real request settings. Measured on the RTX 5070: model load + prompt cache 6.9 s once at startup, then **58–60 ms to first word**, 100% on GPU
 - [x] Fix: `qwen3:4b` is a thinking model (30 s to first word, reasoning leaked into the reply). Default is now `qwen3:4b-instruct-2507-q4_K_M`. A reasoning filter keeps thinking out of speech, and doctor warns about thinking models
 
 ### Phase 3 — Real-time feel
