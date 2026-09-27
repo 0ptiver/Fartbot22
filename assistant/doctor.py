@@ -230,6 +230,12 @@ async def check(full: bool) -> int:
     from assistant.core.secrets import get_secret, local_client_token
     local_client_token()
     line(OK, "local client token stored")
+    import importlib.util
+    if importlib.util.find_spec("playwright") is None:
+        line(WARN, "Nova's browser not installed", "run scripts\\update.ps1")
+    else:
+        line(OK, "Nova's browser ready (drives Microsoft Edge with its own profile)"
+             + ("" if s.browser.handle_websites else "; websites open in your normal browser"))
     from assistant.remote.auth import PhoneAuth
     from assistant.remote.server import tailscale_info
     phone = PhoneAuth(s.phone.session_days)

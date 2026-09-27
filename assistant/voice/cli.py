@@ -231,6 +231,8 @@ async def run(args) -> int:
         watchers_task.cancel()
         phone_task.cancel()
         await phone.stop()
+        from assistant.tools.browser import BROWSER
+        await BROWSER.close()
         if subtitles is not None and subtitles.on:
             await subtitles.stop()
         if tray_task is not None:

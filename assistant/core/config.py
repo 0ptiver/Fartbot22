@@ -198,6 +198,14 @@ class HudConfig(BaseModel):
     show_ignored: bool = False          # list speech Nova ignored in the activity feed
 
 
+class BrowserConfig(BaseModel):
+    # Nova's own browser window (Edge, its own profile in data/nova-browser), controlled directly.
+    handle_websites: bool = True        # "open a website" opens it there, so Nova can keep working in it
+    channel: str = "msedge"             # the installed browser Playwright drives
+    executable_path: str | None = None  # or a specific Chromium (tests)
+    headless: bool = False
+
+
 class PhoneConfig(BaseModel):
     # Phone access over Tailscale. Switched on/off (and set up) in the window's Phone page.
     port: int = 8767                    # on the PC's Tailscale address only
@@ -226,7 +234,7 @@ class SafetyConfig(BaseModel):
     remote_blocked_tools: list[str] = Field(default_factory=lambda: [
         "run_shell", "delete_file", "move_file", "power", "press_key", "window", "mouse", "mouse_grid",
         "type_text", "press_keys", "click_element", "show_numbers", "forget", "teach", "replay_click",
-        "replay_keys", "run_routine", "voice_lock", "dictation"])
+        "replay_keys", "run_routine", "voice_lock", "dictation", "browser"])
     audit_log: str = "data/audit.jsonl"
 
     def audit_path(self) -> Path:
@@ -256,6 +264,7 @@ class Settings(BaseModel):
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
     hud: HudConfig = Field(default_factory=HudConfig)
     phone: PhoneConfig = Field(default_factory=PhoneConfig)
+    browser: BrowserConfig = Field(default_factory=BrowserConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     # Set a routine to null in local.yaml to switch a built-in one off.
     routines: dict[str, RoutineConfig | None] = Field(default_factory=dict)

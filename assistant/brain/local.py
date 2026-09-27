@@ -257,7 +257,8 @@ class LocalBrain:
     def _fast_path(self, text: str, ctx: ToolContext) -> bool:
         grid = ctx.services.get("grid")
         return bool(match_routine(text, self.settings) or match_intent(
-            text, grid_visible=bool(grid and grid.grid is not None), labels=bool(grid and grid.labels is not None)))
+            text, grid_visible=bool(grid and grid.grid is not None), labels=bool(grid and grid.labels is not None),
+            browser_active=_browser_active()))
 
     async def _say(self, conv: Conversation, user_text: str, reply: str) -> AsyncIterator[Event]:
         conv.messages.append({"role": "user", "content": user_text})
@@ -323,7 +324,8 @@ class LocalBrain:
         lesson = teach_intent(_clean(user_text), teacher) if teacher and (
             teacher.recording or teacher.awaiting_name) else None
         intent = (lesson or match_routine(user_text, self.settings)
-                  or match_intent(user_text, grid_visible=bool(grid and grid.grid is not None),
+                  or match_intent(user_text, browser_active=_browser_active(),
+                                  grid_visible=bool(grid and grid.grid is not None),
                                   labels=bool(grid and grid.labels is not None))
                   if self.cfg.fast_commands else None)
         if intent is not None:
@@ -575,6 +577,11 @@ class _Round:
     def __init__(self) -> None:
         self.text: list[str] = []
         self.calls: list[dict] = []
+
+
+def _browser_active() -> bool:
+    from assistant.tools.browser import BROWSER
+    return BROWSER.active
 
 
 _NEVER_MIND = re.compile(r"^\W*(?:never ?mind|forget it|nothing|cancel|it'?s fine|no|nah|don'?t worry)\b", re.I)

@@ -360,7 +360,8 @@ def everyday_intent(t: str) -> tuple[str, dict] | None:
     return None
 
 
-def match_intent(text: str, grid_visible: bool = False, labels: bool = False) -> tuple[str, dict] | None:
+def match_intent(text: str, grid_visible: bool = False, labels: bool = False,
+                 browser_active: bool = False) -> tuple[str, dict] | None:
     t = _clean(text)
     if not t:
         return None
@@ -390,6 +391,12 @@ def match_intent(text: str, grid_visible: bool = False, labels: bool = False) ->
     timer = _timer_intent(t)
     if timer:
         return timer
+    from assistant.tools.browser import browser_intent
+    from assistant.tools.browser import BROWSER
+    web = browser_intent(t, browser_active and not (grid_visible or labels),
+                         front=browser_active and not (grid_visible or labels) and BROWSER.in_front())
+    if web:
+        return web
     grid = grid_intent(t, grid_visible, labels)
     if grid:
         return grid

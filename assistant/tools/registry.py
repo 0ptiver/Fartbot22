@@ -72,7 +72,8 @@ class Tool:
 DEFAULT_TOOL_TIMEOUT_S = 30.0
 TOOL_TIMEOUTS = {"escalate": 330.0, "look_at_screen": 150.0, "run_routine": 300.0, "web_search": 30.0,
                  "play_music": 30.0, "power": 60.0, "open_file": 45.0, "move_file": 45.0, "delete_file": 45.0,
-                 "type_text": 45.0, "replay_keys": 45.0, "press_keys": 45.0, "forget": 45.0}
+                 "type_text": 45.0, "replay_keys": 45.0, "press_keys": 45.0, "forget": 45.0,
+                 "browser": 60.0}
 
 
 class ToolError(Exception):
