@@ -120,8 +120,12 @@ tools:
     jpeg_quality: 80
 
 safety:
+  # File tools can only touch these folders (and their OneDrive copies). Hidden folders,
+  # AppData and password/key files are always refused. Deletes go to the Recycle Bin.
+  allowed_folders: ["~/Desktop", "~/Documents", "~/Downloads", "~/Music", "~/Pictures", "~/Videos"]
+  notes_folder: "~/Documents/Nova Notes"
   # Per-tool overrides of the risk level declared in code: safe | confirm | blocked
   risk_overrides: {}
   # Tools refused outright for remote clients (phone / other PCs).
-  remote_blocked_tools: [run_shell, delete_file]
+  remote_blocked_tools: [run_shell, delete_file, move_file, power]
   audit_log: data/audit.jsonl

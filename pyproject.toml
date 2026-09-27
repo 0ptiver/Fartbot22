@@ -32,6 +32,7 @@ dependencies = [
     "ddgs>=9",
     "onnx>=1.16",
     "livekit>=1.0",
+    "send2trash>=1.8",
 ]
 
 [project.optional-dependencies]

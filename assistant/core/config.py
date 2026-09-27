@@ -190,8 +190,14 @@ class ToolsConfig(BaseModel):
 
 
 class SafetyConfig(BaseModel):
+    # The only folders Nova's file tools may touch (plus their OneDrive copies).
+    allowed_folders: list[str] = Field(default_factory=lambda: [
+        "~/Desktop", "~/Documents", "~/Downloads", "~/Music", "~/Pictures", "~/Videos"])
+    notes_folder: str = "~/Documents/Nova Notes"
     risk_overrides: dict[str, str] = Field(default_factory=dict)
-    remote_blocked_tools: list[str] = Field(default_factory=list)
+    # Never from a phone or another PC (secure by default, even without config.yaml).
+    remote_blocked_tools: list[str] = Field(default_factory=lambda: [
+        "run_shell", "delete_file", "move_file", "power"])
     audit_log: str = "data/audit.jsonl"
 
     def audit_path(self) -> Path:

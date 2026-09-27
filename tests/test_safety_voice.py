@@ -2,10 +2,10 @@
 
 import pytest
 
-from assistant.brain.llm import Brain
+
 from assistant.tools.registry import Risk
 from assistant.voice.commands import classify_yes_no, is_resume, is_stand_down
-from tests.fakes import FakeClient, text_msg, tool_msg
+from tests.fakes import text_msg, tool_msg
 from tests.test_barge import STORY, make
 from tests.voice_helpers import FakeTTS
 

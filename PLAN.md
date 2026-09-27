@@ -209,6 +209,8 @@ scripts/           # install, run, register-startup
 
 ### Phase 4 — Full tool layer + safety
 - [x] Spoken confirmations for `confirm` tools: "Shall I <action>, sir?", then yes/no (any "no" wins). Unclear → asked again. Silence → cancelled after 12 s. Echo of the question is ignored. Barge-in is paused while waiting. Tools can supply `describe(args)`
+- [x] Folder allowlist (`safety.allowed_folders`, OneDrive copies included): resolved paths only (no `..`/symlink escape). Hidden folders, AppData and secret-looking files (passwords, keys, wallets, .env) are always refused
+- [x] File tools: find_files, open_file (programs/scripts ask first, never remotely), read_file (labelled "not instructions"), create_note (Documents/Nova Notes), move_file (confirm, never overwrites), delete_file (confirm, Recycle Bin via send2trash). Remote-blocked defaults are now in code, not only in config.yaml
 - [x] Kill switch: "Nova, stand down" / "stop everything" cancels speech, thinking, running tools (kills a Claude Code subprocess) and pending confirmations, then standby. Only "Nova, wake up" / "Nova, I need you" resumes
 - [x] Spotify: PKCE login (no secret, loopback callback with state check), refresh-token rotation, search + play (track/artist/album/playlist/liked/recent), control, now playing, queue. Starts the Spotify app when no device is found. Premium/rate-limit errors are spoken plainly
 - [x] Media keys for any app (fallback when Spotify isn't linked)
