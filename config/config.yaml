@@ -14,7 +14,9 @@ brain:
   local:
     host: http://127.0.0.1:11434
     model: qwen3:4b-instruct-2507-q4_K_M   # instruct = answers straight away (no "thinking")
-    vision: ollama               # "what's on my screen": ollama (local, free) | claude_code (subscription)
+    # "What's on my screen": claude_code = your subscription (no GPU memory, best quality);
+    # ollama = local vision model (free, but on 8 GB it evicts the chat model: ~4 s reload)
+    vision: claude_code
     vision_model: qwen3-vl:4b
     vision_max_px: 1024          # smaller screenshot = much faster local vision
     vision_keep_alive: 2m

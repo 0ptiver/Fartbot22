@@ -37,7 +37,7 @@ def main(argv: list[str] | None = None) -> None:
     elif cmd == "ttsbench":
         from assistant.voice.cli import ttsbench
 
-        ttsbench()
+        ttsbench(profile="--profile" in argv)
     elif cmd == "devices":
         from assistant.voice.cli import list_devices
 
@@ -84,7 +84,7 @@ def main(argv: list[str] | None = None) -> None:
         print("  chat [--local] [--debug]   text chat (via server, or in-process)")
         print("  voice [--mode ptt|open_mic] [--wav F --out G]   talk by voice")
         print("  devices             list audio devices")
-        print("  ttsbench            find the fastest voice (Kokoro) settings for this PC")
+        print("  ttsbench [--profile] find the fastest voice (Kokoro) settings for this PC")
         print("  mictest [--input N] record 4 s, show the level, and transcribe it")
         print("  models              download speech models (VAD, TTS, Whisper)")
         print("  doctor [--full]     check setup (Ollama, Claude Code, models, audio)")

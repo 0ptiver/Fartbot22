@@ -140,6 +140,7 @@ async def test_string_arguments_are_parsed(local_settings, ctx):
 
 async def test_screenshot_described_by_vision_model(local_settings, ctx, monkeypatch):
     from PIL import Image
+    local_settings.brain.local.vision = "ollama"
 
     from assistant.tools import screen
     monkeypatch.setattr(screen, "grab_screen", lambda m=1: Image.new("RGB", (100, 50), "red"))
@@ -307,3 +308,29 @@ def test_shrink_jpeg():
     assert max(Image.open(io.BytesIO(base64.b64decode(small))).size) == 1024
     tiny = base64.b64encode(buf.getvalue()).decode()
     assert shrink_jpeg(tiny, 4000) == tiny
+
+
+async def test_screenshot_described_by_claude(local_settings, ctx, monkeypatch, tmp_path):
+    from PIL import Image
+
+    from assistant.tools import screen
+    monkeypatch.setattr(screen, "grab_screen", lambda m=1: Image.new("RGB", (100, 50), "red"))
+    local_settings.brain.local.vision = "claude_code"
+    seen = {}
+
+    class ImgExpert(FakeExpert):
+        workspace = tmp_path / "ws"
+
+        async def ask(self, task, context="", image_path=None):
+            seen["exists"] = image_path is not None and image_path.exists()
+            seen["inside"] = image_path.resolve().is_relative_to(self.workspace.resolve())
+            return "A red error dialog."
+
+    brain, fake = make(local_settings, [tool_reply("look_at_screen", {}), text_reply("An error, sir.")],
+                       ImgExpert())
+    conv = Conversation()
+    await collect(brain, conv, "what's on my screen", ctx)
+    assert seen == {"exists": True, "inside": True}
+    assert "A red error dialog." in conv.messages[2]["content"]
+    assert len(fake.requests) == 2          # no local vision model call
+    assert not list((tmp_path / "ws").rglob("*.jpg"))   # screenshot deleted afterwards

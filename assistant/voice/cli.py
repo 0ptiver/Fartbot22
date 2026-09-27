@@ -7,6 +7,7 @@ import asyncio
 import logging
 import sys
 import time
+from pathlib import Path
 
 DIM, CYAN, GREEN, RED, RESET = "\033[2m", "\033[36m", "\033[32m", "\033[31m", "\033[0m"
 
@@ -207,7 +208,7 @@ async def mictest(seconds: float = 4.0, input_device: str | None = None) -> None
     print(f"Whisper heard: {text!r}" if text else f"{RED}Whisper heard nothing.{RESET}")
 
 
-def ttsbench() -> None:
+def ttsbench(profile: bool = False) -> None:
     """Time Kokoro on GPU and CPU (threads, int8 model) and recommend the fastest."""
     import os
     import statistics
@@ -215,7 +216,7 @@ def ttsbench() -> None:
     from kokoro_onnx import Kokoro
 
     from assistant.core.config import load_settings
-    from assistant.voice.models import kokoro_paths
+    from assistant.voice.models import KOKORO_FP16, kokoro_paths
     from assistant.voice.tts.kokoro import cuda_available, make_session
 
     logging.getLogger("phonemizer").setLevel(logging.ERROR)
@@ -231,6 +232,8 @@ def ttsbench() -> None:
         runs += [("GPU heuristic", "kokoro-v1.0.onnx", "cuda", None, "heuristic"),
                  ("GPU default", "kokoro-v1.0.onnx", "cuda", None, "default"),
                  ("GPU exhaustive", "kokoro-v1.0.onnx", "cuda", None, "exhaustive")]
+        if kokoro_paths(KOKORO_FP16)[0].exists():
+            runs += [("GPU fp16 heuristic", KOKORO_FP16, "cuda", None, "heuristic")]
     runs += [("CPU default", "kokoro-v1.0.onnx", "cpu", None, None),
              ("CPU 8 threads", "kokoro-v1.0.onnx", "cpu", 8, None)]
     best = None
@@ -273,6 +276,8 @@ def ttsbench() -> None:
 
     if not best:
         return
+    if profile and gpu:
+        _profile_kokoro(kokoro_paths()[0], kokoro_paths()[1], k, phrases)
     ms, label, model_file, device, threads, search = best
     print(f"\nFastest: {label} ({ms:.0f} ms). Put this in config/local.yaml under voice: -> tts:\n")
     print("    kokoro:")
@@ -286,6 +291,43 @@ def ttsbench() -> None:
     if not gpu:
         print("\nThe GPU wasn't used. To enable it:  "
               "powershell -ExecutionPolicy Bypass -File scripts\\enable_gpu_tts.ps1")
+
+
+def _profile_kokoro(model, voices, k, phrases) -> None:
+    """Which parts of the voice model are slow, and do any run on the CPU instead of the GPU?"""
+    import json
+    import tempfile
+    from collections import defaultdict
+
+    import onnxruntime as ort
+    from kokoro_onnx import Kokoro
+
+    from assistant.voice.tts.kokoro import cuda_available
+
+    cuda_available()
+    opts = ort.SessionOptions()
+    opts.enable_profiling = True
+    opts.profile_file_prefix = str(Path(tempfile.gettempdir()) / "kokoro_profile")
+    sess = ort.InferenceSession(str(model), sess_options=opts, providers=[
+        ("CUDAExecutionProvider", {"cudnn_conv_algo_search": "HEURISTIC"}), "CPUExecutionProvider"])
+    kokoro = Kokoro.from_session(sess, str(voices))
+    kokoro.create("Warm up.", voice=k.voice, speed=k.speed, lang=k.lang)
+    for p in phrases:
+        kokoro.create(p, voice=k.voice, speed=k.speed, lang=k.lang)
+    events = json.loads(Path(sess.end_profiling()).read_text())
+    by_provider, by_op = defaultdict(float), defaultdict(float)
+    for e in events:
+        args = e.get("args", {})
+        if e.get("cat") == "Node" and "provider" in args:
+            dur = e.get("dur", 0) / 1000 / (len(phrases) + 1)
+            by_provider[args["provider"]] += dur
+            by_op[(args.get("op_name", "?"), args["provider"].replace("ExecutionProvider", ""))] += dur
+    print("\nProfile (average per sentence):")
+    for prov, ms in sorted(by_provider.items(), key=lambda x: -x[1]):
+        print(f"  {prov:<28} {ms:7.1f} ms")
+    print("  slowest operations:")
+    for (op, prov), ms in sorted(by_op.items(), key=lambda x: -x[1])[:10]:
+        print(f"    {op:<24} {prov:<6} {ms:7.1f} ms")
 
 
 def main(argv: list[str]) -> None:

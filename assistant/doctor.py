@@ -82,7 +82,23 @@ async def check(full: bool) -> int:
                         problems += 1
                         break
                 vl = s.brain.local.vision_model
-                if s.brain.local.vision == "ollama" and (vl in have or f"{vl}:latest" in have):
+                if s.brain.local.vision == "claude_code":
+                    import base64
+                    import io
+
+                    from PIL import Image, ImageDraw
+                    img = Image.new("RGB", (1920, 1080), "white")
+                    ImageDraw.Draw(img).text((800, 500), "Error: CommandNotFoundException", fill="red")
+                    buf = io.BytesIO()
+                    img.save(buf, format="JPEG")
+                    t = time.perf_counter()
+                    try:
+                        desc = await brain.describe_image(base64.b64encode(buf.getvalue()).decode())
+                        line(OK, f"screen reading via Claude: {time.perf_counter() - t:.1f}s", repr(desc[:50]))
+                    except Exception as e:
+                        line(FAIL, "screen reading via Claude failed", str(e)[:100])
+                        problems += 1
+                elif s.brain.local.vision == "ollama" and (vl in have or f"{vl}:latest" in have):
                     import base64
                     import io
 

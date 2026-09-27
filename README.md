@@ -12,7 +12,7 @@ See [PLAN.md](PLAN.md) for the architecture, chosen stack, costs and phase check
 | Job | Who does it | Cost |
 |---|---|---|
 | Everyday chat, PC control, quick facts, web lookups | **A local model in Ollama** (`qwen3:4b-instruct-2507`) on your GPU | free |
-| "What's on my screen?" | **A local vision model** (`qwen3-vl:4b`) | free |
+| "What's on my screen?" | **Your Claude subscription** (on 8 GB GPUs a local vision model pushes the chat model out) | included in Pro |
 | Hard tasks: research, analysis, writing, code, "ask Claude…" | **Your Claude Pro subscription**, through the official Claude Code CLI | included in Pro |
 | Optional: the Claude API instead of either one | `brain.backend: anthropic` / `expert.backend: anthropic` | paid per token |
 
@@ -133,7 +133,7 @@ If you switch to the Claude API: Haiku 4.5 conversation is roughly $0.20–0.40 
 |---|---|---|
 | `qwen3:4b-instruct-2507-q4_K_M` (default) | ~3 GB | answers straight away and leaves room for Whisper and the vision model |
 | `qwen3:8b` | ~5.5 GB | smarter (Nova turns its "thinking" off). Pair it with `stt.whisper.model: small.en` or `distil-large-v3` so everything fits |
-| `qwen3-vl:4b` (vision) | ~3.5 GB | loaded only when you ask about your screen. Set `local.vision: claude_code` to use your subscription instead |
+| `qwen3-vl:4b` (vision, optional) | ~3.5 GB | only with `local.vision: ollama`. On 8 GB it evicts the chat model (~4 s reload) |
 
 Change `brain.local.model` in `config/config.yaml`, then run `ollama pull <model>`.
 

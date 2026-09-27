@@ -12,7 +12,8 @@ from assistant.core.config import MODELS_DIR
 
 KOKORO_BASE = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
 KOKORO_FILES = ("kokoro-v1.0.onnx", "voices-v1.0.bin")
-KOKORO_INT8 = "kokoro-v1.0.int8.onnx"   # ~90 MB, faster on CPU, slightly lower quality
+KOKORO_INT8 = "kokoro-v1.0.int8.onnx"   # ~90 MB, smaller; was slower on the owner's CPU
+KOKORO_FP16 = "kokoro-v1.0.fp16.onnx"   # ~170 MB, half precision; can be faster on GPUs
 
 
 def silero_path() -> Path:
@@ -58,7 +59,7 @@ def fetch_all(include_whisper_model: str | None = None) -> None:
     print("Silero VAD:")
     print("  ok:", fetch_silero())
     print("Kokoro TTS:")
-    for name in (*KOKORO_FILES, KOKORO_INT8):
+    for name in (*KOKORO_FILES, KOKORO_FP16):
         dest = MODELS_DIR / name
         if not dest.exists():
             _download(KOKORO_BASE + name, dest)

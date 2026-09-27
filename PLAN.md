@@ -29,7 +29,7 @@ Wake phrase: **"Hey Nova"**. The name lives only in `config/config.yaml` (`assis
 | STT | **faster-whisper** `large-v3-turbo` int8_float16 on GPU | Free, ~150–250 ms per utterance on this GPU | Deepgram Nova streaming ($200 free credit, then ~$0.46/h) |
 | Brain (chat) | **Local `qwen3:4b-instruct-2507` in Ollama**, streaming + tools | Free, private, ~60 ms to first word on the RTX 5070 (measured) | Claude API (`claude-haiku-4-5`) |
 | Brain (hard tasks) | **Claude Code CLI on the owner's Claude Pro subscription**, via the `escalate` tool | No API fees; the official, unmodified CLI signs itself in | Claude API (`claude-opus-5`) |
-| Vision | Local `qwen3-vl:4b` | Free | Claude Code (subscription) |
+| Vision | Claude Code (subscription): 8 GB VRAM can't hold a vision model beside the chat model | No GPU memory | Local `qwen3-vl:4b` |
 | Web search | Free DuckDuckGo (`ddgs`) for the local brain | No key | Claude server tool on the API backend |
 | TTS | **Kokoro-82M** (local, GPU or CPU) | Free, good quality, ~50–100 ms first audio per sentence | Cartesia Sonic (streaming), Piper |
 | AEC | WebRTC APM (`webrtc-audio-processing`) + mic gating during playback | Headphones make this easy; speakers need AEC | gate-only fallback |
@@ -180,8 +180,8 @@ scripts/           # install, run, register-startup
 - [x] Owner: onnxruntime-gpu 1.30 (CUDA 13) works on the RTX 5070. Kokoro GPU 210 ms vs CPU 545 ms (int8 on CPU was 2337 ms, so it's dropped from the benchmark)
 - [x] Owner test: tools now act (open_app, look_at_screen read an error correctly). Plain reply total 1.07 s. Heuristic cuDNN search was fastest (248 ms)
 - [x] Fix: latency report went negative when the filler line was spoken before the model's first word. Tool calls now count as the first model response. The voice CLI shows how long each tool took
-- [ ] Screen reading took ~30 s: screenshots are now shrunk to 1024 px for local vision, and doctor --full times vision and checks whether it evicts the chat model from VRAM. Waiting on owner numbers to decide between local vision and Claude Code
-- [ ] Kokoro ~230 ms on the GPU: ttsbench now splits phonemes (CPU) vs model time
+- [x] Screen reading: local vision was 8.4 s (4.5 s load) and evicted the chat model (next reply 3.9 s). Default is now `vision: claude_code` (subscription, no VRAM). The screenshot goes in the locked workspace and is deleted after
+- [ ] Kokoro ~210 ms on the GPU, all of it model time (phonemes ~0 ms). `ttsbench --profile` shows time per provider/op, and fp16 is added to the benchmark
 - [x] cuDNN algorithm search set to HEURISTIC (the default EXHAUSTIVE re-benchmarks every new sentence length). ttsbench compares heuristic, default and exhaustive on fresh sentences
 
 ### Phase 3 — Real-time feel
