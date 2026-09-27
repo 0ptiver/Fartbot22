@@ -67,3 +67,10 @@ def local_settings(settings):
     """Settings for the local (Ollama) brain."""
     settings.brain.backend = "local"
     return settings
+
+
+@pytest.fixture(autouse=True)
+def _no_real_location(tmp_path, monkeypatch):
+    """Nor the owner's city (data/location.json)."""
+    from assistant.tools import quick
+    monkeypatch.setattr(quick, "LOCATION_FILE", tmp_path / "location.json")

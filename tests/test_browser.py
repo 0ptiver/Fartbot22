@@ -149,7 +149,7 @@ def test_normal_web_and_youtube_searches_stay_as_they_were():
 
 
 def test_follow_ups_need_novas_browser_in_use():
-    assert match_intent("search for a honda civic") is None
+    assert match_intent("search for a honda civic") == ("open_website", {"search": "a honda civic"})
     assert match_intent("search for a honda civic", browser_active=True) == \
         ("browser", {"action": "search", "text": "honda civic", "details": False})
     assert match_intent("open discord", browser_active=True)[0] == "open_app"       # not a click on the page

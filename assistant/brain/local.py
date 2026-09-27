@@ -208,6 +208,11 @@ class LocalBrain:
                 async for ev in self._say(conv, user_text, reply):
                     yield ev
                 return
+            small = _small_talk(user_text, sir)
+            if small:
+                async for ev in self._say(conv, user_text, small):
+                    yield ev
+                return
             pref = L.preference(user_text)
             if pref:
                 async for ev in self._say(conv, user_text, await self._note_preference(pref, ctx, sir)):
@@ -577,6 +582,30 @@ class _Round:
     def __init__(self) -> None:
         self.text: list[str] = []
         self.calls: list[dict] = []
+
+
+_SMALL_TALK = [
+    (r"(?:thanks|thank you|cheers|ta|thanks a lot|thank you so much|appreciate it|nice one|good job|well done|perfect)",
+     "You're welcome{sir}."),
+    (r"(?:hello|hi|hey|hiya|yo|good (?:morning|afternoon|evening))(?: there)?", "{greet}{sir}."),
+    (r"(?:how are you|how are you doing|how'?s it going|you good|you alright)", "Very well, thank you{sir}. And you?"),
+    (r"(?:goodnight|good night|night)", "Good night{sir}."),
+]
+
+
+def _small_talk(text: str, sir: str) -> str | None:
+    """Greetings and thanks: an instant, fixed reply instead of waiting for the model."""
+    t = re.sub(r"[^\w\s']", "", text.lower()).strip()
+    t = re.sub(r"\b(?:nova|sir|mate|buddy)\b", "", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    for pat, reply in _SMALL_TALK:
+        if re.fullmatch(pat, t):
+            h = time.localtime().tm_hour
+            said = re.search(r"good (morning|afternoon|evening)", t)
+            greet = (f"Good {said.group(1)}" if said else
+                     "Good morning" if h < 12 else "Good afternoon" if h < 18 else "Good evening")
+            return reply.format(sir=sir, greet=greet)
+    return None
 
 
 def _browser_active() -> bool:

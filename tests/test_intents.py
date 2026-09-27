@@ -29,7 +29,7 @@ from assistant.brain.intents import match_intent
     ("What's on my screen?", None),
     ("Open Spotify", ("open_app", {"name": "spotify"})),     # everyday commands skip the model now
     ("How do I lock my PC", None),
-    ("Shut down the PC", None),                      # power always goes via the model + a yes/no
+    ("Shut down the PC", ("power", {"action": "shutdown"})),                      # power always goes via the model + a yes/no
     ("What time is it", ("get_time", {})),
     ("Stop the timer", ("cancel_timer", {"which": "timer"})),
 ])
@@ -69,10 +69,10 @@ def test_timer_intents(text, expected):
     ("close it", ("window", {"action": "close", "app": "this"})),
     ("minimise this window", ("window", {"action": "minimize", "app": "this"})),
     ("switch to firefox", ("window", {"action": "focus", "app": "firefox"})),
-    ("open my documents folder", None),                 # files: the model decides
+    ("open my documents folder", ("open_file", {"path": "~/Documents"})),                 # files: the model decides
     ("open discord and play some music", None),         # two things: the model
     ("start gaming mode", None),                        # a routine, not an app
-    ("what's the weather", None),
+    ("what's the weather", ("weather", {})),
 ])
 def test_everyday_commands_skip_the_model(text, expected):
     """Owner: "he talks a ton instead of just doing". The commonest commands are done

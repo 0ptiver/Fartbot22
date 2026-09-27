@@ -323,8 +323,56 @@ def everyday_intent(t: str) -> tuple[str, dict] | None:
     from assistant.voice.textnorm import normalize_words
 
     n = " ".join(normalize_words(t))
-    if re.fullmatch(r"(?:what(?:'?s| is) the time(?: now)?|what time is it(?: now)?|tell me the time)", t):
+    if re.fullmatch(r"(?:what(?:'?s| is) the time(?: now)?|what time is it(?: now)?|tell me the time"
+                    r"|what(?:'?s| is) (?:the date|today'?s date|the day)(?: today)?|what day is it(?: today)?"
+                    r"|what(?:'?s| is) the date today|what date is it(?: today)?)", t):
         return "get_time", {}
+    # Reminders and alarms: "remind me in 20 minutes to check the oven", "remind me to call mum at 6 pm"
+    unit = r"(\d+(?:\.\d+)?) (second|sec|minute|min|hour)s?"
+    if m := (re.fullmatch(r"remind me in " + unit + r" (?:to|that|about) (.+)", n)
+             or re.fullmatch(r"remind me (?:to|that|about) (.+) in " + unit, n)):
+        g = m.groups()
+        amount, u, text = (g[0], g[1], g[2]) if g[0][0].isdigit() else (g[1], g[2], g[0])
+        return "set_reminder", {"text": text, _UNIT[u]: float(amount)}
+    clock = r"(\d{1,2}(?::\d{2})? ?(?:am|pm|a\.m\.|p\.m\.)?|noon|midnight)"
+    if m := (re.fullmatch(r"remind me at " + clock + r" (?:to|that|about) (.+)", t)
+             or re.fullmatch(r"remind me (?:to|that|about) (.+) at " + clock, t)):
+        a, b = m.groups()
+        at, text = (a, b) if re.match(r"\d|noon|midnight", a) else (b, a)
+        return "set_reminder", {"text": text, "at": at}
+    if m := re.fullmatch(r"(?:set |wake me up with )?(?:an |my )?alarm (?:for|at) " + clock, t):
+        return "set_alarm", {"at": m.group(1)}
+    if m := re.fullmatch(r"wake me (?:up )?at " + clock, t):
+        return "set_alarm", {"at": m.group(1)}
+    # Power (always asks first)
+    pc_word = r"(?:the |my )?(?:pc|computer|laptop|system)"
+    if re.fullmatch(r"(?:shut ?down|turn off|power off) " + pc_word + r"|shut " + pc_word + r" down", t):
+        return "power", {"action": "shutdown"}
+    if re.fullmatch(r"(?:restart|reboot) " + pc_word, t):
+        return "power", {"action": "restart"}
+    if re.fullmatch(r"(?:put " + pc_word + r" to sleep|sleep " + pc_word + r"|go to sleep " + pc_word + ")", t):
+        return "power", {"action": "sleep"}
+    # PC health
+    if re.fullmatch(r"how(?:'?s| is) (?:my |the )?(?:pc|computer|laptop|system)(?: doing| running| holding up)?"
+                    r"|(?:pc|system) (?:status|check)|check (?:my |the )?(?:pc|computer|laptop)", t):
+        return "system_status", {"what": "overview"}
+    for what, words in (("gpu", r"gpu|graphics card|video card"), ("cpu", r"cpu|processor"),
+                        ("battery", r"battery"), ("memory", r"ram|memory"), ("disk", r"disk|storage|drive|space")):
+        if re.fullmatch(r"(?:what(?:'?s| is) |how(?:'?s| is) |check )?(?:my |the )?(?:" + words + r")"
+                        r"(?: (?:temp|temperature|usage|level|left|status|space|free))?"
+                        r"|how (?:much|hot) (?:is )?(?:my |the )?(?:" + words + r")(?: (?:do i have|left|is))?"
+                        r"|how much (?:" + words + r") (?:do i have|is left|have i got)(?: left)?", t):
+            return "system_status", {"what": what}
+    # Folders: "open my downloads (folder)"
+    if m := re.fullmatch(r"(?:open|show me|go to) (?:my |the )?(downloads|documents|desktop|pictures|photos|music|videos)"
+                         r"(?: folder)?", t):
+        folder = {"photos": "Pictures"}.get(m.group(1), m.group(1).capitalize())
+        return "open_file", {"path": f"~/{folder}"}
+    if re.fullmatch(r"(?:open|launch|start) (?:the )?(?:file explorer|explorer|file manager|my files)", t):
+        return "open_app", {"name": "explorer"}
+    # Plain searches: open the results (the model handles "look up X" questions that need an answer)
+    if m := re.fullmatch(r"(?:search (?:the web |google |online )?for|google) (.+)", t):
+        return "open_website", {"search": m.group(1)}
     if m := re.fullmatch(r"(?:set |turn |put )?(?:the )?volume (?:to |at )?(\d{1,3})(?: percent| %)?", n):
         return "volume", {"action": "set", "level": min(100, int(m.group(1)))}
     if re.fullmatch(r"(?:turn (?:the )?(?:volume|sound|it) up|volume up|louder|turn up the volume|raise the volume)"
@@ -415,6 +463,10 @@ def match_intent(text: str, grid_visible: bool = False, labels: bool = False,
     daily = everyday_intent(t)
     if daily:
         return daily
+    from assistant.tools.quick import quick_intent
+    quick = quick_intent(t)
+    if quick:
+        return quick
     if len(t.split()) <= 14 and _NOW_PLAYING_ANYWHERE.search(t):
         return "now_playing", {}
     if t in ("play", "play it", "play it again", "play again", "press play", "hit play", "play that", "play this"):

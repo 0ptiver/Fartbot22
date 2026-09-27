@@ -82,7 +82,7 @@ async def collect(brain, conv, text, ctx):
 async def test_text_turn(local_settings, ctx):
     brain, fake = make(local_settings, [text_reply("Good evening, sir.")])
     conv = Conversation()
-    events = await collect(brain, conv, "hello", ctx)
+    events = await collect(brain, conv, "tell me something interesting", ctx)
     assert "".join(e.text for e in events if isinstance(e, TextDelta)) == "Good evening, sir."
     assert isinstance(events[-1], TurnComplete) and events[-1].usage["input_tokens"] == 50
     path, body = fake.requests[0]
@@ -153,7 +153,7 @@ async def test_screenshot_described_by_vision_model(local_settings, ctx, monkeyp
 async def test_think_flag_retry(local_settings, ctx):
     bad = httpx.Response(400, text='{"error":"model does not support thinking"}')
     brain, fake = make(local_settings, [bad, text_reply("Hello.")])
-    events = await collect(brain, Conversation(), "hi", ctx)
+    events = await collect(brain, Conversation(), "tell me something interesting", ctx)
     assert isinstance(events[-1], TurnComplete)
     assert "think" not in fake.requests[1][1]
 
@@ -161,14 +161,14 @@ async def test_think_flag_retry(local_settings, ctx):
 async def test_missing_model_and_offline(local_settings, ctx):
     brain, _ = make(local_settings, [httpx.Response(404, text='{"error":"model not found"}')])
     conv = Conversation()
-    events = await collect(brain, conv, "hi", ctx)
+    events = await collect(brain, conv, "tell me something interesting", ctx)
     assert isinstance(events[-1], BrainError) and "ollama pull" in events[-1].message
     assert conv.messages == []
 
     def down(request):
         raise httpx.ConnectError("refused")
     brain.http = httpx.AsyncClient(transport=httpx.MockTransport(down), base_url="http://ollama")
-    events = await collect(brain, conv, "hi", ctx)
+    events = await collect(brain, conv, "tell me something interesting", ctx)
     assert "Ollama" in events[-1].message
 
 
@@ -220,7 +220,7 @@ async def test_thinking_model_reasoning_never_spoken(local_settings, ctx):
                    {"message": {"content": "</think>\n\nHello, sir."}, "done": False},
                    {"message": {"content": ""}, "done": True})
     brain, fake = make(local_settings, [bad, reply])
-    events = await collect(brain, Conversation(), "hi", ctx)
+    events = await collect(brain, Conversation(), "tell me something interesting", ctx)
     spoken = "".join(e.text for e in events if isinstance(e, TextDelta))
     assert spoken == "Hello, sir."
 
@@ -229,14 +229,14 @@ async def test_separated_thinking_field_ignored(local_settings, ctx):
     reply = ndjson({"message": {"thinking": "hmm let me think", "content": ""}, "done": False},
                    {"message": {"content": "Hello, sir."}, "done": True})
     brain, _ = make(local_settings, [reply])
-    events = await collect(brain, Conversation(), "hi", ctx)
+    events = await collect(brain, Conversation(), "tell me something interesting", ctx)
     assert "".join(e.text for e in events if isinstance(e, TextDelta)) == "Hello, sir."
 
 
 async def test_warm_up_matches_real_requests(local_settings, ctx):
     brain, fake = make(local_settings, [text_reply("x"), text_reply("Hello.")])
     await brain.warm_up()
-    await collect(brain, Conversation(), "hi", ctx)
+    await collect(brain, Conversation(), "tell me something interesting", ctx)
     (_, warm), (_, real) = fake.requests
     # Same model, context size, system prompt and tools -> no reload, prompt cache hit.
     assert warm["options"]["num_ctx"] == real["options"]["num_ctx"]
@@ -267,7 +267,7 @@ async def test_promise_without_action_is_nudged(local_settings, ctx):
 
 async def test_no_nudge_for_plain_answers(local_settings, ctx):
     brain, fake = make(local_settings, [text_reply("Good evening, sir.")])
-    await collect(brain, Conversation(), "hello", ctx)
+    await collect(brain, Conversation(), "tell me something interesting", ctx)
     assert len(fake.requests) == 1
 
 
