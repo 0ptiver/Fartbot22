@@ -372,6 +372,10 @@ def match_intent(text: str, grid_visible: bool = False, labels: bool = False) ->
     lesson = teach_intent(t)
     if lesson:
         return lesson
+    from assistant.tools.hudnav import page_intent
+    page = page_intent(t)
+    if page:
+        return page
     from assistant.tools.voice import subtitles_intent, voice_intent, voicelock_intent
     v = voicelock_intent(t) or voice_intent(t) or subtitles_intent(t)
     if v:

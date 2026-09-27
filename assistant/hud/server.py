@@ -46,7 +46,8 @@ _KEEP = {"memory_used", "transcript", "text", "speak", "tool", "tool_done", "ann
 _FILES = {"/": ("index.html", "text/html"), "/hud.js": ("hud.js", "text/javascript"),
           "/hud.css": ("hud.css", "text/css"), "/icon.svg": ("icon.svg", "image/svg+xml"),
           "/brain.js": ("brain.js", "text/javascript"), "/voice.js": ("voice.js", "text/javascript"),
-          "/phonesetup.js": ("phonesetup.js", "text/javascript")}
+          "/phonesetup.js": ("phonesetup.js", "text/javascript"), "/orb.js": ("orb.js", "text/javascript"),
+          "/home.js": ("home.js", "text/javascript")}
 
 
 class Hub:
@@ -92,6 +93,44 @@ def timers(scheduler, settings: Settings, watchers=None) -> dict[str, Any]:
     watching = [] if watchers is None else [{"id": w.id, "text": w.describe()} for w in watchers.items.values()]
     return {"type": "timers", "items": items, "watches": watching, "now": time.time(),
             "routines": _routines(settings)}
+
+
+MEDIA_EVERY_S = 2.0
+_HUD_MEDIA = None           # its own reader: the tools' reader keeps a session list they index into
+
+
+async def now_playing_items() -> list[dict] | None:
+    """What Windows says is playing (the volume pop-up's list), for the Now playing card.
+    None when Nova can't see it (not Windows)."""
+    global _HUD_MEDIA
+    from assistant.tools import video
+    if _HUD_MEDIA is None:
+        _HUD_MEDIA = video.MediaBackend()
+    if not _HUD_MEDIA.available():
+        return None
+    try:
+        items = await _HUD_MEDIA.list()
+    except Exception:
+        return None
+    rank = {"playing": 0, "paused": 1}
+    items = sorted(items, key=lambda m: rank.get(m.status, 2))
+    return [{"title": m.title, "artist": m.artist, "status": m.status, "app": _app_label(m.app)}
+            for m in items[:3] if m.title]
+
+
+def _app_label(app_id: str) -> str:
+    """'Spotify.exe' -> 'Spotify', 'firefox.exe' -> 'Firefox'. Firefox reports a 16-character
+    code instead of its name."""
+    from assistant.tools import video
+    a = app_id.lower()
+    if "spotify" in a:
+        return "Spotify"
+    for b in video.BROWSERS:
+        if b in a:
+            return {"msedge": "Edge"}.get(b, b.capitalize())
+    if len(app_id) == 16 and all(c in "0123456789ABCDEF" for c in app_id):
+        return "Firefox"
+    return app_id.removesuffix(".exe").split("!")[-1][:20] or "Player"
 
 
 _VITALS: dict[str, Any] = {"at": 0.0, "ev": None}
@@ -249,6 +288,14 @@ def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=Non
                 await ws_send({"type": "toast", "text": "Your voiceprint is deleted and voice lock is off."})
             elif a == "strictness" and isinstance(msg.get("value"), (int, float)):
                 lock.set(threshold=float(msg["value"]))
+        elif kind == "media_cmd" and msg.get("action") in ("play", "pause", "next", "previous"):
+            registry = getattr(getattr(loop, "brain", None), "registry", None)
+            if registry is not None:
+                async def media_job(action=msg["action"]) -> None:
+                    res = await registry.execute("media", {"action": action}, loop.ctx)
+                    if res.is_error:
+                        await ws_send({"type": "toast", "text": str(res.content)})
+                spawn(media_job())
         elif kind == "voice_get":
             await ws_send(voice_info(loop))
         elif isinstance(kind, str) and kind.startswith("phone_") and phone is not None:
@@ -350,6 +397,7 @@ def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=Non
             last_tick = 0.0
             last_timers = 0.0
             last_vitals = 0.0
+            last_media, media_sent = 0.0, None
             while True:
                 try:
                     ev = await asyncio.wait_for(queue.get(), STATUS_EVERY_S)
@@ -363,6 +411,12 @@ def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=Non
                 if now - last_timers >= 1.0:
                     last_timers = now
                     await send(timers(scheduler, settings, watchers))
+                if now - last_media >= MEDIA_EVERY_S:
+                    last_media = now
+                    items = await now_playing_items()
+                    if items != media_sent:
+                        media_sent = items
+                        await send({"type": "media", "items": items})
                 if now - last_vitals >= VITALS_EVERY_S:
                     last_vitals = now
                     await send(await asyncio.to_thread(vitals))

@@ -436,3 +436,145 @@ input[type="range"] { accent-color: var(--accent); width: 100%; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ============================================================================================
+   Home: the dashboard (Nova's bubble, live actions, cards Nova lights up)
+   ============================================================================================ */
+body[data-page="home"] .app { grid-template-columns: 76px minmax(0, 1fr); }
+body[data-page="home"] .core { display: none; }
+.home { overflow-y: auto; }
+.home-grid {
+  display: grid; gap: 16px; padding: 2px 28px 26px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-areas: "hero hero live live" "hero hero live live" "media next pc mem";
+}
+.glass {
+  position: relative; border-radius: 20px; padding: 16px 18px;
+  background: linear-gradient(160deg, rgba(26, 38, 66, .62), rgba(12, 18, 34, .55));
+  border: 1px solid rgba(140, 190, 255, .12);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .28), inset 0 1px 0 rgba(255, 255, 255, .04);
+  backdrop-filter: blur(14px);
+  transition: border-color .3s, box-shadow .3s;
+}
+.glass::before {
+  content: ""; position: absolute; left: 18%; right: 18%; top: -1px; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(var(--glow), .55), transparent);
+}
+.glass.pulse { animation: pulse 1.4s ease-out; }
+@keyframes pulse {
+  0% { border-color: rgba(var(--glow), .9); box-shadow: 0 0 0 0 rgba(var(--glow), .45), 0 18px 50px rgba(0,0,0,.28); }
+  100% { border-color: rgba(140, 190, 255, .12); box-shadow: 0 0 0 18px rgba(var(--glow), 0), 0 18px 50px rgba(0,0,0,.28); }
+}
+.w-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.w-head h4.sub { margin: 0; white-space: nowrap; }
+.w-note { font-size: 11.5px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.w-empty { margin: 8px 0 0; font-size: 12.5px; color: var(--faint); }
+
+/* hero: the bubble */
+.hero { grid-area: hero; display: flex; flex-direction: column; align-items: center; padding: 6px 22px 16px; min-height: 420px;
+  background: radial-gradient(80% 70% at 50% 35%, rgba(var(--glow), .10), transparent 70%),
+              linear-gradient(160deg, rgba(26, 38, 66, .62), rgba(12, 18, 34, .55)); }
+.hero-orb { width: 100%; height: 262px; display: grid; place-items: center; }
+#heroOrb { width: 360px; height: 262px; }
+.hero-name { margin: -16px 0 0; font-size: 13px; font-weight: 700; letter-spacing: .6em; text-indent: .6em; }
+.hero-state { margin: 2px 0 10px; font-size: 13px; color: var(--muted); }
+.caption { width: 100%; max-width: 560px; min-height: 52px; text-align: center; }
+.cap-you { margin: 0 0 4px; font-size: 13px; color: var(--muted); }
+.cap-you:not(:empty)::before { content: "You  "; color: var(--faint); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
+.cap-nova { margin: 0; font-size: 17px; line-height: 1.45; color: var(--text); }
+.cap-nova.speaking::after { content: "▍"; color: rgb(var(--glow)); animation: blink 1s steps(2) infinite; }
+.hero-controls { display: flex; gap: 14px; margin: 8px 0 12px; }
+.round { width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--line2);
+  background: rgba(255,255,255,.04); color: var(--text); transition: all .15s; }
+.round:hover { border-color: rgba(var(--glow), .7); box-shadow: 0 0 18px rgba(var(--glow), .25); }
+#heroStop:hover { border-color: rgba(248,113,113,.7); color: var(--red); box-shadow: 0 0 18px rgba(248,113,113,.25); }
+#heroMute[aria-pressed="true"] { color: var(--red); border-color: rgba(248,113,113,.6); background: rgba(248,113,113,.1); }
+#heroStand.wake { color: var(--green); border-color: rgba(74,222,128,.6); background: rgba(74,222,128,.1); }
+.hero-ask { display: flex; gap: 8px; width: 100%; max-width: 520px; margin-top: auto; }
+.hero-ask input { flex: 1; min-width: 0; background: rgba(8, 12, 24, .7); border: 1px solid var(--line2); border-radius: 999px;
+  padding: 11px 18px; color: var(--text); font: inherit; }
+.hero-ask input:focus { outline: none; border-color: rgba(var(--glow), .6); box-shadow: 0 0 0 4px rgba(var(--glow), .08); }
+.hero-ask button { width: 44px; height: 44px; flex: none; border-radius: 50%; border: none; display: grid; place-items: center; color: #04121c;
+  background: linear-gradient(135deg, var(--accent), var(--accent2)); }
+
+/* live actions */
+.live { grid-area: live; display: flex; flex-direction: column; min-height: 0; }
+.live-list { display: flex; flex-direction: column; gap: 9px; overflow: hidden; }
+.live-item { display: grid; grid-template-columns: 38px minmax(0, 1fr) 24px; gap: 12px; align-items: center; padding: 10px 12px;
+  border-radius: 14px; background: rgba(255,255,255,.03); border: 1px solid var(--line); animation: slidein .35s cubic-bezier(.2,.9,.3,1.2); }
+.live-item:first-child { background: rgba(255,255,255,.055); }
+@keyframes slidein { from { opacity: 0; transform: translateX(18px) scale(.97); } }
+.live-ic { width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; color: var(--tone); background: color-mix(in srgb, var(--tone) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 30%, transparent); }
+.live-mid { min-width: 0; }
+.live-mid b { display: block; font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.live-detail { display: block; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.live-st { display: grid; place-items: center; }
+.live-st svg { width: 18px; height: 18px; stroke-width: 2.4; }
+.live-item.run .live-st::after { content: ""; width: 15px; height: 15px; border-radius: 50%; border: 2px solid var(--tone); border-right-color: transparent; animation: spin .8s linear infinite; }
+.live-item.run { border-color: color-mix(in srgb, var(--tone) 40%, transparent); box-shadow: 0 0 22px color-mix(in srgb, var(--tone) 12%, transparent); }
+.live-item.ok .live-st { color: var(--green); }
+.live-item.bad .live-st { color: var(--red); }
+.live-item.bad .live-detail { color: #f7a1a1; }
+.tone-blue { --tone: #5ad8ff; } .tone-green { --tone: #4ade80; } .tone-amber { --tone: #ffb547; }
+.tone-violet { --tone: #a78bfa; } .tone-pink { --tone: #f472b6; } .tone-red { --tone: #f87171; }
+
+/* now playing */
+.w-media { grid-area: media; }
+.media-row { display: flex; gap: 12px; align-items: center; min-width: 0; }
+.art { width: 54px; height: 54px; flex: none; border-radius: 12px; display: grid; place-items: center; color: rgba(255,255,255,.85);
+  background: linear-gradient(135deg, #1f3b66, #2b2f6b); box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
+.art[data-app="spotify"] { background: linear-gradient(135deg, #1db954, #11663a); }
+.art[data-app="firefox"] { background: linear-gradient(135deg, #ff7139, #9059ff); }
+.art[data-app="chrome"], .art[data-app="edge"] { background: linear-gradient(135deg, #1a73e8, #34a853); }
+.w-media.on .art { animation: breathe 2.4s ease-in-out infinite; }
+@keyframes breathe { 50% { transform: scale(1.05); box-shadow: 0 0 22px rgba(var(--glow), .35); } }
+.media-text { min-width: 0; }
+.media-text b { display: block; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.media-text span { display: block; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.media-ctl { display: flex; justify-content: center; gap: 10px; margin-top: 12px; }
+.media-ctl button { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--line2); background: rgba(255,255,255,.03); display: grid; place-items: center; }
+.media-ctl button svg { width: 16px; height: 16px; }
+.media-ctl .big { width: 42px; height: 42px; border: none; color: #04121c; background: linear-gradient(135deg, var(--accent), var(--accent2)); }
+.media-ctl button:hover { border-color: rgba(var(--glow), .6); }
+
+/* up next, memories */
+.w-next { grid-area: next; }
+.w-mem { grid-area: mem; }
+.next-list.roomy { gap: 9px; }
+.next-list li.soon b { color: var(--amber); }
+.mem-list { display: flex; flex-direction: column; gap: 7px; }
+.mem-list li { font-size: 12.5px; color: var(--text); padding-left: 12px; position: relative; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mem-list li::before { content: ""; position: absolute; left: 0; top: .55em; width: 5px; height: 5px; border-radius: 50%; background: #f472b6; box-shadow: 0 0 8px #f472b6; }
+
+/* this PC gauges */
+.w-pc { grid-area: pc; }
+.gauges { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.gauge { position: relative; display: grid; justify-items: center; }
+.gauge svg { width: 52px; height: 52px; transform: rotate(-90deg); }
+.gauge circle { fill: none; stroke-width: 5; }
+.gauge .track { stroke: rgba(255,255,255,.07); }
+.gauge .fill { stroke: var(--accent); stroke-linecap: round; stroke-dasharray: 0 999; transition: stroke-dasharray .9s ease; }
+.gauge.warn .fill { stroke: var(--amber); } .gauge.hot .fill { stroke: var(--red); }
+.gauge b { position: absolute; top: 17px; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.gauge span { font-size: 11px; color: var(--muted); }
+
+/* the top bar shows what Nova is doing on every page */
+.live-pill { color: var(--text); border-color: rgba(var(--glow), .5); background: rgba(var(--glow), .1); max-width: 320px; }
+.live-pill span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.live-pill i { width: 8px; height: 8px; border-radius: 50%; background: rgb(var(--glow)); box-shadow: 0 0 10px rgb(var(--glow)); animation: blink 1s ease-in-out infinite; flex: none; }
+
+/* the Yes/No card floats over every page */
+.confirm.floating { position: fixed; right: 24px; bottom: 24px; width: min(380px, calc(100% - 32px)); z-index: 8;
+  background: rgba(34, 24, 8, .96); backdrop-filter: blur(10px); box-shadow: 0 20px 60px rgba(0,0,0,.5), 0 0 40px rgba(255,181,71,.18); }
+
+@media (max-width: 1080px) {
+  .home-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: "hero hero" "live live" "media next" "pc mem"; }
+  .hero { min-height: 0; }
+}
+@media (max-width: 860px) {
+  .home-grid { padding: 2px 16px 20px; grid-template-columns: minmax(0, 1fr); grid-template-areas: "hero" "live" "media" "next" "pc" "mem"; }
+  #heroOrb { width: 260px; height: 240px; }
+  .hero-orb { height: 240px; }
+  .confirm.floating { right: 16px; bottom: 84px; }
+}

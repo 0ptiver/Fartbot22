@@ -7,7 +7,9 @@
 <title>Nova</title>
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="hud.css">
+<script src="orb.js" defer></script>
 <script src="hud.js" defer></script>
+<script src="home.js" defer></script>
 <script src="brain.js" defer></script>
 <script src="voice.js" defer></script>
 <script src="phonesetup.js" defer></script>
@@ -30,13 +32,31 @@
   <symbol id="i-ear" viewBox="0 0 24 24"><path d="M7 9a5 5 0 0 1 10 0c0 3-3 4-3 7a3 3 0 0 1-6 0"/><path d="M10 9a2 2 0 0 1 4 0"/></symbol>
   <symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></symbol>
   <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8.5" stroke-dasharray="3 3.2"/></symbol>
+  <symbol id="i-app" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></symbol>
+  <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V6l11-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5l12 7-12 7z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M5 5l10 7-10 7zM19 5v14"/></symbol>
+  <symbol id="i-prev" viewBox="0 0 24 24"><path d="M19 5 9 12l10 7zM5 5v14"/></symbol>
+  <symbol id="i-volume" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4zM16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3v5M12 16v5M3 12h5M16 12h5M6 6l2.8 2.8M15.2 15.2 18 18M18 6l-2.8 2.8M8.8 15.2 6 18"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-keys" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol>
+  <symbol id="i-cursor" viewBox="0 0 24 24"><path d="M5 3l14 7-6 2-2 6z"/></symbol>
+  <symbol id="i-window" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M3 9h18"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5 10 17l9-10"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
   <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
 </svg>
 
 <div class="app">
   <nav class="rail" aria-label="Sections">
     <div class="rail-logo" title="Nova"><span class="conn" id="conn" title="Connecting"></span></div>
-    <button type="button" data-tab="chat" aria-current="page" title="Chat"><svg><use href="#i-chat"/></svg><span>Chat</span></button>
+    <button type="button" data-tab="home" aria-current="page" title="Dashboard"><svg><use href="#i-home"/></svg><span>Home</span></button>
+    <button type="button" data-tab="chat" title="Chat"><svg><use href="#i-chat"/></svg><span>Chat</span></button>
     <button type="button" data-tab="activity" title="Activity"><svg><use href="#i-pulse"/></svg><span>Activity</span><b class="badge" id="actBadge" hidden></b></button>
     <button type="button" data-tab="timers" title="Timers and watches"><svg><use href="#i-clock"/></svg><span>Timers</span><b class="badge" id="timerBadge" hidden></b></button>
     <button type="button" data-tab="routines" title="Routines"><svg><use href="#i-bolt"/></svg><span>Routines</span></button>
@@ -52,6 +72,7 @@
         <p id="pageSub">Talk or type. Everything stays on this PC.</p>
       </div>
       <div class="top-actions">
+        <span id="livePill" class="pill live-pill" hidden><i></i><span id="liveText"></span></span>
         <span id="lockBadge" class="pill ok" hidden title="Voice lock: only your voice is obeyed"><svg><use href="#i-lock"/></svg><span>Voice lock</span></span>
         <button id="ccBtn" class="pill" type="button" aria-pressed="false" title="Live subtitles of what your PC is playing, translated into English"><svg><use href="#i-cc"/></svg><span>Subtitles</span></button>
         <button id="modeBtn" class="pill" type="button" title="Switch between answering only when called by name, and answering everything"><svg><use href="#i-ear"/></svg><span id="modeLabel">Wake word</span></button>
@@ -59,7 +80,74 @@
     </header>
 
     <main class="pages">
-      <section id="tab-chat" class="page chat-page">
+      <section id="tab-home" class="page home">
+        <div class="home-grid">
+          <div class="hero glass">
+            <div class="hero-orb"><canvas id="heroOrb" aria-hidden="true"></canvas></div>
+            <p class="hero-name" id="heroName">NOVA</p>
+            <p class="hero-state" id="heroState">Connecting…</p>
+            <div class="caption" aria-live="polite">
+              <p id="capYou" class="cap-you"></p>
+              <p id="capNova" class="cap-nova"></p>
+            </div>
+            <div class="hero-controls">
+              <button id="heroStop" type="button" class="round" title="Stop (Esc)"><svg><use href="#i-stop"/></svg></button>
+              <button id="heroMute" type="button" class="round" aria-pressed="false" title="Microphone on / off"><svg><use id="heroMuteIcon" href="#i-mic"/></svg></button>
+              <button id="heroStand" type="button" class="round" title="Stand down / wake up"><svg><use href="#i-power"/></svg></button>
+            </div>
+            <form id="homeAsk" class="hero-ask" autocomplete="off">
+              <input id="homeAskInput" type="text" maxlength="2000" placeholder="Type to Nova…" aria-label="Type a request">
+              <button type="submit" title="Send"><svg><use href="#i-send"/></svg><span class="sr">Send</span></button>
+            </form>
+          </div>
+
+          <div class="live glass">
+            <div class="w-head"><h4 class="sub">Live</h4><span class="w-note">what Nova is doing</span></div>
+            <ol id="liveList" class="live-list"></ol>
+            <p id="liveEmpty" class="w-empty">Nothing yet. Ask Nova to do something and it shows up here as it happens.</p>
+          </div>
+
+          <div class="w-media glass" id="wMedia">
+            <div class="w-head"><h4 class="sub">Now playing</h4><span class="w-note" id="mediaApp"></span></div>
+            <div class="media-row">
+              <div class="art" id="mediaArt"><svg><use href="#i-music"/></svg></div>
+              <div class="media-text">
+                <b id="mediaTitle">Nothing playing</b>
+                <span id="mediaArtist">Say “Nova, play …”</span>
+              </div>
+            </div>
+            <div class="media-ctl">
+              <button type="button" data-media="previous" title="Previous"><svg><use href="#i-prev"/></svg></button>
+              <button type="button" id="mediaToggle" data-media="play" class="big" title="Play / pause"><svg><use id="mediaToggleIcon" href="#i-play"/></svg></button>
+              <button type="button" data-media="next" title="Next"><svg><use href="#i-next"/></svg></button>
+            </div>
+          </div>
+
+          <div class="w-next glass" id="wNext">
+            <div class="w-head"><h4 class="sub">Up next</h4><span class="w-note">timers · reminders · watches</span></div>
+            <ol id="homeNext" class="next-list roomy"></ol>
+            <p id="homeNextEmpty" class="w-empty">Nothing scheduled.</p>
+          </div>
+
+          <div class="w-pc glass" id="wPc">
+            <div class="w-head"><h4 class="sub">This PC</h4></div>
+            <div class="gauges">
+              <div class="gauge" data-k="cpu"><svg viewBox="0 0 64 64"><circle class="track" cx="32" cy="32" r="26"/><circle class="fill" cx="32" cy="32" r="26"/></svg><b>–</b><span>CPU</span></div>
+              <div class="gauge" data-k="ram"><svg viewBox="0 0 64 64"><circle class="track" cx="32" cy="32" r="26"/><circle class="fill" cx="32" cy="32" r="26"/></svg><b>–</b><span>Memory</span></div>
+              <div class="gauge" data-k="gpu_temp"><svg viewBox="0 0 64 64"><circle class="track" cx="32" cy="32" r="26"/><circle class="fill" cx="32" cy="32" r="26"/></svg><b>–</b><span>GPU °C</span></div>
+              <div class="gauge" data-k="vram"><svg viewBox="0 0 64 64"><circle class="track" cx="32" cy="32" r="26"/><circle class="fill" cx="32" cy="32" r="26"/></svg><b>–</b><span>VRAM</span></div>
+            </div>
+          </div>
+
+          <div class="w-mem glass" id="wMem">
+            <div class="w-head"><h4 class="sub">Remembers</h4><span class="w-note" id="memCount"></span></div>
+            <ol id="memList" class="mem-list"></ol>
+            <p id="memEmpty" class="w-empty">Nothing yet. Say “Nova, remember that…”.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-chat" class="page chat-page" hidden>
         <div id="chatScroll" class="scroll">
           <div id="chatEmpty" class="welcome">
             <p class="eyebrow">Good to see you</p>
@@ -255,14 +343,6 @@
       <button id="muteBtn" type="button" class="ctl" aria-pressed="false" title="Turn the microphone off / on"><svg><use id="muteIcon" href="#i-mic"/></svg><span id="muteLabel">Mic on</span></button>
     </div>
 
-    <section id="confirm" class="confirm" hidden aria-live="assertive">
-      <p class="q"><span id="confirmWho">Nova</span> wants to <strong id="confirmText"></strong></p>
-      <div class="bar"><div id="confirmBar"></div></div>
-      <div class="yn">
-        <button id="yesBtn" type="button" class="btn yes">Yes <kbd>Y</kbd></button>
-        <button id="noBtn" type="button" class="btn no">No <kbd>N</kbd></button>
-      </div>
-    </section>
 
     <div class="core-block" id="upNext" hidden>
       <h4 class="sub">Up next</h4>
@@ -280,6 +360,15 @@
     </div>
   </aside>
 </div>
+
+<section id="confirm" class="confirm floating" hidden aria-live="assertive">
+      <p class="q"><span id="confirmWho">Nova</span> wants to <strong id="confirmText"></strong></p>
+      <div class="bar"><div id="confirmBar"></div></div>
+      <div class="yn">
+        <button id="yesBtn" type="button" class="btn yes">Yes <kbd>Y</kbd></button>
+        <button id="noBtn" type="button" class="btn no">No <kbd>N</kbd></button>
+      </div>
+    </section>
 
 <div id="toast" class="toast" hidden role="status"></div>
 

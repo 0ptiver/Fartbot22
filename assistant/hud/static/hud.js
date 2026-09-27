@@ -26,6 +26,7 @@ const S = {
 };
 
 const PAGES = {
+  home: ["Nova", "Everything Nova is doing, live."],
   chat: ["Chat", "Talk or type. Everything stays on this PC."],
   activity: ["Activity", "Every tool Nova used, and how it went."],
   timers: ["Timers & watches", "Timers, reminders, alarms and things Nova is watching for."],
@@ -79,6 +80,7 @@ function hello(ev) {
   S.showIgnored = !!ev.show_ignored;
   $("showIgnored").checked = S.showIgnored;
   $("name").textContent = S.name.toUpperCase();
+  $("heroName").textContent = S.name.toUpperCase();
   $("confirmWho").textContent = S.name;
   document.title = S.name;
   $("askInput").placeholder = `Type to ${S.name}…`;
@@ -97,10 +99,13 @@ function hello(ev) {
 
 // --- events ----------------------------------------------------------------------------------
 function handle(ev, replay) {
+  NovaHome.handle(ev, replay);
   switch (ev.type) {
     case "status": return status(ev);
     case "timers": return timersIn(ev);
-    case "memories": return NovaBrain.memories(ev.items);
+    case "memories": NovaHome.memories(ev.items); return NovaBrain.memories(ev.items);
+    case "media": return NovaHome.media(ev.items);
+    case "navigate": if (!replay) selectTab(ev.page); return;
     case "memory_used": if (!replay) NovaBrain.used(ev.ids); return;
     case "toast": return toast(ev.text);
     case "vitals": return vitals(ev);
@@ -299,6 +304,7 @@ function renderState() {
   $("modeBtn").classList.toggle("open", open);
   const c = COLORS[S.state] || COLORS.idle;
   document.documentElement.style.setProperty("--glow", c.join(", "));
+  NovaHome.state((LABEL[S.state] || LABEL.idle)(), S);
 }
 
 const COLORS = {
@@ -307,77 +313,6 @@ const COLORS = {
   dictation: [236, 240, 245], recording: [255, 77, 109], enrolling: [52, 211, 153],
 };
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-const orb = { c: [70, 180, 230], amp: 0.02, lvl: 0, glow: 0.5, t: 0 };
-function drawOrb() {
-  const cv = $("orb");
-  const dpr = window.devicePixelRatio || 1;
-  const size = cv.clientWidth;
-  if (cv.width !== size * dpr) { cv.width = size * dpr; cv.height = size * dpr; }
-  const g = cv.getContext("2d");
-  g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  g.clearRect(0, 0, size, size);
-
-  const st = S.state;
-  const target = COLORS[st] || COLORS.idle;
-  orb.c = orb.c.map((v, i) => v + (target[i] - v) * 0.08);
-  orb.lvl += ((st === "listening" || st === "idle" || st === "dictation" ? S.level : 0) - orb.lvl) * 0.25;
-  const speed = reduced ? 0.25 : 1;
-  orb.t += 0.016 * speed * (st === "thinking" ? 2.4 : st === "speaking" ? 1.6 : 1);
-  const t = orb.t;
-  const pulse = st === "speaking" ? 0.5 + 0.5 * Math.sin(t * 7) : 0;
-  const wantAmp = { idle: 0.018, listening: 0.03, thinking: 0.05, speaking: 0.03, confirm: 0.03,
-    standby: 0.008, muted: 0.01, offline: 0.006 }[st] || 0.02;
-  orb.amp += (wantAmp + orb.lvl * 0.2 + pulse * 0.02 - orb.amp) * 0.1;
-  const wantGlow = { standby: 0.2, offline: 0.1, muted: 0.3 }[st] ?? 0.55 + orb.lvl * 0.6 + pulse * 0.2;
-  orb.glow += (wantGlow - orb.glow) * 0.08;
-
-  const cx = size / 2, cy = size / 2;
-  const R = size * 0.27 * (1 + orb.lvl * 0.35 + pulse * 0.04);
-  const [r, gr, b] = orb.c.map(Math.round);
-  const rgba = (a) => `rgba(${r},${gr},${b},${a})`;
-
-  // outer glow
-  const halo = g.createRadialGradient(cx, cy, R * 0.6, cx, cy, R * 1.9);
-  halo.addColorStop(0, rgba(0.28 * orb.glow));
-  halo.addColorStop(1, rgba(0));
-  g.fillStyle = halo;
-  g.fillRect(0, 0, size, size);
-
-  // HUD rings
-  g.lineCap = "round";
-  const ring = (rad, width, a, from, len, alpha) => {
-    g.beginPath(); g.strokeStyle = rgba(alpha); g.lineWidth = width;
-    g.arc(cx, cy, rad, from, from + len); g.stroke();
-  };
-  const spin = st === "thinking" ? 2.2 : 0.4;
-  for (let i = 0; i < 3; i++) ring(R * 1.42, 1.5, 0, t * spin + i * 2.094, 1.2, 0.35 * orb.glow + 0.08);
-  for (let i = 0; i < 4; i++) ring(R * 1.58, 1, 0, -t * spin * 0.6 + i * 1.571, 0.5, 0.2 * orb.glow + 0.05);
-
-  // blob
-  g.beginPath();
-  const N = 96;
-  for (let i = 0; i <= N; i++) {
-    const a = (i / N) * Math.PI * 2;
-    const wob = Math.sin(3 * a + t * 1.3) * 0.5 + Math.sin(5 * a - t * 0.9) * 0.3 + Math.sin(7 * a + t * 2.1) * 0.2;
-    const rad = R * (1 + orb.amp * wob);
-    const x = cx + Math.cos(a) * rad, y = cy + Math.sin(a) * rad;
-    i ? g.lineTo(x, y) : g.moveTo(x, y);
-  }
-  const fill = g.createRadialGradient(cx - R * 0.25, cy - R * 0.3, 0, cx, cy, R * 1.05);
-  const lift = (v) => Math.round(v + (255 - v) * 0.6);
-  fill.addColorStop(0, `rgba(${lift(r)},${lift(gr)},${lift(b)},${0.5 + 0.45 * orb.glow})`);
-  fill.addColorStop(0.45, rgba(0.55 + 0.3 * orb.glow));
-  fill.addColorStop(1, rgba(0.15));
-  g.fillStyle = fill;
-  g.shadowColor = rgba(0.8);
-  g.shadowBlur = 30 * orb.glow;
-  g.fill();
-  g.shadowBlur = 0;
-  g.strokeStyle = rgba(0.7);
-  g.lineWidth = 1.2;
-  g.stroke();
-  requestAnimationFrame(drawOrb);
-}
 
 // --- confirmation ----------------------------------------------------------------------------
 function showConfirm(text, fresh) {
@@ -469,6 +404,7 @@ function renderTimers() {
 
 // The next few timers and watches, always visible under the orb.
 function renderUpNext(now) {
+  NovaHome.next(S.timers, S.watches || [], now, fmtLeft);
   const items = [...S.timers].sort((a, b) => a.due - b.due).slice(0, 3);
   const watches = (S.watches || []).slice(0, Math.max(0, 4 - items.length));
   $("upNext").hidden = items.length + watches.length === 0;
@@ -488,6 +424,7 @@ function renderUpNext(now) {
 
 // --- this PC ---------------------------------------------------------------------------------
 function vitals(ev) {
+  NovaHome.vitals(ev);
   const show = (k, text, pct, warn, hot) => {
     const v = document.querySelector(`.vital[data-k="${k}"]`);
     if (!v) return;
@@ -563,8 +500,9 @@ function greet() {
 
 // --- UI wiring -------------------------------------------------------------------------------
 function selectTab(name) {
-  if (!PAGES[name]) name = "chat";
+  if (!PAGES[name]) name = "home";
   S.tab = name;
+  document.body.dataset.page = name;
   for (const b of document.querySelectorAll(".rail button[data-tab]")) {
     if (b.dataset.tab === name) b.setAttribute("aria-current", "page");
     else b.removeAttribute("aria-current");
@@ -612,12 +550,15 @@ function init() {
     else if (e.key === "Escape") send({ type: "stop" });
   });
   setInterval(renderTimers, 1000);
-  let tab = "chat";
-  try { tab = sessionStorage.getItem("novaTab") || "chat"; } catch (e) { /* ignore */ }
+  let tab = "home";
+  try { tab = sessionStorage.getItem("novaTab") || "home"; } catch (e) { /* ignore */ }
   setTimeout(() => selectTab(tab), 0);
   greet();
   renderState();
-  requestAnimationFrame(drawOrb);
+  NovaHome.init(send);
+  NovaOrb.add($("orb"));
+  NovaOrb.add($("heroOrb"));
+  NovaOrb.start(() => ({ state: S.state, level: S.level, color: COLORS[S.state] || COLORS.idle }));
   if (!key) {
     showOffline("This window has no key.", "Open it with .venv\\Scripts\\python -m assistant hud");
     return;

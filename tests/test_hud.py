@@ -264,7 +264,7 @@ def test_every_element_the_scripts_use_is_on_the_page():
     static = Path(hud.__file__).parent / "static"
     page = (static / "index.html").read_text(encoding="utf-8")
     ids = set(re.findall(r'\bid="([^"]+)"', page))
-    for name in ("hud.js", "brain.js", "voice.js"):
+    for name in ("hud.js", "brain.js", "voice.js", "home.js", "phonesetup.js"):
         used = set(re.findall(r'\$\("([A-Za-z0-9_-]+)"\)', (static / name).read_text(encoding="utf-8")))
         assert used - ids == set(), f"{name} looks up ids the page doesn't have"
     for tab in re.findall(r'data-tab="([a-z]+)"', page):

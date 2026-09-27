@@ -862,7 +862,7 @@ class VoiceLoop:
                         if filler:
                             push([filler], counts=False)
                             chunker.emitted += 1
-                    self.on_event({"type": "tool", "name": ev.name})
+                    self.on_event({"type": "tool", "name": ev.name, "input": _brief_args(ev.input)})
                 elif isinstance(ev, ToolFinished):
                     self.on_event({"type": "tool_done", "name": ev.name, "ms": ev.duration_ms,
                                    "is_error": ev.is_error, "summary": ev.summary})
@@ -923,6 +923,21 @@ def chime(sample_rate: int = 24000) -> np.ndarray:
         out.append(0.25 * np.sin(2 * np.pi * freq * t) * env)
     out.append(np.zeros(int(sample_rate * 0.08)))
     return np.concatenate(out).astype(np.float32)
+
+
+def _brief_args(args) -> dict:
+    """A tool's arguments for the window's live feed: short plain values only."""
+    if not isinstance(args, dict):
+        return {}
+    out = {}
+    for k, v in list(args.items())[:6]:
+        if isinstance(v, (int, float, bool)):
+            out[k] = v
+        elif isinstance(v, str):
+            out[k] = v[:80]
+        elif isinstance(v, list) and all(isinstance(x, str) for x in v):
+            out[k] = [x[:30] for x in v[:5]]
+    return out
 
 
 _DETAIL = re.compile(r"\b(?:explain|in detail|tell me (?:about|more)|story|read (?:me|it|this|that|out)|"
