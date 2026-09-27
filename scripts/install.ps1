@@ -21,5 +21,10 @@ if (-not (Test-Path .venv)) { py -3.12 -m venv .venv }
 
 if (-not (Test-Path config\.env)) { Copy-Item config\.env.example config\.env; Write-Host "Created config\.env - add your ANTHROPIC_API_KEY (or use: .venv\Scripts\python -m assistant secrets set ANTHROPIC_API_KEY)" }
 
+Write-Host "`nDownloading speech models (Silero VAD ~2 MB, Kokoro TTS ~340 MB, Whisper large-v3-turbo ~1.6 GB)..."
+.\.venv\Scripts\python -m assistant models
+
 .\.venv\Scripts\python -m pytest -q
-Write-Host "`nInstalled. Try:  .\.venv\Scripts\python -m assistant chat --local --debug" -ForegroundColor Green
+Write-Host "`nInstalled. Try:" -ForegroundColor Green
+Write-Host "  .\.venv\Scripts\python -m assistant chat --local --debug   (text)"
+Write-Host "  .\.venv\Scripts\python -m assistant voice                  (hold Ctrl+Alt+Space and talk)"

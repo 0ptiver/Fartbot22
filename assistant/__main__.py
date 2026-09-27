@@ -1,4 +1,4 @@
-"""Entry point: python -m assistant {serve|chat|tools|secrets|audit}"""
+"""Entry point: python -m assistant {serve|chat|voice|devices|models|tools|secrets|audit}"""
 
 from __future__ import annotations
 
@@ -21,6 +21,20 @@ def main(argv: list[str] | None = None) -> None:
         from assistant.cli import main as chat
 
         chat(argv)
+    elif cmd == "voice":
+        from assistant.voice.cli import main as voice
+
+        voice(argv)
+    elif cmd == "devices":
+        from assistant.voice.cli import list_devices
+
+        list_devices()
+    elif cmd == "models":
+        from assistant.core.config import load_settings
+        from assistant.voice.models import fetch_all
+
+        s = load_settings()
+        fetch_all(s.voice.stt.whisper.model if s.voice.stt.provider == "whisper" else None)
     elif cmd == "tools":
         from assistant.core.config import load_settings
         from assistant.tools import build_registry
@@ -51,6 +65,9 @@ def main(argv: list[str] | None = None) -> None:
         print(__doc__)
         print("  serve               start the core server")
         print("  chat [--local] [--debug]   text chat (via server, or in-process)")
+        print("  voice [--mode ptt|open_mic] [--wav F --out G]   talk by voice")
+        print("  devices             list audio devices")
+        print("  models              download speech models (VAD, TTS, Whisper)")
         print("  tools               list tools and risk levels")
         print("  audit [N]           show the last N audit log entries")
         print("  secrets set NAME    store an API key in Windows Credential Manager")

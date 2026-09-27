@@ -10,7 +10,10 @@ Wake phrase: **"Hey Nova"**. The name lives only in `config/config.yaml` (`assis
 | CPU | Intel i9-14900HX (24C/32T, laptop) | Plenty for VAD, wake word, and Kokoro TTS on CPU if needed |
 | GPU | RTX 5070 Laptop, 8 GB VRAM (Blackwell, sm_120) | Local STT + TTS fit easily (~2–3 GB). Blackwell needs CUDA 12.8+ builds — verify in Phase 2 |
 | RAM | 32 GB DDR5 | No constraint |
-| OS | Windows 11 (assumed — confirm) | Win32 / WMI / pycaw for PC control |
+| OS | Windows 11 Home (confirmed) | Win32 / WMI / pycaw for PC control |
+| Installed | Python 3.12.10, Git 2.54, NVIDIA driver 596.36 | Driver is new enough for Blackwell. No CUDA toolkit needed (pip wheels ship cuBLAS/cuDNN) |
+| Missing | Node (Phase 5 HUD), Tailscale (Phase 6), ffmpeg (not needed so far) | Install when those phases start |
+| Spotify | Premium (confirmed) | Web API playback control is available |
 | Audio | Mostly headphones | AEC still implemented, speaker mode configurable |
 | Budget | ≤ $50 / month | Local speech, Claude Haiku for chat (see cost table) |
 
@@ -104,14 +107,15 @@ scripts/           # install, run, register-startup
 - [ ] Verified on the Windows PC with a live API key (volume, open_app, screenshot are Windows-only paths)
 
 ### Phase 2 — Voice loop
-- [ ] Audio I/O (sounddevice, 16 kHz mono in, 24 kHz out)
-- [ ] Silero VAD, configurable silence
-- [ ] `STTProvider` interface: faster-whisper (GPU) + Deepgram
-- [ ] `TTSProvider` interface: Kokoro + Cartesia + Piper
-- [ ] Sentence/clause splitter streaming into TTS
-- [ ] Push-to-talk hotkey
-- [ ] Per-stage latency breakdown printed each turn
-- [ ] Integration test with recorded WAV files
+- [x] Audio I/O (sounddevice, 16 kHz mono in, 24 kHz out, instant stop for barge-in)
+- [x] Silero VAD (onnxruntime, no torch) + endpointer with pre-roll, hysteresis, configurable silence
+- [x] `STTProvider` interface: faster-whisper (GPU, CPU fallback, warm-up) + Deepgram streaming
+- [x] `TTSProvider` interface: Kokoro (British voice). Cartesia/Piper deferred (not needed for budget)
+- [x] Clause/sentence chunker streaming into TTS (keeps "…, sir." together)
+- [x] Push-to-talk hotkey (hold), pressing while it speaks interrupts
+- [x] Per-stage latency breakdown printed each turn
+- [x] Integration test: recorded WAV -> real Silero VAD -> pipeline (fake STT/TTS/Claude) — 44 tests passing
+- [ ] Verified on the Windows PC: Whisper on the RTX 5070 (Blackwell) and Kokoro timings
 
 ### Phase 3 — Real-time feel
 - [ ] Train + ship "hey nova" openWakeWord model
@@ -141,6 +145,4 @@ scripts/           # install, run, register-startup
 - [ ] Auto-start, tray, installer, crash recovery, log rotation, offline fallback
 
 ## Open questions for the owner
-- Confirm Windows 10 vs 11, and paste the tool-check output (Python/Node/Git/ffmpeg/CUDA).
-- Spotify Premium? (needed for Web API playback control)
-- Happy with the hotkeys above?
+- Happy with the hotkeys above? (assumed yes until told otherwise)

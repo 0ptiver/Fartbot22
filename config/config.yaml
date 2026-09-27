@@ -19,6 +19,37 @@ brain:
     enabled: true
     max_uses: 3
 
+voice:
+  mode: ptt                      # ptt (hold hotkey) | open_mic (VAD only; wake word arrives in Phase 3)
+  ptt_hotkey: ctrl+alt+space
+  input_device: null             # null = Windows default; name or index (see: python -m assistant devices)
+  output_device: null
+  vad:
+    threshold: 0.5               # speech probability to count a frame as speech
+    end_silence_ms: 400          # silence that ends your turn (250-700)
+    min_speech_ms: 150           # ignore blips shorter than this
+    preroll_ms: 300              # audio kept from before speech started
+    max_utterance_s: 30
+  stt:
+    provider: whisper            # whisper (local, free) | deepgram (cloud)
+    whisper:
+      model: large-v3-turbo      # or distil-large-v3, small.en (faster, less accurate)
+      device: auto               # auto | cuda | cpu
+      compute_type: auto         # auto -> int8_float16 on GPU, int8 on CPU
+      beam_size: 1
+      language: en
+    deepgram:
+      model: nova-3
+  tts:
+    provider: kokoro             # kokoro (local, free)
+    kokoro:
+      voice: bm_george           # British male. Others: bm_lewis, bm_daniel, bf_emma, af_heart
+      lang: en-gb
+      speed: 1.05
+      device: cpu                # cpu | cuda (needs onnxruntime-gpu)
+  first_chunk_min_chars: 12      # speak the first clause early; later chunks wait for full sentences
+  latency_report: true           # print per-stage timings after each spoken reply
+
 server:
   host: 127.0.0.1                # localhost only until Phase 6 (remote access)
   port: 8765

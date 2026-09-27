@@ -4,8 +4,8 @@ __pycache__/
 .pytest_cache/
 config/.env
 .env
-data/
+/data/
 *.log
 node_modules/
 dist/
-models/
+/models/

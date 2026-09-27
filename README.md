@@ -5,7 +5,7 @@ It's calm and concise and calls you "sir", in a British butler style. It runs on
 
 See [PLAN.md](PLAN.md) for the architecture, chosen stack, costs and phase checklist.
 
-**Current status: Phase 1 (text MVP).** You chat with Claude by text, with streaming replies and tool use. No voice yet.
+**Current status: Phase 2 (voice loop).** Hold a hotkey and talk. Speech-to-text and text-to-speech run locally on your PC for free. Text chat from Phase 1 still works too.
 
 ## Setup (Windows)
 
@@ -48,6 +48,28 @@ Other commands:
 .venv\Scripts\python -m assistant audit 20   # last 20 tool calls from the audit log
 ```
 
+## Voice (Phase 2)
+
+```powershell
+.venv\Scripts\python -m assistant models     # one-off: downloads the speech models (~2 GB, installer does this)
+.venv\Scripts\python -m assistant voice      # hold Ctrl+Alt+Space, talk, release
+```
+
+- **Push-to-talk** (default): hold `Ctrl+Alt+Space` while you talk and release when you're done. Pressing it while Nova is talking cuts Nova off.
+- **Open mic**: `python -m assistant voice --mode open_mic` listens all the time and answers when you pause. Use headphones: until echo cancellation lands in Phase 3, it stops listening while it's talking. The "Hey Nova" wake word also comes in Phase 3.
+- **Latency**: after every reply it prints how long each stage took and the total time from when you stopped talking to when it started speaking.
+- **Test without a mic**: `python -m assistant voice --wav my_question.wav --out reply.wav` uses a recording as the mic and saves the spoken reply.
+- `python -m assistant devices` lists microphones and speakers. Set `voice.input_device` / `voice.output_device` in the config to pick one.
+
+Speech stack (all switchable in `config/config.yaml` → `voice`):
+
+| Stage | Default | Notes |
+|---|---|---|
+| Voice detection | Silero VAD | `end_silence_ms: 400` is how long a pause ends your turn |
+| Speech-to-text | faster-whisper `large-v3-turbo` on your GPU | falls back to CPU automatically if CUDA fails. `small.en` is faster but less accurate |
+| Text-to-speech | Kokoro, voice `bm_george` (British male) | also `bm_lewis`, `bm_daniel`, `bf_emma`. Runs on the CPU so the GPU stays free for Whisper |
+| Cloud option | Deepgram (`stt.provider: deepgram`) | needs `DEEPGRAM_API_KEY`, ~$0.46/hour |
+
 ### Things to try
 
 | Say | Tool |
@@ -89,6 +111,11 @@ See PLAN.md for the breakdown.
 | "couldn't find an app" | Add an alias in `config/config.yaml` → `tools.app_aliases` (an exe name, full path, or URI such as `spotify:`). |
 | Screenshot is black | Some games or DRM video block capture. Try windowed mode. |
 | Port 8765 in use | Change `server.port` in the config. |
+| `whisper on cuda failed` in the log | It still works on the CPU, just slower. Update the NVIDIA driver, then `pip install -U ctranslate2 nvidia-cublas-cu12 "nvidia-cudnn-cu12>=9,<10"`. As a quick test, set `stt.whisper.model: small.en`. |
+| Hotkey does nothing | Another app may own `Ctrl+Alt+Space`. Change `voice.ptt_hotkey` (e.g. `right ctrl`). Some games block global hotkeys unless the assistant runs as admin. |
+| It cuts you off mid-sentence (open mic) | Raise `voice.vad.end_silence_ms` to 600. |
+| It hears nothing | Run `python -m assistant devices` and set `voice.input_device`. Check the Windows microphone privacy setting for desktop apps. |
+| Voice sounds robotic or too fast | Change `voice.tts.kokoro.voice` / `speed`. |
 
 ## Development
 
@@ -97,3 +124,4 @@ python -m pytest -q
 ```
 
 The tests use a scripted fake Claude client (`tests/fakes.py`), so they need no API key and cost nothing.
+The voice integration test runs a recorded clip (`tests/data/what_time.wav`) through the real Silero VAD and the whole pipeline, with fake STT and TTS.
