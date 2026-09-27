@@ -165,6 +165,19 @@ volume 20, sleep, which asks first). Add your own in `config/local.yaml` (exampl
 `config/local.example.yaml`), then check them with `.venv\Scripts\python -m assistant routines`.
 Routine steps follow the same safety rules as asking for each step separately.
 
+## Always on (tray icon)
+
+```powershell
+.venv\Scripts\python -m assistant autostart on      # start with Windows (off: autostart off)
+.venv\Scripts\pythonw -m assistant background       # start it now, in the tray
+```
+
+Nova then lives by the clock: its icon shows what it's doing (blue listening, purple thinking,
+grey standing down, red mic off). Right-click it for Open / Microphone off / Stand down /
+Start with Windows / Open log / Restart / Quit. If it crashes, or Ollama isn't ready yet after
+boot, it starts itself again. Its output goes to `data\logs\nova.log` instead of a console.
+Only one Nova runs at a time. `scripts\update.ps1` stops it for the update and starts it again.
+
 ## The window (HUD)
 
 `python -m assistant voice` also opens Nova's window: the orb shows what Nova is doing

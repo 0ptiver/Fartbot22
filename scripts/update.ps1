@@ -5,6 +5,16 @@ $ErrorActionPreference = "Continue"
 Set-Location (Split-Path $PSScriptRoot -Parent)
 $py = ".\.venv\Scripts\python.exe"
 
+# A running Nova (tray / started with Windows) locks its files: stop it for the update.
+$running = Get-CimInstance Win32_Process -Filter "Name='pythonw.exe' OR Name='python.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like "*-m assistant*" -and $_.ProcessId -ne $PID }
+$wasRunning = [bool]$running
+if ($wasRunning) {
+    Write-Host "Stopping Nova for the update..."
+    $running | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    Start-Sleep -Seconds 2
+}
+
 git pull
 if ($LASTEXITCODE -ne 0) { Write-Host "git pull failed; fix that first." -ForegroundColor Red; exit 1 }
 
@@ -18,4 +28,12 @@ if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
 
 & $py -m assistant models
 & $py -m assistant doctor
-Write-Host "`nUpdated. Start Nova with:  .venv\Scripts\python -m assistant voice" -ForegroundColor Green
+
+$autostart = (& $py -m assistant autostart status) -like "*starts with Windows*"
+if ($wasRunning -or $autostart) {
+    Start-Process -FilePath ".\.venv\Scripts\pythonw.exe" -ArgumentList "-m", "assistant", "background" -WorkingDirectory (Get-Location)
+    Write-Host "`nUpdated. Nova is starting again in the tray (icon by the clock)." -ForegroundColor Green
+} else {
+    Write-Host "`nUpdated. Start Nova with:  .venv\Scripts\python -m assistant voice" -ForegroundColor Green
+    Write-Host "Or keep it running in the tray, starting with Windows:  .venv\Scripts\python -m assistant autostart on" -ForegroundColor Green
+}

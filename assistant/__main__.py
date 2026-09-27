@@ -1,4 +1,4 @@
-"""Entry point: python -m assistant {serve|chat|voice|hud|doctor|devices|models|tools|routines|secrets|audit}"""
+"""Entry point: python -m assistant {serve|chat|voice|background|autostart|hud|doctor|devices|models|tools|routines|secrets|audit}"""
 
 from __future__ import annotations
 
@@ -124,6 +124,21 @@ def main(argv: list[str] | None = None) -> None:
             print(f"{name:16} {reg.effective_risk(name, False).value:8} {t.description[:70]}")
         if s.brain.web_search.enabled:
             print(f"{'web_search':16} {'safe':8} (Claude server tool)")
+    elif cmd == "background":
+        from assistant.background import main_supervisor
+
+        main_supervisor()
+    elif cmd == "autostart":
+        from assistant.background import autostart_enabled, set_autostart
+
+        sub = argv[0] if argv else "status"
+        if sub in ("on", "off"):
+            print(set_autostart(sub == "on"))
+            if sub == "on":
+                print("To start it now without restarting: .venv\\Scripts\\pythonw -m assistant background")
+        else:
+            print("Nova starts with Windows." if autostart_enabled() else "Nova doesn't start with Windows. "
+                  "Turn it on: python -m assistant autostart on")
     elif cmd == "hud":
         from assistant.hud.server import URL_FILE, open_window
 
@@ -175,6 +190,8 @@ def main(argv: list[str] | None = None) -> None:
         print("  doctor [--full]     check setup (Ollama, Claude Code, models, audio)")
         print("  spotify login|logout|status|devices   link Nova to Spotify / see its devices")
         print("  tools               list tools and risk levels")
+        print("  background          run Nova in the tray (no console), restarting it if it crashes")
+        print("  autostart on|off    start Nova (in the tray) when you sign in to Windows")
         print("  hud                 reopen Nova's window (while `voice` is running)")
         print("  routines            list your routines and check them for mistakes")
         print("  audit [N]           show the last N audit log entries")

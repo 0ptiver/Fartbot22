@@ -127,11 +127,15 @@ async def build(settings, wav: str | None, out: str | None):
     return brain, stt, tts, mic, player, vad, ptt
 
 
-async def run(args) -> None:
+async def run(args) -> int:
+    """Returns the exit code: 0 quit, 3 restart (tray), 1 couldn't start."""
     from assistant.core.config import load_settings
     from assistant.voice.pipeline import VoiceLoop
 
     settings = load_settings()
+    background = getattr(args, "background", False)
+    if background:
+        settings.hud.open_window = False          # at sign-in: the tray icon is enough
     if args.mode:
         settings.voice.mode = args.mode
     for attr in ("input", "output"):
@@ -142,7 +146,7 @@ async def run(args) -> None:
         brain, stt, tts, mic, player, vad, ptt = await build(settings, args.wav, args.out)
     except Exception as e:
         print(f"{RED}Startup failed: {e}{RESET}\nRun `python -m assistant doctor` for a full check.")
-        return
+        return 1
     printer = make_printer(settings.assistant.name, settings.voice.latency_report or args.debug)
     from assistant.hud.server import Hub
     hub = Hub()
@@ -180,10 +184,41 @@ async def run(args) -> None:
               f"{settings.voice.wake.follow_up_s:.0f}s. Ctrl+C to quit.")
     elif not args.wav:
         print("Open mic: answers everything it hears. Ctrl+C to quit.")
+
+    exit_code = {"code": None}
+    voice_task = asyncio.create_task(loop.run(max_turns=1 if args.wav else None))
+
+    def quit_nova(code: int) -> None:
+        exit_code["code"] = code
+        voice_task.cancel()
+
+    tray = tray_task = None
+    if background:
+        from assistant.hud.server import open_window
+        from assistant.tray import Tray, TrayActions
+        from assistant.voice.pipeline import chime
+        tray = Tray(TrayActions(loop, asyncio.get_running_loop(),
+                                lambda: hud and open_window(hud.url), quit_nova), name)
+        tray.start()
+        player.play(chime())                      # ready: a soft chime, nothing spoken at sign-in
+
+        async def follow_state() -> None:
+            while True:
+                tray.set_state(loop.state)
+                await asyncio.sleep(0.4)
+        tray_task = asyncio.create_task(follow_state())
     try:
-        await loop.run(max_turns=1 if args.wav else None)
+        try:
+            await voice_task
+        except asyncio.CancelledError:
+            if exit_code["code"] is None:
+                raise
     finally:
         scheduler_task.cancel()
+        if tray_task is not None:
+            tray_task.cancel()
+        if tray is not None:
+            tray.stop()
         if hud is not None:
             await hud.close()
         mic.close()
@@ -195,6 +230,7 @@ async def run(args) -> None:
     if args.wav and args.out:
         player.save(args.out)
         print(f"Saved reply audio to {args.out}")
+    return exit_code["code"] or 0
 
 
 def list_devices() -> None:
@@ -448,13 +484,32 @@ def main(argv: list[str]) -> None:
     p.add_argument("--out", help="with --wav: save the spoken reply to this WAV")
     p.add_argument("--debug", action="store_true")
     p.add_argument("--no-hud", action="store_true", help="don't start the interactive window")
+    p.add_argument("--background", action="store_true", help="no console: tray icon + log file "
+                   "(used by `assistant background` / start with Windows)")
     args = p.parse_args(argv)
-    logging.basicConfig(level=logging.INFO if args.debug else logging.WARNING,
-                        format="%(levelname)s %(name)s: %(message)s")
+    if args.background:
+        from assistant.background import log_to_file
+        log_to_file()
+    else:
+        logging.basicConfig(level=logging.INFO if args.debug else logging.WARNING,
+                            format="%(levelname)s %(name)s: %(message)s")
+    if not args.wav:
+        from assistant.background import claim_single_instance
+        if not claim_single_instance():
+            print("Nova is already running (look for its icon by the clock). Opening its window.")
+            from assistant.hud.server import URL_FILE, open_window
+            try:
+                open_window(URL_FILE.read_text(encoding="utf-8").strip())
+            except OSError:
+                pass
+            sys.exit(0)
+    code = 0
     try:
-        asyncio.run(run(args))
+        code = asyncio.run(run(args))
     except KeyboardInterrupt:
         print("\nGoodbye.")
+    if args.background:
+        sys.exit(code)
 
 
 if __name__ == "__main__":
