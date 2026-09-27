@@ -261,6 +261,13 @@ scripts/           # install, run, register-startup
 - [x] Owner: "when I tell him to full screen my video or things like that he doesn't". Causes: Windows blocks background programs from switching windows, so F went to whichever window was in front; and F only works when the page (not YouTube's search box) has the keyboard; and Nova reported success without checking. Now: WindowBackend.focus (Alt tap + AttachThreadInput + minimise/restore fallback, verified); video full screen clicks the player's own "Full screen" button (UI Automation) with F as backup and checks the window really covers the screen (says so if not); mute clicks "Mute"; "switch to X" reports when Windows refuses; typing/keys first return the keyboard to your window if Nova's window is in front
 - [x] Grid/numbers instructions spoken once per session, then just "Grid on." / "Numbers on."
 
+### More brains (owner: "he says I opened a new tab but he did nothing, he doesn't know when he's selected onto the browser to use the hotkeys") + "I, Oliver, made him and he obeys me"
+- [x] Every model turn now gets the situation in its context (brain/situation.py): the window in front (the one keys and typing go to), what Nova's own browser shows, and what's playing
+- [x] Keys go to the owner's window (never the Nova window) and the reply names it ("Opened a new tab in Firefox."); tab/back/forward/reload shortcuts are checked by the window title changing, otherwise Nova says "I pressed ctrl+t in Firefox, but nothing changed" instead of claiming it
+- [x] New tab / close tab / next tab / back / forward / reload while Nova's own browser is in front are done by the browser itself (Playwright), not by blind key presses
+- [x] `assistant.owner_name` (Oliver): the prompt says Oliver made Nova and is in charge (act straight away, don't question or lecture); "who made you" / "who's your boss" answered instantly. The confirmations for risky actions (delete, shut down) and the phone blocks stay: they are the system's, not the model's
+- [ ] Not yet tried on the PC
+
 ### Fix: "he can't even take simple requests like stand down, he's straight up ignoring me"
 - [x] Likely cause: voice lock is on (every screenshot shows the pill) and was learned on the old Fifine mic; with the Logitech headset the owner's voice can score under the bar and everything was dropped silently (only visible with "show ignored speech")
 - [x] Stand down / stop / cancel always pass the voice lock (safety words)

@@ -65,7 +65,7 @@ async def test_typing_and_keys(settings, registry, kb, monkeypatch):
     res = await registry.execute("type_text", {"text": "Dear John,\nhello"}, ToolContext(settings))
     assert not res.is_error and kb.typed == ["Dear John,\nhello"]
     res = await registry.execute("press_keys", {"keys": "tab", "times": 3}, ToolContext(settings))
-    assert res.content == "Pressed tab 3 times." and kb.combos == [[0x09]] * 3
+    assert res.content == "Pressed tab 3 times in Notepad." and kb.combos == [[0x09]] * 3
 
 
 async def test_terminal_asks_first(settings, registry, kb, monkeypatch):
@@ -135,3 +135,40 @@ async def test_typing_while_novas_window_is_in_front_goes_to_your_window(setting
     monkeypatch.setattr(pc, "WINDOWS", wins)
     res = await registry.execute("type_text", {"text": "hello"}, ToolContext(settings))
     assert not res.is_error and wins.calls == [(5, "focus")] and kb.typed == ["hello"]
+
+
+
+# --- owner: "he says I opened a new tab and did this, but he literally did nothing" ---------------
+class TitleWindows(FakeWindows):
+    """The window's title changes when a shortcut really does something."""
+
+    def __init__(self, active, works=True):
+        super().__init__(active)
+        self.works = works
+
+    def foreground(self):
+        return self._active.hwnd
+
+    def focus(self, hwnd):
+        return True
+
+
+async def test_a_new_tab_is_checked_and_named(settings, registry, kb, monkeypatch):
+    firefox = pc.Win(7, "YouTube — Mozilla Firefox", "firefox.exe")
+    wins = TitleWindows(firefox)
+    monkeypatch.setattr(pc, "WINDOWS", wins)
+    monkeypatch.setattr(K, "CHECK_S", 0)
+
+    def combo(vks):
+        kb.combos.append(vks)
+        wins._active = pc.Win(7, "New Tab — Mozilla Firefox", "firefox.exe")
+    monkeypatch.setattr(kb, "combo", combo)
+    res = await registry.execute("press_keys", {"keys": "ctrl+t"}, ToolContext(settings))
+    assert res.content == "Opened a new tab in Firefox."
+
+
+async def test_a_shortcut_that_did_nothing_is_not_reported_as_done(settings, registry, kb, monkeypatch):
+    monkeypatch.setattr(pc, "WINDOWS", TitleWindows(pc.Win(7, "YouTube — Mozilla Firefox", "firefox.exe")))
+    monkeypatch.setattr(K, "CHECK_S", 0)
+    res = await registry.execute("press_keys", {"keys": "ctrl+t"}, ToolContext(settings))
+    assert res.is_error and "nothing changed" in res.content and "Firefox" in res.content

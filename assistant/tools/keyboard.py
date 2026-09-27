@@ -13,6 +13,7 @@ import time
 from assistant.tools.registry import Risk, ToolContext, ToolError, ToolRegistry
 
 MAX_TYPE_CHARS = 2000
+CHECK_S = 0.15            # between checks that a shortcut changed the window
 
 # Spoken or written key names -> virtual-key codes.
 VK = {
@@ -129,13 +130,45 @@ def _into_terminal(ctx: ToolContext) -> str | None:
     return None
 
 
-def _keys_to_user_window() -> None:
-    """Keys go to the window in front. If that's Nova's own window, switch back first."""
+def _keys_to_user_window():
+    """Keys go to the window in front. If that's Nova's own window, switch back first.
+    Returns the window the keys go to (None when Nova can't tell, e.g. not Windows)."""
     from assistant.tools import pc
     try:
-        pc.user_window_forward()
+        return pc.user_window_forward()
     except ToolError:
-        pass                                   # not Windows (tests): nothing to switch
+        return None                            # not Windows (tests): nothing to switch
+
+
+# What a shortcut does, in words, and whether the window's title must change (so it can be
+# checked). Owner: "he says I opened a new tab, but he literally did nothing".
+EFFECTS = {"ctrl+t": ("Opened a new tab", True), "ctrl+w": ("Closed the tab", True),
+           "ctrl+shift+t": ("Reopened the last tab", True), "ctrl+tab": ("Went to the next tab", True),
+           "ctrl+shift+tab": ("Went to the previous tab", True), "alt+left": ("Went back", True),
+           "alt+right": ("Went forward", True), "f5": ("Refreshed", False), "ctrl+c": ("Copied", False),
+           "ctrl+v": ("Pasted", False), "ctrl+x": ("Cut", False), "ctrl+z": ("Undone", False), "ctrl+y": ("Redone", False),
+           "ctrl+a": ("Selected everything", False), "ctrl+s": ("Saved", False), "alt+tab": ("Switched windows", True)}
+_NAMES = {0x11: "ctrl", 0x10: "shift", 0x12: "alt", 0x5B: "win", 0x0D: "enter", 0x09: "tab", 0x1B: "escape",
+          0x25: "left", 0x27: "right", 0x26: "up", 0x28: "down", 0x74: "f5", 0x20: "space"}
+
+
+def canonical(vks: list[int]) -> str:
+    return "+".join(_NAMES.get(v, chr(v).lower() if 0x30 <= v <= 0x5A else hex(v)) for v in vks)
+
+
+def app_label(w) -> str:
+    proc = w.process.lower().removesuffix(".exe")
+    return {"msedge": "Edge", "firefox": "Firefox", "chrome": "Chrome", "windowsterminal": "the terminal",
+            "explorer": "File Explorer", "code": "VS Code"}.get(proc, proc.capitalize() if proc else (w.title[:30] or "that window"))
+
+
+def _front_title() -> tuple[int, str] | None:
+    from assistant.tools import pc
+    try:
+        w = pc.WINDOWS.active()
+    except ToolError:
+        return None
+    return (w.hwnd, w.title) if w else None
 
 
 async def _guard(ctx: ToolContext, tool: str, args: dict, risky: bool) -> None:
@@ -166,16 +199,35 @@ async def type_text(args: dict, ctx: ToolContext) -> str:
 async def press_keys(args: dict, ctx: ToolContext) -> str:
     import asyncio
     vks = parse_keys(args["keys"])
+    combo = canonical(vks)
     times = max(1, min(int(args.get("times") or 1), 20))
+    # In Nova's own browser, browser shortcuts are done directly (keys can't reach its tab bar).
+    from assistant.tools import browser
+    if combo in browser.SHORTCUTS and await asyncio.to_thread(browser.BROWSER.in_front):
+        return await browser.shortcut(combo)
     # Enter (or a shortcut with no modifiers other than shift) into a terminal runs what's typed.
     risky = vks[-1] == 0x0D or VK["win"] in vks and vks[-1] == VK["r"]
     await _guard(ctx, "press_keys", args, risky=risky)
-    await asyncio.to_thread(_keys_to_user_window)
+    target = await asyncio.to_thread(_keys_to_user_window)
+    before = await asyncio.to_thread(_front_title)
     for _ in range(times):
         await asyncio.to_thread(KEYBOARD.combo, vks)
         if times > 1:
             await asyncio.sleep(0.03)
-    return f"Pressed {args['keys']}" + (f" {times} times." if times > 1 else ".")
+    done, checkable = EFFECTS.get(combo, (f"Pressed {args['keys']}", False))
+    where = f" in {app_label(target)}" if target is not None else ""
+    if checkable and before is not None:
+        for _ in range(8):                               # the window takes a moment to react
+            await asyncio.sleep(CHECK_S)
+            if await asyncio.to_thread(_front_title) != before:
+                break
+        else:
+            raise ToolError(f"I pressed {args['keys']}{where}, but nothing changed. Click on that window once "
+                            "so it has the keyboard, then ask again.")
+    again = f" {times} times" if times > 1 else ""
+    if done.startswith("Pressed"):
+        return f"Pressed {args['keys']}{again}{where}."
+    return f"{done}{where}{again}."
 
 
 async def dictation(args: dict, ctx: ToolContext) -> str:

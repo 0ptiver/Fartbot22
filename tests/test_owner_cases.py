@@ -103,3 +103,41 @@ def test_close_my_video_pauses_it():
 def test_a_complaint_that_isnt_a_command_goes_to_the_model(settings, ctx):
     from assistant.brain.local import LocalBrain
     assert LocalBrain(settings, build_registry(settings))._complaint("you didn't tell me the truth", ctx) is None
+
+
+def test_nova_knows_oliver_made_it(settings):
+    """Owner: 'make it understand that I, Oliver, made him and he does what I tell him'."""
+    from assistant.brain.local import _small_talk
+    from assistant.brain.prompts import system_prompt
+    p = system_prompt(settings, local=True)
+    assert "made by Oliver" in p and "Don't question, second-guess or lecture" in p
+    assert _small_talk("who made you", ", sir", "Oliver") == "Oliver did, sir. I work for Oliver."
+    assert _small_talk("who's your boss", ", sir", "Oliver") == "Oliver, sir."
+
+
+async def test_situation_is_given_to_the_model(local_settings, ctx, monkeypatch):
+    """Owner: 'he doesn't know what's going on, when he's selected onto the browser'. The model
+    is told which window is in front (where keys go) before it answers."""
+    from assistant.brain import situation
+
+    async def now():
+        return {"window in front (keys and typing go here)": "Firefox: YouTube — Mozilla Firefox"}
+    monkeypatch.setattr(situation, "situation", now)
+    brain, fake = make(local_settings, [text_reply("It's YouTube in Firefox, sir.")])
+    await collect(brain, Conversation(), "which app am i in right now", ctx)
+    assert "Firefox: YouTube" in fake.requests[0][1]["messages"][-1]["content"]
+
+
+async def test_new_tab_in_novas_browser_is_done_directly(monkeypatch, settings, registry):
+    """Keys can't reach a browser's tab bar from outside; in Nova's browser it's done directly."""
+    from assistant.tools import browser as B
+    from assistant.tools.registry import ToolContext
+    monkeypatch.setattr(B.BROWSER, "in_front", lambda: True)
+    done = []
+
+    async def shortcut(combo):
+        done.append(combo)
+        return "Opened a new tab in my browser."
+    monkeypatch.setattr(B, "shortcut", shortcut)
+    res = await registry.execute("press_keys", {"keys": "ctrl+t"}, ToolContext(settings))
+    assert res.content == "Opened a new tab in my browser." and done == ["ctrl+t"]

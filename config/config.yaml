@@ -5,6 +5,7 @@ assistant:
   name: Nova
   wake_phrase: hey nova
   address_user_as: sir          # set to "" to disable
+  owner_name: Oliver            # who made Nova and whom it serves
   timezone: America/Chicago
   personality: british_butler   # see assistant/brain/prompts.py
 

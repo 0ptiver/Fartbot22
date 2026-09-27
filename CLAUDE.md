@@ -54,6 +54,7 @@ Branch: `claude/jarvis-voice-assistant-lhnfza` (commit and push there after ever
 - **Ollama rejects the whole tool list if any one schema is off** (e.g. an object without `properties`) and Nova can't start. `test_every_tool_schema_is_one_ollama_accepts` guards this.
 - **Different Ollama options (num_ctx etc.) reload the model** (seconds). Anything else calling Ollama (warm-up, subtitle translation) must copy the chat model's exact options.
 - **Windows won't let a background program switch windows.** Use `pc.WINDOWS.focus()` (Alt tap, AttachThreadInput, minimise/restore) and check its result. Never press keys blind, and never report success without checking (the owner notices).
+- **Never claim a key press worked.** `press_keys` checks the title for checkable combos (`keyboard.EFFECTS`) and says "nothing changed" otherwise (owner: "he says I opened a new tab but did nothing").
 - **Keys only reach a web page if the page has the keyboard.** Prefer clicking the app's own button, found by name via UI Automation, with keys as a backup.
 - **No keyboard hooks**: the `keyboard` lib's hook glitched the owner's keyboard. Teach-by-showing polls `GetAsyncKeyState` instead.
 - Apps started from Nova's console printed their logs into it (Discord): always open things via `core/launch.py` (detached).
@@ -74,6 +75,7 @@ Branch: `claude/jarvis-voice-assistant-lhnfza` (commit and push there after ever
 - Polish pass done (owner: "he doesn't cancel and he freezes"): universal cancel, tool time limits, "One moment", tick, `media` pause of whatever is playing, "no, I meant X", robust window focus, fullscreen via the player's button with verification. The owner said "it works".
 - Spotify playback reworked (polish pass 3); needs the owner's test.
 - HUD overhaul (command-centre layout) and phone access (Phase 6) built; neither seen on the PC yet.
+- Latest: "more brains" (situation context: window in front, Nova's browser, media → `brain/situation.py`; `press_keys` names the target window and verifies tab/nav shortcuts by title change; Nova's-browser shortcuts via `browser.shortcut`) and owner identity (`assistant.owner_name: Oliver`, prompt says Oliver made Nova and is in charge; risky-action confirmations stay). Not yet tried on the PC.
 
 ## Next (the owner's menu; they pick)
 1. ~~Voice lock~~ built (needs the owner's real-voice test and maybe threshold tuning).

@@ -19,6 +19,7 @@ class AssistantConfig(BaseModel):
     name: str = "Nova"
     wake_phrase: str = "hey nova"
     address_user_as: str = "sir"
+    owner_name: str = "Oliver"          # who made Nova and whom it serves
     timezone: str = "America/Chicago"
     personality: str = "british_butler"
 

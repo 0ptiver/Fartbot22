@@ -215,7 +215,7 @@ class LocalBrain:
                     yield ev
                 conv.last_action = {"text": user_text, "at": time.time()}
                 return
-            small = _small_talk(user_text, sir)
+            small = _small_talk(user_text, sir, self.settings.assistant.owner_name)
             if small:
                 async for ev in self._say(conv, user_text, small):
                     yield ev
@@ -387,8 +387,10 @@ class LocalBrain:
         usage = {"input_tokens": 0, "output_tokens": 0}
         spoken: list[str] = []
         checkpoint = conv.checkpoint()
+        from assistant.brain.situation import situation
+        now = await situation()                          # which window is in front, the browser, media
         conv.messages.append({"role": "user", "content": turn_context(
-            self.settings, extra_context, self._memories(user_text, ctx)) + "\n" + user_text})
+            self.settings, {**now, **(extra_context or {})}, self._memories(user_text, ctx)) + "\n" + user_text})
         rounds = 0
         tools_used = False
         nudged = False
@@ -662,10 +664,13 @@ _SMALL_TALK = [
     (r"(?:hello|hi|hey|hiya|yo|good (?:morning|afternoon|evening))(?: there)?", "{greet}{sir}."),
     (r"(?:how are you|how are you doing|how'?s it going|you good|you alright)", "Very well, thank you{sir}. And you?"),
     (r"(?:goodnight|good night|night)", "Good night{sir}."),
+    (r"(?:who (?:made|created|built|programmed|coded) you|who(?:'?s| is) your (?:creator|maker))",
+     "{owner} did{sir}. I work for {owner}."),
+    (r"(?:who(?:'?s| is) your (?:master|boss|owner)|who do you (?:work for|serve|belong to))", "{owner}{sir}."),
 ]
 
 
-def _small_talk(text: str, sir: str) -> str | None:
+def _small_talk(text: str, sir: str, owner: str = "") -> str | None:
     """Greetings and thanks: an instant, fixed reply instead of waiting for the model."""
     t = re.sub(r"[^\w\s']", "", text.lower()).strip()
     t = re.sub(r"\b(?:nova|sir|mate|buddy)\b", "", t)
@@ -676,7 +681,7 @@ def _small_talk(text: str, sir: str) -> str | None:
             said = re.search(r"good (morning|afternoon|evening)", t)
             greet = (f"Good {said.group(1)}" if said else
                      "Good morning" if h < 12 else "Good afternoon" if h < 18 else "Good evening")
-            return reply.format(sir=sir, greet=greet)
+            return reply.format(sir=sir, greet=greet, owner=owner or "You")
     return None
 
 

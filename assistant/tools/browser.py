@@ -147,15 +147,16 @@ class NovaBrowser:
         self._lock = asyncio.Lock()
 
     def in_front(self) -> bool:
-        """Is Nova's browser the window you're looking at? ('scroll down', 'go back', 'click X')"""
-        if not self.active:
+        """Is Nova's browser the window you're looking at? ('new tab', 'scroll down', 'go back').
+        Nova's browser is the only Edge window apart from Nova's own window (the HUD)."""
+        if self.page is None or self.page.is_closed():
             return False
         try:
             from assistant.tools import pc
             w = pc.WINDOWS.active()
         except Exception:
             return False
-        return bool(w and "msedge" in w.process.lower() and self.title and self.title[:30] in w.title)
+        return bool(w and "msedge" in w.process.lower() and not pc.is_nova_window(w))
 
     @property
     def active(self) -> bool:
@@ -488,6 +489,49 @@ def browser_intent(t: str, active: bool, front: bool = False) -> tuple[str, dict
     if re.fullmatch(r"go back(?: a page)?|back", t):
         return "browser", {"action": "back", "details": False}
     return None
+
+
+# Browser shortcuts done directly in Nova's browser (keys can't reach its tab bar), and checked.
+SHORTCUTS = {"ctrl+t", "ctrl+w", "ctrl+tab", "ctrl+shift+tab", "alt+left", "alt+right", "f5"}
+
+
+async def shortcut(combo: str) -> str:
+    b = BROWSER
+    page = await b.get_page()
+    ctx = b._ctx
+    b.last_used = time.time()
+    if combo == "ctrl+t":
+        b.page = await ctx.new_page()
+        await b.page.bring_to_front()
+        return "Opened a new tab in my browser."
+    if combo == "ctrl+w":
+        pages = [p for p in ctx.pages if not p.is_closed()]
+        if len(pages) <= 1:
+            await page.goto("about:blank")
+            return "That was the last tab, so I cleared it."
+        await page.close()
+        b.page = [p for p in ctx.pages if not p.is_closed()][-1]
+        await b.page.bring_to_front()
+        return "Closed the tab. " + await page_report(b.page, False)
+    if combo in ("ctrl+tab", "ctrl+shift+tab"):
+        pages = [p for p in ctx.pages if not p.is_closed()]
+        if len(pages) < 2:
+            return "There's only one tab."
+        i = pages.index(page) if page in pages else 0
+        b.page = pages[(i + (1 if combo == "ctrl+tab" else -1)) % len(pages)]
+        await b.page.bring_to_front()
+        return await page_report(b.page, False)
+    if combo in ("alt+left", "alt+right"):
+        resp = await (page.go_back() if combo == "alt+left" else page.go_forward())
+        if resp is None:
+            return "There's no page to go " + ("back" if combo == "alt+left" else "forward") + " to."
+        await _settle(page, 3000)
+        return ("Went back. " if combo == "alt+left" else "Went forward. ") + await page_report(page, False)
+    if combo == "f5":
+        await page.reload()
+        await _settle(page, 3000)
+        return "Refreshed. " + await page_report(page, False)
+    raise ToolError(f"I can't do {combo} in my browser.")
 
 
 def configure(settings) -> None:
