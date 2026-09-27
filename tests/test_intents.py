@@ -8,6 +8,9 @@ from assistant.brain.intents import match_intent
     ("I'm playing a song, tell me what's playing", ("now_playing", {})),   # the owner's words
     ("tell me what's playing", ("now_playing", {})),
     ("What song is this?", ("now_playing", {})),
+    ("Alright I'm playing a song right now. What am I'm playing?", ("now_playing", {})),   # owner, verbatim
+    ("What am I playing", ("now_playing", {})),
+    ("what's this song called", ("now_playing", {})),
     ("Pause.", ("music_control", {"action": "pause"})),
     ("pause the music please", ("music_control", {"action": "pause"})),
     ("Stop the music.", ("music_control", {"action": "pause"})),

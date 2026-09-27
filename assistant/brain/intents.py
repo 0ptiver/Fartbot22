@@ -9,8 +9,10 @@ import re
 _LEAD = re.compile(r"^(?:(?:hey|ok|okay|so|um|uh|please|can you|could you|would you|will you|"
                    r"go ahead and|just|tell me|do you know)\s+)+")
 # "What's playing?" asked inside a longer sentence ("I'm playing a song, tell me what's playing").
-_NOW_PLAYING_ANYWHERE = re.compile(r"\bwhat(?:'?s| is)(?: currently)? playing\b|\bwhat song is (?:this|playing)\b"
-                                   r"|\bwhat am i listening to\b|\bwhat(?:'?s| is) this song\b")
+_NOW_PLAYING_ANYWHERE = re.compile(
+    r"\bwhat(?:'?s| is)(?: currently)? playing\b|\bwhat song is (?:this|playing)\b"
+    r"|\bwhat(?: song)? (?:am i|i'?m|am i'?m) (?:playing|listening to)\b|\bwhat(?:'?s| is) this song\b"
+    r"|\bwhat(?:'?s| is) (?:this|the) song called\b|\bwhat song am i\b|\bname (?:of )?this song\b")
 _TAIL = re.compile(r"(?:\s+(?:please|for me|now|sir|thanks|thank you|nova))+$")
 _THING = r"(?:\s+(?:the|my|this))?(?:\s+(?:music|song|track|spotify|playback|it|one|tune))?"
 
