@@ -40,6 +40,7 @@ AUTH_TIMEOUT_S = 5
 STATUS_EVERY_S = 0.1
 # Events worth replaying to a window that (re)connects.
 _KEEP = {"transcript", "text", "speak", "tool", "tool_done", "announcement", "confirm_request",
+         "dictation", "dictated",
          "confirm_result", "standby", "error", "interrupted", "stopped", "merged", "ignored",
          "turn_complete", "latency"}
 _FILES = {"/": ("index.html", "text/html"), "/hud.js": ("hud.js", "text/javascript"),
@@ -67,6 +68,7 @@ def status(loop, settings: Settings) -> dict[str, Any]:
     pending = loop.confirm_text if getattr(loop, "_confirm", None) is not None else None
     return {"type": "status", "state": loop.state, "level": round(min(loop.mic_level * 6, 1.0), 3),
             "standby": loop.standby, "muted": loop.mic_muted, "mode": settings.voice.mode,
+            "dictation": bool(getattr(loop, "dictation", False)),
             "confirm": pending}
 
 
@@ -132,6 +134,8 @@ def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=Non
             spawn(loop.resume())
         elif kind == "stop":
             spawn(loop.interrupt(reason="stop button"))
+        elif kind == "dictation" and hasattr(loop, "set_dictation"):
+            loop.set_dictation(bool(msg.get("on")))
         elif kind == "mute":
             loop.mic_muted = bool(msg.get("on"))
         elif kind == "mode" and msg.get("mode") in ("wake", "open_mic"):

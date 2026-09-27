@@ -97,12 +97,22 @@ _CLICKS = {"click": "click", "click on": "click", "press": "click", "tap": "clic
 _AMOUNT = {"a bit": 2, "a little": 2, "a little bit": 2, "a lot": 10, "lots": 10, "more": 5}
 
 
-def grid_intent(t: str, visible: bool = False) -> tuple[str, dict] | None:
-    """Voice mouse: 'show the grid', 'click 14', 'zoom 14', 'scroll down', 'drag 5 to 12'.
-    With the grid showing, a bare number zooms and 'back'/'cancel' work too."""
+def grid_intent(t: str, visible: bool = False, labels: bool = False) -> tuple[str, dict] | None:
+    """Voice mouse: 'show the grid', 'click 14', 'zoom 14', 'scroll down', 'drag 5 to 12',
+    'show numbers', 'click subscribe'. With the grid showing, a bare number zooms (with numbers
+    showing, it clicks) and 'back'/'cancel' work too."""
     from assistant.voice.textnorm import normalize_words
 
+    visible = visible or labels
     n = " ".join(normalize_words(t))
+    if re.fullmatch(r"(?:show|give me|put up|turn on)(?: me)?(?: the)? (?:numbers|labels|number labels)"
+                    r"|(?:number|label) (?:the |all the |everything|things)?(?:buttons|links|things)?"
+                    r"|what can i click(?: on)?|show (?:me )?(?:the |all the )?(?:buttons|links|clickable things)", n):
+        return "show_numbers", {}
+    if re.fullmatch(r"(?:hide|close|remove|turn off|clear)(?: the)? (?:numbers|labels)|numbers off", n):
+        return "mouse_grid", {"action": "hide"}
+    if labels and (m := re.fullmatch(_N, n)):
+        return "mouse", {"action": "click", "cell": int(m.group(1))}
     m = re.match(r"^(?:(?:show|open|bring up|turn on|give me|put)(?: me)?(?: the| a| my)? (?:mouse )?grid"
                  r"|(?:mouse )?grid)(?: on)?(?: (?:on|for) (?:the |my )?" + _SCREEN + ")?$", n)
     if m:
@@ -128,6 +138,17 @@ def grid_intent(t: str, visible: bool = False) -> tuple[str, dict] | None:
         if m.group(2):
             args["cell"] = int(m.group(2))
         return "mouse", args
+    # "click subscribe", "double click the file", "press the sign in button": by name
+    m = re.fullmatch(r"(click|click on|double click|double click on|right click|right click on)"
+                     r" (?!(?:it|that|there|here|number)\b)(.*[a-z].*)", n)
+    if not m:
+        m = re.fullmatch(r"(press|hit|tap|push|open|select|choose) (the .+ (?:button|link|tab|icon|option|checkbox|box))", n)
+    if m and not re.fullmatch(r"(?:the )?(?:grid|mouse grid|numbers)", m.group(2)):
+        action = {"double": "double_click", "right": "right_click"}.get(m.group(1).split()[0], "click")
+        args = {"name": m.group(2)}
+        if action != "click":
+            args["action"] = action
+        return "click_element", args
     m = re.match(r"^(?:move|go|put|hover)(?: the)?(?: mouse| cursor)?(?: to| over| on)? " + _N + "$", n)
     if m:
         return "mouse", {"action": "move", "cell": int(m.group(1))}
@@ -226,6 +247,11 @@ def keyboard_intent(raw: str, t: str) -> tuple[str, dict] | None:
     from assistant.tools.keyboard import parse_keys
     from assistant.tools.registry import ToolError
 
+    if re.fullmatch(r"(?:start |begin |turn on |switch on )?(?:dictation|dictating)(?: mode)?(?: on)?|"
+                    r"(?:start|let me|i want to) (?:dictate|dictating|type by voice)|take (?:a )?dictation|dictate", t):
+        return "dictation", {"on": True}
+    if re.fullmatch(r"(?:stop|end|finish|turn off|exit) (?:the )?(?:dictation|dictating)(?: mode)?|dictation off", t):
+        return "dictation", {"on": False}
     m = re.match(r"^\s*(?:please\s+|can you\s+|could you\s+)?(?:type|write|type out|enter the text)"
                  r"\s*[:,]?\s+(.+?)\s*$", raw, re.I | re.S)
     if m:
@@ -260,14 +286,14 @@ def keyboard_intent(raw: str, t: str) -> tuple[str, dict] | None:
     return None
 
 
-def match_intent(text: str, grid_visible: bool = False) -> tuple[str, dict] | None:
+def match_intent(text: str, grid_visible: bool = False, labels: bool = False) -> tuple[str, dict] | None:
     t = _clean(text)
     if not t:
         return None
     timer = _timer_intent(t)
     if timer:
         return timer
-    grid = grid_intent(t, grid_visible)
+    grid = grid_intent(t, grid_visible, labels)
     if grid:
         return grid
     video = video_intent(t)

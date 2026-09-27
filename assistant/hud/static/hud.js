@@ -134,6 +134,12 @@ function handle(ev, replay) {
     case "standby":
       addSys("sys warn", ev.on ? "Standing down" : "Back on duty");
       break;
+    case "dictation":
+      addSys("sys warn", ev.on ? "✎ Dictation on: everything you say is typed" : "✎ Dictation off");
+      break;
+    case "dictated":
+      addSys("sys dict", "✎ " + ev.text);
+      break;
     case "merged":
       addSys("sys", "You kept talking: one request");
       break;
@@ -221,6 +227,7 @@ const LABEL = {
   idle: () => S.mode === "open_mic" ? "Listening to everything" : `Say “${S.name}, …”`,
   listening: () => "Listening…", thinking: () => "Thinking…", speaking: () => "Speaking",
   confirm: () => "Waiting for your answer", muted: () => "Microphone off",
+  dictation: () => "Dictating: say “stop dictation” when done",
   standby: () => `Standing down. Say “${S.name}, wake up” or press Wake up`,
   offline: () => "Not connected",
 };
@@ -246,6 +253,7 @@ function renderState() {
 const COLORS = {
   idle: [70, 180, 230], listening: [74, 222, 128], thinking: [167, 139, 250], speaking: [90, 216, 255],
   confirm: [255, 181, 71], standby: [100, 116, 139], muted: [248, 113, 113], offline: [70, 80, 100],
+  dictation: [236, 240, 245],
 };
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const orb = { c: [70, 180, 230], amp: 0.02, lvl: 0, glow: 0.5, t: 0 };
@@ -261,7 +269,7 @@ function drawOrb() {
   const st = S.state;
   const target = COLORS[st] || COLORS.idle;
   orb.c = orb.c.map((v, i) => v + (target[i] - v) * 0.08);
-  orb.lvl += ((st === "listening" || st === "idle" ? S.level : 0) - orb.lvl) * 0.25;
+  orb.lvl += ((st === "listening" || st === "idle" || st === "dictation" ? S.level : 0) - orb.lvl) * 0.25;
   const speed = reduced ? 0.25 : 1;
   orb.t += 0.016 * speed * (st === "thinking" ? 2.4 : st === "speaking" ? 1.6 : 1);
   const t = orb.t;

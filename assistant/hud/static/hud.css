@@ -123,6 +123,7 @@ ol { list-style: none; margin: 0; padding: 0; }
 .sys.tool.err { color: var(--red); background: rgba(248,113,113,.07); }
 .sys.warn { color: var(--amber); }
 .sys.err { color: var(--red); }
+.sys.dict { align-self: flex-end; color: var(--text); background: rgba(236,240,245,.06); border: 1px dashed rgba(236,240,245,.25); border-radius: 10px; font-size: 13px; }
 .sys.bell { color: var(--amber); background: rgba(255,181,71,.08); border: 1px solid rgba(255,181,71,.25); padding: 6px 12px; border-radius: 12px; font-size: 13px; }
 @keyframes blink { 50% { opacity: 0; } }
 

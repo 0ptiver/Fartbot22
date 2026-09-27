@@ -139,7 +139,7 @@ safety:
   risk_overrides: {}
   # Tools refused outright for remote clients (phone / other PCs).
   remote_blocked_tools: [run_shell, delete_file, move_file, power, press_key, window, mouse, mouse_grid,
-                         type_text, press_keys]
+                         type_text, press_keys, click_element, show_numbers]
   audit_log: data/audit.jsonl
 
 # Routines: one phrase runs several steps. Say "Nova, gaming mode" (or "Nova, start gaming mode").

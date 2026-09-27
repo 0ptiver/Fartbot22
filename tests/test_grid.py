@@ -151,7 +151,7 @@ def test_grid_on_a_second_screen_clicks_there(settings):
     ("cancel", False, None),
     ("scroll down a lot", False, ("mouse", {"action": "scroll_down", "amount": 10})),
     ("drag 5 to 12", True, ("mouse", {"action": "drag", "cell": 5, "to": 12})),
-    ("click the play button", False, None),                     # the model handles descriptions
+    ("click the play button", False, ("click_element", {"name": "the play button"})),
     ("show the grid on screen 2", False, ("mouse_grid", {"action": "show", "screen": "2"})),
     ("Grid on the other monitor", False, ("mouse_grid", {"action": "show", "screen": "next"})),
     ("show the grid on my second screen", False, ("mouse_grid", {"action": "show", "screen": "2"})),

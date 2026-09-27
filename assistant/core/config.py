@@ -160,7 +160,8 @@ class VoiceConfig(BaseModel):
     vad: VADConfig = Field(default_factory=VADConfig)
     stt: STTConfig = Field(default_factory=STTConfig)
     tts: TTSConfig = Field(default_factory=TTSConfig)
-    confirm_timeout_s: float = 12.0   # how long Nova waits for "yes"/"no" before cancelling
+    confirm_timeout_s: float = 12.0     # how long Nova waits for "yes"/"no" before cancelling
+    dictation_timeout_s: float = 120.0  # dictation switches itself off after this much quiet
     first_chunk_min_chars: int = 12
     latency_report: bool = True
     # Said when a slow tool starts and nothing has been said yet this turn.
@@ -207,7 +208,7 @@ class SafetyConfig(BaseModel):
     # Never from a phone or another PC (secure by default, even without config.yaml).
     remote_blocked_tools: list[str] = Field(default_factory=lambda: [
         "run_shell", "delete_file", "move_file", "power", "press_key", "window", "mouse", "mouse_grid",
-        "type_text", "press_keys"])
+        "type_text", "press_keys", "click_element", "show_numbers"])
     audit_log: str = "data/audit.jsonl"
 
     def audit_path(self) -> Path:

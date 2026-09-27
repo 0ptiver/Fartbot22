@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import logging
+import re
 import time
 from typing import Any, Callable
 
@@ -48,7 +49,7 @@ class VoiceLoop:
         self.on_event = on_event or (lambda ev: None)
         self.endpointer = Endpointer(self.cfg.vad)
         self.conv = Conversation(settings.brain.history_turns)
-        self.ctx = ToolContext(settings, client_id="voice", services={"brain": brain})
+        self.ctx = ToolContext(settings, client_id="voice", services={"brain": brain, "voice": self})
         self._stt_session: STTSession | None = None
         self._turn: asyncio.Task | None = None
         self._ptt_was_held = False
@@ -81,6 +82,10 @@ class VoiceLoop:
         self.mic_muted = False
         self.mic_level = 0.0
         self.confirm_text = ""                        # what the pending question asks
+        # Dictation: everything heard is typed (no name needed) until "stop dictation"
+        self.dictation = False
+        self._dictated: list[str] = []                # typed chunks, for "scratch that"
+        self._dictation_at = 0.0
 
     @property
     def busy(self) -> bool:
@@ -104,6 +109,8 @@ class VoiceLoop:
             return "thinking"
         if self.mic_muted:
             return "muted"
+        if self.dictation:
+            return "dictation"
         if self.endpointer.in_speech:
             return "listening"
         return "idle"
@@ -299,6 +306,8 @@ class VoiceLoop:
                 return
             if await self._control_words(text):
                 return
+            if self.dictation and await self._dictate(text):
+                return
 
             if kind == "overlap":
                 heard, text = text, self._strip_echo_prefix(text)
@@ -421,6 +430,55 @@ class VoiceLoop:
             return True
         return False
 
+    def set_dictation(self, on: bool) -> None:
+        self.dictation = on
+        self._dictated = []
+        self._dictation_at = time.perf_counter()
+        self._follow_up_until = 0.0
+        self.on_event({"type": "dictation", "on": on})
+
+    async def _dictate(self, text: str) -> bool:
+        """Dictation: type what was said. True if the utterance was used up here.
+        "Nova, ..." still works as a command; dictation ends by itself after a long silence."""
+        from assistant.tools import keyboard
+
+        now = time.perf_counter()
+        if now - self._dictation_at > self.cfg.dictation_timeout_s:
+            self.set_dictation(False)
+            self.on_event({"type": "ignored", "text": text, "reason": "dictation timed out"})
+            return False
+        self._dictation_at = now
+        if match_wake(text, self.cfg.wake.variants, self.cfg.wake.window_words)[0]:
+            return False                                   # "Nova, press enter": a command
+        said = " ".join(normalize_words(text))
+        if re.fullmatch(r"(?:stop|end|finish|exit|quit|cancel) (?:the )?(?:dictation|dictating|typing)"
+                        r"|stop dictating|dictation off", said):
+            self.set_dictation(False)
+            await self.say("Dictation off.")
+            return True
+        loop = asyncio.get_running_loop()
+        if re.fullmatch(r"new (?:line|paragraph)|next line|press enter", said):
+            n = 2 if "paragraph" in said else 1
+            await self.brain.registry.execute("press_keys", {"keys": "enter", "times": n}, self.ctx)
+            self._dictated.append("\n" * n)
+            self.on_event({"type": "dictated", "text": "↵" * n})
+            return True
+        if re.fullmatch(r"(?:scratch|delete|undo|remove) (?:that|the last bit|it)", said):
+            if self._dictated:
+                last = self._dictated.pop()
+                for _ in range(len(last)):
+                    await loop.run_in_executor(None, keyboard.KEYBOARD.combo, [0x08])
+                self.on_event({"type": "dictated", "text": f"(removed \"{last.strip()}\")"})
+            return True
+        chunk = text.strip() + " "
+        res = await self.brain.registry.execute("type_text", {"text": chunk}, self.ctx)
+        if res.is_error:
+            self.on_event({"type": "error", "message": str(res.content)})
+        else:
+            self._dictated.append(chunk)
+            self.on_event({"type": "dictated", "text": text.strip()})
+        return True
+
     def _sir(self, sep: str = "") -> str:
         who = self.settings.assistant.address_user_as
         return f"{sep} {who}" if who else ""
@@ -518,7 +576,8 @@ class VoiceLoop:
         if grid is None or not grid.visible:
             return False
         from assistant.brain.intents import _clean, grid_intent
-        return grid_intent(_clean(text), visible=True) is not None
+        return grid_intent(_clean(text), visible=grid.grid is not None,
+                           labels=grid.labels is not None) is not None
 
     async def announce(self, text: str) -> None:
         """Say something Nova starts itself (a reminder going off). Waits for a quiet moment:

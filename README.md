@@ -141,6 +141,12 @@ Speech stack (all switchable in `config/config.yaml` → `voice`):
 | "Set a timer for 10 minutes for the pasta" / "remind me at 7 pm to call mum" | timers (announced with a chime) |
 | "Find my tax return" / "read my shopping list" | `find_files`, `read_file` (your own folders only) |
 | "Nova, stand down" … "Nova, wake up" | kill switch / standby |
+| "Click Subscribe" / "click the search box" / "press the sign in button" | clicks it by name in the app you're using |
+| "Show numbers" … "click 7" (or just "7") | a number on everything clickable |
+| "Type hello there" / "press enter" / "press control c" / "press tab three times" | keyboard |
+| "Copy" / "paste" / "undo" / "save" / "new tab" / "close tab" / "go back" / "refresh" / "switch windows" | shortcuts |
+| "Minimise this" / "snap this to the left" / "move this window to the other screen" | the window you're using |
+| "Start dictation" … (talk) … "new line" / "scratch that" / "stop dictation" | everything you say is typed |
 | "Show the grid" … "click 14" / "zoom 14" / "double click 3" / "scroll down" / "hide the grid" | voice mouse (numbers work without "Nova" while the grid is showing) |
 | "Show the grid on screen 2" / "on the other monitor" … "next screen" | voice mouse on another screen (screen 1 = your main one) |
 | "Full screen the video and press play" / "pause the video" / "skip ahead" / "exit full screen" | `video`: finds the video playing in your browser by itself |

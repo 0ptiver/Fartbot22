@@ -177,7 +177,8 @@ class LocalBrain:
         # Common commands ("pause", "what's playing", "play X") skip the model entirely.
         grid = ctx.services.get("grid")
         intent = (match_routine(user_text, self.settings)
-                  or match_intent(user_text, grid_visible=bool(grid and grid.visible))
+                  or match_intent(user_text, grid_visible=bool(grid and grid.grid is not None),
+                                  labels=bool(grid and grid.labels is not None))
                   if self.cfg.fast_commands else None)
         if intent is not None:
             async for ev in self._fast_command(conv, intent, ctx, t0, timings):

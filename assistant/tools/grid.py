@@ -96,6 +96,12 @@ class MouseBackend:
             return [Region(0, 0, u.GetSystemMetrics(0), u.GetSystemMetrics(1))]
         return order_screens(found)
 
+    def virtual(self) -> Region:
+        """All screens together (for numbers that can be on any screen)."""
+        u = self._user32()
+        _dpi_aware()
+        return Region(u.GetSystemMetrics(76), u.GetSystemMetrics(77), u.GetSystemMetrics(78), u.GetSystemMetrics(79))
+
     def cursor(self) -> tuple[int, int]:
         import ctypes
         from ctypes import wintypes
@@ -208,6 +214,10 @@ class TkOverlay:
         self._start()
         self._q.put(("show", (grid, screen or grid.region)))
 
+    def show_labels(self, labels: dict[int, Region], screen: Region) -> None:
+        self._start()
+        self._q.put(("labels", (labels, screen)))
+
     def hide(self) -> None:
         if self._thread and self._thread.is_alive():
             self._q.put(("hide", None))
@@ -264,11 +274,29 @@ class TkOverlay:
             root.attributes("-topmost", True)
             self._click_through(root)
 
+        def draw_labels(labels: dict[int, Region], screen: Region) -> None:
+            canvas.delete("all")
+            root.geometry(f"{screen.w}x{screen.h}+{screen.x}+{screen.y}")
+            for n, r in labels.items():
+                x, y = r.x - screen.x, r.y - screen.y
+                canvas.create_rectangle(x, y, x + r.w, y + r.h, outline="#5ad8ff", width=1)
+                t = canvas.create_text(x + 3, y + 2, text=str(n), anchor="nw", fill="#ffffff",
+                                       font=("Segoe UI", 10, "bold"))
+                x0, y0, x1, y1 = canvas.bbox(t)
+                bg = canvas.create_rectangle(x0 - 3, y0 - 1, x1 + 3, y1 + 1, fill="#0b1020", outline="#5ad8ff")
+                canvas.tag_raise(t, bg)
+            root.deiconify()
+            root.lift()
+            root.attributes("-topmost", True)
+            self._click_through(root)
+
         def poll() -> None:
             try:
                 while True:
                     cmd, arg = self._q.get_nowait()
-                    if cmd == "show":
+                    if cmd == "labels":
+                        draw_labels(*arg)
+                    elif cmd == "show":
                         draw(*arg)
                     elif cmd == "hide":
                         root.withdraw()
@@ -303,28 +331,37 @@ class GridController:
     grid: Grid | None = None
     history: list[Grid] = field(default_factory=list)
     screen: Region | None = None
+    labels: dict[int, Region] | None = None      # "show numbers": clickable things, numbered
 
     @property
     def visible(self) -> bool:
-        return self.grid is not None
+        return self.grid is not None or self.labels is not None
+
+    def show_labels(self, regions: list[Region]) -> None:
+        self.grid, self.history = None, []
+        self.labels = {i + 1: r for i, r in enumerate(regions)}
+        self.overlay.show_labels(self.labels, self.mouse.virtual())
 
     def show(self, which: str | int | None = None) -> str:
         screens = self.mouse.monitors()
         cursor = self.mouse.cursor() if which in (None, "") else None
         self.screen = pick_screen(screens, which, cursor, self.screen if self.grid else None)
         self.grid = Grid(self.screen, self.cols, self.rows)
-        self.history = []
+        self.history, self.labels = [], None
         self.overlay.show(self.grid, self.screen)
         where = f" on screen {screens.index(self.screen) + 1}" if len(screens) > 1 else " on"
         return (f"Grid{where}. Say 'click' and a number from 1 to {self.grid.count}, "
                 "or 'zoom' and a number to get closer.")
 
     def hide(self) -> str:
-        self.grid, self.history = None, []
+        was_labels = self.labels is not None
+        self.grid, self.history, self.labels = None, [], None
         self.overlay.hide()
-        return "Grid off."
+        return "Numbers off." if was_labels else "Grid off."
 
     def _need(self) -> Grid:
+        if self.labels is not None:
+            raise ToolError("Say 'click' and the number.")
         if self.grid is None:
             raise ToolError("The grid isn't showing. Say 'show the grid' first.")
         return self.grid
@@ -347,7 +384,14 @@ class GridController:
         return "Zoomed out."
 
     def point(self, n: int | None) -> tuple[int, int] | None:
-        return self._need().center(n) if n is not None else None
+        if n is None:
+            return None
+        if self.labels is not None:
+            r = self.labels.get(n)
+            if r is None:
+                raise ToolError(f"Pick a number from 1 to {len(self.labels)}.")
+            return r.x + r.w // 2, r.y + r.h // 2
+        return self._need().center(n)
 
     def act(self, action: str, n: int | None = None, amount: int = 3, to: int | None = None) -> str:
         where = self.point(n) if n is not None else None
@@ -359,7 +403,7 @@ class GridController:
                 time.sleep(0.03)
             button = {"right_click": "right", "middle_click": "middle"}.get(action, "left")
             self.mouse.click(button, double=action == "double_click")
-            self.grid, self.history = None, []
+            self.grid, self.history, self.labels = None, [], None
             return {"click": "Clicked.", "double_click": "Double-clicked.", "right_click": "Right-clicked.",
                     "middle_click": "Middle-clicked."}[action]
         if action == "move":
@@ -379,7 +423,7 @@ class GridController:
             dest = self.point(to)
             self.overlay.hide()
             self.mouse.drag(*where, *dest)
-            self.grid, self.history = None, []
+            self.grid, self.history, self.labels = None, [], None
             return f"Dragged {n} to {to}."
         raise ToolError(f"Unknown mouse action {action}.")
 

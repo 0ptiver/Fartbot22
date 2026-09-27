@@ -167,7 +167,25 @@ async def press_keys(args: dict, ctx: ToolContext) -> str:
     return f"Pressed {args['keys']}" + (f" {times} times." if times > 1 else ".")
 
 
+async def dictation(args: dict, ctx: ToolContext) -> str:
+    loop = ctx.services.get("voice")
+    if loop is None:
+        raise ToolError("Dictation only works when you're talking to me.")
+    on = bool(args["on"])
+    if on == loop.dictation:
+        return f"Dictation is already {'on' if on else 'off'}."
+    loop.set_dictation(on)
+    if on:
+        return ("Dictating. Everything you say gets typed. Say 'new line', 'scratch that', "
+                "or 'stop dictation' when you're done.")
+    return "Dictation off."
+
+
 def register(reg: ToolRegistry) -> None:
+    reg.tool("dictation", "Start or stop dictation: while on, everything the user says is typed into the "
+             "app in front.", {"type": "object", "properties": {"on": {"type": "boolean"}},
+                                "required": ["on"], "additionalProperties": False},
+             risk=Risk.SAFE, category="keyboard")(dictation)
     reg.tool("type_text", "Type text into the app in front, as if typed on the keyboard. Asks first "
              "when that app is a terminal.",
              {"type": "object", "properties": {"text": {"type": "string", "minLength": 1,

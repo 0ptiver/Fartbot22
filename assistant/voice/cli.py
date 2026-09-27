@@ -61,6 +61,10 @@ def make_printer(name: str, show_latency: bool):
             print(f"\n{DIM}  ({'standing down: say \"Nova, wake up\" to resume' if ev['on'] else 'awake'}){RESET}", flush=True)
         elif t == "stopped":
             print(f"{DIM}  (stopped){RESET}", flush=True)
+        elif t == "dictation":
+            print(f"\n{GREEN}✎ dictation {'on: everything you say is typed' if ev['on'] else 'off'}{RESET}", flush=True)
+        elif t == "dictated":
+            print(f"{DIM}  ✎ {ev['text']}{RESET}", flush=True)
         elif t == "merged":
             print(f"{DIM}  (you kept talking, one request: \"{ev['text']}\"){RESET}", flush=True)
         elif t == "latency":
