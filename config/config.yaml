@@ -103,6 +103,14 @@ server:
   allowed_hosts: [127.0.0.1, localhost]   # blocks DNS-rebinding attacks from web pages
   allowed_origins: []                      # no browser page may connect (HUD/PWA added later)
 
+# The interactive window (HUD): orb, conversation, activity, Yes/No buttons, timers, routines.
+# Opens with `python -m assistant voice`. Local only: 127.0.0.1, a new secret key every run.
+hud:
+  enabled: true
+  port: 8766
+  open_window: true              # false = don't open it; reopen any time: python -m assistant hud
+  show_ignored: false            # also list speech Nova ignored (e.g. people in your game)
+
 tools:
   # Friendly names -> launch targets (a URI, an exe path, or a Start Menu shortcut name).
   app_aliases:

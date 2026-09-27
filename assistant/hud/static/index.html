@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Nova</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="hud.css">
+<script src="hud.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="conn" id="conn" title="Connecting"></span>
+    <span id="name">NOVA</span>
+  </div>
+  <div class="top-actions">
+    <button id="modeBtn" class="chip" type="button" title="Switch between answering only when called by name, and answering everything">Wake word</button>
+    <button id="muteBtn" class="icon-btn" type="button" aria-pressed="false" title="Turn the microphone off / on">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path class="mic" d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z"/><path class="mic" d="M5 11a7 7 0 0 0 14 0M12 18v3"/><path class="slash" d="M4 4l16 16"/></svg>
+      <span class="sr">Microphone</span>
+    </button>
+  </div>
+</header>
+
+<section class="stage">
+  <canvas id="orb" aria-hidden="true"></canvas>
+  <p id="stateText" class="state" aria-live="polite">Connecting…</p>
+  <div class="controls">
+    <button id="stopBtn" type="button" class="ctl" title="Stop talking / cancel what Nova is doing">Stop</button>
+    <button id="standBtn" type="button" class="ctl" title="Kill switch: Nova ignores everything until woken">Stand down</button>
+  </div>
+</section>
+
+<section id="confirm" class="confirm" hidden aria-live="assertive">
+  <p class="q"><span id="confirmWho">Nova</span> wants to <strong id="confirmText"></strong></p>
+  <div class="bar"><div id="confirmBar"></div></div>
+  <div class="yn">
+    <button id="yesBtn" type="button" class="yes">Yes <kbd>Y</kbd></button>
+    <button id="noBtn" type="button" class="no">No <kbd>N</kbd></button>
+  </div>
+</section>
+
+<nav class="tabs" role="tablist">
+  <button role="tab" type="button" data-tab="chat" aria-selected="true">Chat</button>
+  <button role="tab" type="button" data-tab="activity" aria-selected="false">Activity <span class="badge" id="actBadge" hidden></span></button>
+  <button role="tab" type="button" data-tab="timers" aria-selected="false">Timers <span class="badge" id="timerBadge" hidden></span></button>
+  <button role="tab" type="button" data-tab="routines" aria-selected="false">Routines</button>
+</nav>
+
+<main>
+  <section id="tab-chat" class="panel" role="tabpanel">
+    <ol id="chat" class="chat"></ol>
+    <p class="empty" id="chatEmpty">Say “Nova, …” or type below.</p>
+  </section>
+  <section id="tab-activity" class="panel" role="tabpanel" hidden>
+    <label class="toggle"><input type="checkbox" id="showIgnored"> Show speech Nova ignored</label>
+    <ol id="activity" class="feed"></ol>
+    <p class="empty" id="actEmpty">Nothing yet. Tools Nova uses show up here.</p>
+  </section>
+  <section id="tab-timers" class="panel" role="tabpanel" hidden>
+    <ol id="timers" class="timers"></ol>
+    <p class="empty" id="timersEmpty">No timers. Try “Nova, set a timer for 10 minutes”.</p>
+  </section>
+  <section id="tab-routines" class="panel" role="tabpanel" hidden>
+    <div id="routines" class="routines"></div>
+    <p class="hint">Add your own in <code>config\local.yaml</code>, then check them with <code>python -m assistant routines</code>.</p>
+  </section>
+</main>
+
+<form id="ask" class="ask" autocomplete="off">
+  <input id="askInput" type="text" maxlength="2000" placeholder="Type to Nova…" aria-label="Type a request">
+  <button type="submit" title="Send (Enter)">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h14M13 6l6 6-6 6"/></svg>
+    <span class="sr">Send</span>
+  </button>
+</form>
+
+<div id="offline" class="offline" hidden>
+  <p id="offlineText">Nova isn't running.</p>
+  <p class="small">Start it with <code>.venv\Scripts\python -m assistant voice</code>. This window reconnects by itself.</p>
+</div>
+</body>
+</html>

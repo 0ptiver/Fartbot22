@@ -77,6 +77,10 @@ class VoiceLoop:
         self.standby = False                          # after "stand down": only "wake up" works
         self._announcements: list[str] = []           # reminders waiting for a quiet moment
         self.ctx.confirm = self._voice_confirm
+        # HUD: mic mute button and live level for the orb
+        self.mic_muted = False
+        self.mic_level = 0.0
+        self.confirm_text = ""                        # what the pending question asks
 
     @property
     def busy(self) -> bool:
@@ -86,6 +90,23 @@ class VoiceLoop:
     @property
     def speaking(self) -> bool:
         return self.busy and self._reply_started
+
+    @property
+    def state(self) -> str:
+        """One word for the HUD orb."""
+        if self.standby:
+            return "standby"
+        if self._confirm is not None:
+            return "confirm"
+        if self.speaking:
+            return "speaking"
+        if self.busy:
+            return "thinking"
+        if self.mic_muted:
+            return "muted"
+        if self.endpointer.in_speech:
+            return "listening"
+        return "idle"
 
     # --- main loop ------------------------------------------------------------
     async def run(self, max_turns: int | None = None) -> None:
@@ -104,6 +125,13 @@ class VoiceLoop:
 
     async def _open_mic_frame(self, frame: np.ndarray, t: float) -> None:
         bcfg = self.cfg.barge_in
+        self.mic_level = float(np.sqrt(np.mean(np.square(frame)))) if frame.size else 0.0
+        if self.mic_muted:
+            self.mic_level = 0.0
+            if self.endpointer.in_speech or self._stt_session is not None:
+                self.endpointer.reset()
+                self._stt_session = None
+            return
         if (not self.busy and time.perf_counter() < self._mute_until) or (self.busy and bcfg.mode == "off"):
             # Ignore the echo tail right after speaking, or everything while busy if barge-in is off.
             if self.endpointer.in_speech or self._stt_session is not None:
@@ -324,25 +352,59 @@ class VoiceLoop:
             if not started_reply:
                 self.turns_done += 1
 
-    async def _control_words(self, text: str) -> bool:
+    async def stand_down(self) -> None:
+        """Kill switch: cancel everything (speech, thinking, tools, a pending question), then
+        ignore everything except "Nova, wake up" (or the HUD's wake button)."""
+        if self._confirm is not None and not self._confirm.done():
+            self._confirm.set_result(False)
+        await self.interrupt(reason="stand down")
+        self.standby = True
+        self._follow_up_until = 0.0
+        self.on_event({"type": "standby", "on": True})
+        await self.say(f"Standing down{self._sir(',')}.")
+
+    async def resume(self) -> None:
+        if not self.standby:
+            return
+        self.standby = False
+        self.on_event({"type": "standby", "on": False})
+        await self.say(f"At your service{self._sir(',')}.")
+        if self._announcements:
+            await self.say("While you were away:")
+            await self._flush_announcements(force=True)
+
+    def answer_confirm(self, approved: bool) -> bool:
+        """The HUD's Yes/No buttons. False if nothing is waiting for an answer."""
+        if self._confirm is None or self._confirm.done():
+            return False
+        self._confirm.set_result(bool(approved))
+        return True
+
+    async def submit_text(self, text: str) -> None:
+        """A typed request from the HUD: like saying "Nova, <text>" (no name needed)."""
+        text = " ".join(text.split())[:2000]
+        if not text:
+            return
+        if await self._control_words(text, typed=True):
+            return
+        if self.busy:
+            await self.interrupt(reason="new request")
+        lat = LatencyTracker()
+        lat.mark("speech_end")
+        lat.mark("stt_done")
+        self._named = False                      # typing doesn't open a spoken follow-up window
+        self._last_request = (text, lat.marks["speech_end"])
+        self.on_event({"type": "transcript", "text": text, "typed": True})
+        self._turn = asyncio.create_task(self._reply(text, lat))
+
+    async def _control_words(self, text: str, typed: bool = False) -> bool:
         """Kill switch, standby and yes/no answers. True if the utterance was used up here."""
         if is_stand_down(text):
-            if self._confirm is not None and not self._confirm.done():
-                self._confirm.set_result(False)
-            await self.interrupt(reason="stand down")
-            self.standby = True
-            self._follow_up_until = 0.0
-            self.on_event({"type": "standby", "on": True})
-            await self.say("Standing down, sir.")
+            await self.stand_down()
             return True
         if self.standby:
-            if is_resume(text) and match_wake(text, self.cfg.wake.variants, 99)[0]:
-                self.standby = False
-                self.on_event({"type": "standby", "on": False})
-                await self.say(f"At your service{self._sir(',')}.")
-                if self._announcements:
-                    await self.say("While you were away:")
-                    await self._flush_announcements(force=True)
+            if is_resume(text) and (typed or match_wake(text, self.cfg.wake.variants, 99)[0]):
+                await self.resume()
             else:
                 self.on_event({"type": "ignored", "text": text, "reason": "standing down (say \"Nova, wake up\")"})
             return True
@@ -369,6 +431,7 @@ class VoiceLoop:
         action = self.brain.registry.describe(tool, args) if hasattr(self.brain, "registry") else tool
         loop = asyncio.get_running_loop()
         self._confirm = loop.create_future()
+        self.confirm_text = action
         self.on_event({"type": "confirm_request", "tool": tool, "input": args, "text": action})
         try:
             await self.say(f"Shall I {action}{self._sir(',')}?")
@@ -462,7 +525,7 @@ class VoiceLoop:
         while self._announcements:
             text = self._announcements.pop(0)
             self.player.play(chime())
-            await self.say(f"{who.capitalize()}, {text[0].lower()}{text[1:]}" if who else text)
+            await self.say(f"{who.capitalize()}, {text[0].lower()}{text[1:]}" if who else text, show=False)
             self._spoke_at = time.perf_counter()
 
     def _after_reply(self) -> None:
@@ -475,11 +538,11 @@ class VoiceLoop:
             self._follow_up_until = now + self.cfg.wake.follow_up_s
             self.on_event({"type": "follow_up", "seconds": self.cfg.wake.follow_up_s})
 
-    async def say(self, text: str) -> None:
+    async def say(self, text: str, show: bool = True) -> None:
         """Speak a fixed line (acknowledgements, notices)."""
         self._last_said = text
         self._reply_started = True
-        self.on_event({"type": "speak", "text": text})
+        self.on_event({"type": "speak", "text": text, "fixed": True, "show": show})
         await self._synth_and_play(text, None)
         await self.player.drain()
 

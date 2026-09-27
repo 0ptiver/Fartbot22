@@ -154,6 +154,21 @@ volume 20, sleep, which asks first). Add your own in `config/local.yaml` (exampl
 `config/local.example.yaml`), then check them with `.venv\Scripts\python -m assistant routines`.
 Routine steps follow the same safety rules as asking for each step separately.
 
+## The window (HUD)
+
+`python -m assistant voice` also opens Nova's window: the orb shows what Nova is doing
+(listening, thinking, speaking, waiting for a yes/no, standing down), and below it are the
+conversation, what Nova did (Activity), your timers (with cancel buttons) and your routines
+(one click each). You can type to Nova at the bottom. **Yes/No** buttons appear whenever Nova asks
+before doing something (or press Y / N). **Stop** (or Esc) cuts Nova off, **Stand down** is the
+kill switch, and the microphone button mutes Nova's hearing.
+
+Closed it? `.venv\Scripts\python -m assistant hud` reopens it. Don't want it?
+`voice --no-hud`, or `hud: {enabled: false}` in `config/local.yaml`.
+
+It only works on this PC: it listens on 127.0.0.1, needs a new secret key each time Nova starts,
+refuses other websites, and runs in its own browser profile with no extensions.
+
 ## Configuration
 
 Defaults live in `config/config.yaml`. **Put your own changes in `config/local.yaml`** (copy `config/local.example.yaml`). It overrides the defaults, and `git pull` never touches it. You only need to list what you change.

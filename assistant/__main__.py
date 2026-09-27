@@ -1,4 +1,4 @@
-"""Entry point: python -m assistant {serve|chat|voice|doctor|devices|models|tools|routines|secrets|audit}"""
+"""Entry point: python -m assistant {serve|chat|voice|hud|doctor|devices|models|tools|routines|secrets|audit}"""
 
 from __future__ import annotations
 
@@ -124,6 +124,18 @@ def main(argv: list[str] | None = None) -> None:
             print(f"{name:16} {reg.effective_risk(name, False).value:8} {t.description[:70]}")
         if s.brain.web_search.enabled:
             print(f"{'web_search':16} {'safe':8} (Claude server tool)")
+    elif cmd == "hud":
+        from assistant.hud.server import URL_FILE, open_window
+
+        try:
+            url = URL_FILE.read_text(encoding="utf-8").strip()
+        except OSError:
+            url = ""
+        if not url:
+            print("Nova isn't running. Start it with: .venv\\Scripts\\python -m assistant voice")
+        else:
+            open_window(url)
+            print("Opening Nova's window.")
     elif cmd == "routines":
         from assistant.core.config import load_settings
         from assistant.tools import build_registry, routines
@@ -163,6 +175,7 @@ def main(argv: list[str] | None = None) -> None:
         print("  doctor [--full]     check setup (Ollama, Claude Code, models, audio)")
         print("  spotify login|logout|status|devices   link Nova to Spotify / see its devices")
         print("  tools               list tools and risk levels")
+        print("  hud                 reopen Nova's window (while `voice` is running)")
         print("  routines            list your routines and check them for mistakes")
         print("  audit [N]           show the last N audit log entries")
         print("  secrets set NAME    store an API key in Windows Credential Manager")

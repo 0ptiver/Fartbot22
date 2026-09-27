@@ -43,3 +43,10 @@ def launch(target: str, _popen=subprocess.Popen) -> None:
 
 
 
+
+
+def launch_command(cmd: list[str], _popen=subprocess.Popen) -> None:
+    """Start a program with arguments, detached from Nova's console (no shell)."""
+    flags = (DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW) if sys.platform == "win32" else 0
+    _popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+           close_fds=True, **({"creationflags": flags} if flags else {"start_new_session": True}))

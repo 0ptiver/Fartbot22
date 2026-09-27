@@ -179,6 +179,13 @@ class ServerConfig(BaseModel):
     allowed_origins: list[str] = Field(default_factory=list)
 
 
+class HudConfig(BaseModel):
+    enabled: bool = True                # the interactive window, started with `assistant voice`
+    port: int = 8766                    # 127.0.0.1 only
+    open_window: bool = True            # open it automatically (Edge app window)
+    show_ignored: bool = False          # list speech Nova ignored in the activity feed
+
+
 class ScreenshotConfig(BaseModel):
     max_edge_px: int = 1568
     jpeg_quality: int = 80
@@ -225,6 +232,7 @@ class Settings(BaseModel):
     server: ServerConfig = Field(default_factory=ServerConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
+    hud: HudConfig = Field(default_factory=HudConfig)
     # Set a routine to null in local.yaml to switch a built-in one off.
     routines: dict[str, RoutineConfig | None] = Field(default_factory=dict)
 

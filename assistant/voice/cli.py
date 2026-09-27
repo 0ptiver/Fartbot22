@@ -139,8 +139,15 @@ async def run(args) -> None:
     except Exception as e:
         print(f"{RED}Startup failed: {e}{RESET}\nRun `python -m assistant doctor` for a full check.")
         return
-    loop = VoiceLoop(settings, brain, stt, tts, mic, player, vad, ptt,
-                     make_printer(settings.assistant.name, settings.voice.latency_report or args.debug))
+    printer = make_printer(settings.assistant.name, settings.voice.latency_report or args.debug)
+    from assistant.hud.server import Hub
+    hub = Hub()
+
+    def on_event(ev: dict) -> None:
+        printer(ev)
+        hub.publish(ev)
+
+    loop = VoiceLoop(settings, brain, stt, tts, mic, player, vad, ptt, on_event)
     from assistant.core.config import ROOT
     from assistant.core.scheduler import Scheduler
     tz = settings.assistant.timezone
@@ -149,6 +156,16 @@ async def run(args) -> None:
     loop.ctx.services["scheduler"] = scheduler
     scheduler_task = asyncio.create_task(scheduler.run())
     await loop.prewarm()
+    hud = None
+    if settings.hud.enabled and not args.wav and not args.no_hud:
+        from assistant.hud.server import start_hud
+        hud = await start_hud(settings, loop, hub, scheduler)
+        if hud is None:
+            print(f"{RED}The window (HUD) couldn't start: port {settings.hud.port} is in use. "
+                  f"Is Nova already running?{RESET}")
+        else:
+            print(f"Window: {'opening' if settings.hud.open_window else 'off'}. "
+                  "Reopen it any time with: .venv\\Scripts\\python -m assistant hud")
     name = settings.assistant.name
     if ptt:
         ptt.start()
@@ -163,6 +180,8 @@ async def run(args) -> None:
         await loop.run(max_turns=1 if args.wav else None)
     finally:
         scheduler_task.cancel()
+        if hud is not None:
+            await hud.close()
         mic.close()
         player.close()
         if ptt:
@@ -424,6 +443,7 @@ def main(argv: list[str]) -> None:
     p.add_argument("--wav", help="use a WAV file as the microphone (one turn)")
     p.add_argument("--out", help="with --wav: save the spoken reply to this WAV")
     p.add_argument("--debug", action="store_true")
+    p.add_argument("--no-hud", action="store_true", help="don't start the interactive window")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO if args.debug else logging.WARNING,
                         format="%(levelname)s %(name)s: %(message)s")

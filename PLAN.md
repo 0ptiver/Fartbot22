@@ -229,7 +229,8 @@ scripts/           # install, run, register-startup
 - [ ] MCP servers as a tool source
 
 ### Phase 5 — Desktop HUD + memory
-- [ ] Tauri HUD: orb, transcript, tool feed, confirmations, stats, latency overlay, audit log, tray
+- [x] HUD (assistant/hud/): a local web app served from inside `assistant voice` (same event loop, so it sees every voice event and presses the loop's buttons directly), shown in an Edge `--app` window with its own browser profile (no extensions, no shared cookies). Orb (colour/motion per state, reacts to mic level), live conversation, typed requests, activity feed (tools, reminders, errors, optional "ignored speech"), Yes/No confirmation card with countdown (Y/N keys), Stop / Stand down / Wake up, mic mute, wake-word vs open-mic switch, timers with live countdowns and cancel, routine buttons. `python -m assistant hud` reopens it. Security: 127.0.0.1 only, per-run random key in the URL fragment, Host + Origin checks, strict CSP (own scripts only), textContent only. Chose a web page over Tauri: nothing to compile or install on the owner's PC. Not yet tried on the PC
+- [ ] HUD extras: settings editor, audit log view, latency overlay, tray icon
 - [ ] Short-term summarization, long-term SQLite + vectors, "forget that", memory editor
 
 ### Phase 6 — Remote access
