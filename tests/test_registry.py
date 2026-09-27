@@ -138,3 +138,18 @@ def test_schema_without_properties_is_fixed(settings):
     reg = ToolRegistry(settings)
     reg.tool("bare", "x", {"type": "object"})(lambda a, c: "ok")
     assert reg.get("bare").input_schema == {"type": "object", "properties": {}}
+
+
+def test_the_prompt_only_names_tools_the_model_can_see(settings):
+    """The prompt told the model to use mouse_grid, show_numbers and dictation, which are hidden
+    from it (it can't know their arguments, so it guessed)."""
+    import re as _re
+
+    from assistant.brain.prompts import system_prompt
+    from assistant.tools import build_registry
+    reg = build_registry(settings)
+    visible = {d["name"] for d in reg.definitions()}
+    hidden = set(reg._tools) - visible
+    named = set(_re.findall(r"\b([a-z]+(?:_[a-z]+)+|[a-z]+)\b", system_prompt(settings, local=True)))
+    assert not (named & hidden - {"mouse", "subtitles", "teach", "lessons"}) , named & hidden
+    assert "(mouse" not in system_prompt(settings, local=True)
