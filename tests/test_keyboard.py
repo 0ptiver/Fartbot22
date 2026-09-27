@@ -121,3 +121,17 @@ def test_nova_hud_is_never_the_active_window():
 ])
 def test_phrases(text, grid, expected):
     assert match_intent(text, grid_visible=grid) == expected
+
+
+async def test_typing_while_novas_window_is_in_front_goes_to_your_window(settings, registry, kb, monkeypatch):
+    class Wins(FakeWindows):
+        def foreground(self):
+            return 1                                   # the Nova window (just clicked)
+
+        def focus(self, hwnd):
+            self.calls.append((hwnd, "focus"))
+            return True
+    wins = Wins(NOTEPAD)
+    monkeypatch.setattr(pc, "WINDOWS", wins)
+    res = await registry.execute("type_text", {"text": "hello"}, ToolContext(settings))
+    assert not res.is_error and wins.calls == [(5, "focus")] and kb.typed == ["hello"]

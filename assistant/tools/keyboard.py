@@ -129,6 +129,15 @@ def _into_terminal(ctx: ToolContext) -> str | None:
     return None
 
 
+def _keys_to_user_window() -> None:
+    """Keys go to the window in front. If that's Nova's own window, switch back first."""
+    from assistant.tools import pc
+    try:
+        pc.user_window_forward()
+    except ToolError:
+        pass                                   # not Windows (tests): nothing to switch
+
+
 async def _guard(ctx: ToolContext, tool: str, args: dict, risky: bool) -> None:
     """Keys into a terminal/Run box can run programs: ask first, never from a phone."""
     import asyncio
@@ -149,6 +158,7 @@ async def type_text(args: dict, ctx: ToolContext) -> str:
     if len(text) > MAX_TYPE_CHARS:
         raise ToolError(f"That's too long to type ({len(text)} characters).")
     await _guard(ctx, "type_text", args, risky=True)
+    await asyncio.to_thread(_keys_to_user_window)
     await asyncio.to_thread(KEYBOARD.type, text)
     return "Typed." if len(text) > 40 else f"Typed: {text}"
 
@@ -160,6 +170,7 @@ async def press_keys(args: dict, ctx: ToolContext) -> str:
     # Enter (or a shortcut with no modifiers other than shift) into a terminal runs what's typed.
     risky = vks[-1] == 0x0D or VK["win"] in vks and vks[-1] == VK["r"]
     await _guard(ctx, "press_keys", args, risky=risky)
+    await asyncio.to_thread(_keys_to_user_window)
     for _ in range(times):
         await asyncio.to_thread(KEYBOARD.combo, vks)
         if times > 1:

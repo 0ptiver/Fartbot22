@@ -125,12 +125,19 @@ async def video(args: dict, ctx: ToolContext, _media: MediaBackend | None = None
                 window = await asyncio.to_thread(find_video_window, media)
                 if window is None:
                     raise ToolError("I can't find a browser window with a video in it.")
-                await asyncio.to_thread(pc.WINDOWS.show, window.hwnd, "focus")
-                await asyncio.sleep(0.35)          # let it come to the front before the key
+                label = window.process.removesuffix(".exe").capitalize() or "the browser"
+                if not await asyncio.to_thread(pc.WINDOWS.focus, window.hwnd):
+                    raise ToolError(f"Windows wouldn't let me switch to {label}. Click on it once, then ask again.")
+                await asyncio.sleep(0.25)
+            if action in ("fullscreen", "exit_fullscreen"):
+                done.append(await _fullscreen(window, action == "fullscreen", ctx))
+                continue
+            if action == "mute" and await _click_button(window, ("mute", "unmute"), (), ctx):
+                done.append("mute toggled")
+                continue
             await asyncio.to_thread(pc.WINDOWS.press, pc.KEYS[KEY_ACTIONS[action]])
             await asyncio.sleep(0.15)
-            done.append({"fullscreen": "fullscreen", "exit_fullscreen": "out of fullscreen",
-                         "mute": "mute toggled", "forward": "skipped ahead 10 seconds",
+            done.append({"mute": "mute toggled", "forward": "skipped ahead 10 seconds",
                          "back": "went back 10 seconds"}[action])
             continue
         if media is None:
@@ -157,6 +164,51 @@ async def video(args: dict, ctx: ToolContext, _media: MediaBackend | None = None
     what = f": {media.title}" if media and media.title else ""
     text = ", ".join(done)
     return text[0].upper() + text[1:] + what + "."
+
+
+async def _click_button(window, names: tuple[str, ...], avoid: tuple[str, ...], ctx: ToolContext) -> bool:
+    """Click the player's own button (found by name, like 'Full screen (f)'). The F key only
+    works when the page has the keyboard (not the search box), a button always does."""
+    from assistant.tools import grid, uia
+    try:
+        elements = await asyncio.to_thread(uia.UIA.elements, window.hwnd)
+    except Exception:
+        return False
+    for e in elements:
+        n = uia._norm(e.name).replace("fullscreen", "full screen")
+        if e.kind == "button" and any(n.startswith(x) for x in names) and not any(a in n for a in avoid):
+            g = grid.controller(ctx)
+            await asyncio.to_thread(g.mouse.move, e.rect.x + e.rect.w // 2, e.rect.y + e.rect.h // 2)
+            await asyncio.to_thread(g.mouse.click, "left", False)
+            return True
+    return False
+
+
+async def _fullscreen(window, want: bool, ctx: ToolContext) -> str:
+    """Full screen on/off, checked afterwards: never claim it worked when it didn't."""
+    from assistant.tools import pc
+
+    def state() -> bool:
+        return pc.WINDOWS.is_fullscreen(window.hwnd)
+    if await asyncio.to_thread(state) == want:
+        return "already full screen" if want else "not full screen"
+    attempts = ([lambda: _click_button(window, ("full screen",), ("exit",), ctx), lambda: _press("f")]
+                if want else [lambda: _press("escape"), lambda: _click_button(window, ("exit full screen",), (), ctx)])
+    for attempt in attempts:
+        if await attempt() is False:
+            continue
+        for _ in range(8):                                 # the page animates into full screen
+            await asyncio.sleep(0.15)
+            if await asyncio.to_thread(state) == want:
+                return "full screen" if want else "out of full screen"
+    raise ToolError("I tried, but the video didn't go full screen. Click on the video once, then ask again."
+                    if want else "I couldn't get it out of full screen. Press Esc.")
+
+
+async def _press(key: str) -> bool:
+    from assistant.tools import pc
+    await asyncio.to_thread(pc.WINDOWS.press, pc.KEYS[key])
+    return True
 
 
 def register(reg: ToolRegistry) -> None:

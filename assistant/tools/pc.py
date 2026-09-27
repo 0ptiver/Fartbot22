@@ -186,14 +186,66 @@ class WindowBackend:
             user32.PostMessageW(hwnd, 0x0010, 0, 0)            # WM_CLOSE: the app can ask to save
             return
         if how == "focus":
-            if user32.IsIconic(hwnd):
-                user32.ShowWindow(hwnd, 9)
-            # Windows only lets the foreground app change focus; a tap of Alt allows it.
-            user32.keybd_event(0x12, 0, 0, 0)
-            user32.keybd_event(0x12, 0, 2, 0)
-            user32.SetForegroundWindow(hwnd)
+            self.focus(hwnd)
             return
         user32.ShowWindow(hwnd, codes[how])
+
+    def focus(self, hwnd: int) -> bool:
+        """Bring a window to the front and give it the keyboard. Windows normally refuses this
+        to background programs (owner's case: 'full screen my video' pressed F in the wrong
+        window), so: tap Alt, borrow the foreground window's input queue, and as a last resort
+        minimise/restore. True if it really is in front afterwards."""
+        _need_windows()
+        import ctypes
+        import time as _t
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+        k32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        if user32.GetForegroundWindow() == hwnd:
+            return True
+        if user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, 9)
+        fg = user32.GetForegroundWindow()
+        me, them = k32.GetCurrentThreadId(), user32.GetWindowThreadProcessId(fg, None)
+        attached = bool(them and them != me and user32.AttachThreadInput(me, them, True))
+        try:
+            user32.keybd_event(0x12, 0, 0, 0)                  # Alt tap: allows a focus change
+            user32.keybd_event(0x12, 0, 2, 0)
+            user32.BringWindowToTop(hwnd)
+            user32.SetForegroundWindow(hwnd)
+            user32.SetFocus(hwnd)
+        finally:
+            if attached:
+                user32.AttachThreadInput(me, them, False)
+        _t.sleep(0.08)
+        if user32.GetForegroundWindow() != hwnd:
+            user32.ShowWindow(hwnd, 6)                         # minimise + restore: always activates
+            user32.ShowWindow(hwnd, 9)
+            user32.SetForegroundWindow(hwnd)
+            _t.sleep(0.15)
+        return user32.GetForegroundWindow() == hwnd
+
+    def foreground(self) -> int:
+        _need_windows()
+        import ctypes
+        return int(ctypes.windll.user32.GetForegroundWindow() or 0)  # type: ignore[attr-defined]
+
+    def is_fullscreen(self, hwnd: int) -> bool:
+        """Does the window cover its whole screen (a video in full screen, a game)?"""
+        _need_windows()
+        import ctypes
+        from ctypes import wintypes
+
+        class MONITORINFO(ctypes.Structure):
+            _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
+                        ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+        left, top, w, h = self.rect(hwnd)
+        info = MONITORINFO()
+        info.cbSize = ctypes.sizeof(MONITORINFO)
+        if not user32.GetMonitorInfoW(user32.MonitorFromWindow(hwnd, 2), ctypes.byref(info)):
+            return False
+        m = info.rcMonitor
+        return left <= m.left and top <= m.top and left + w >= m.right and top + h >= m.bottom
 
     def active(self) -> Win | None:
         """The window the user is working in: the foreground one, unless that's Nova's own
@@ -268,6 +320,15 @@ def active_window() -> Win:
     return w
 
 
+def user_window_forward() -> Win | None:
+    """Before typing or pressing keys: if Nova's own window is in front (you just clicked it),
+    give the keyboard back to the window you were working in."""
+    w = WINDOWS.active()
+    if w is not None and hasattr(WINDOWS, "foreground") and WINDOWS.foreground() != w.hwnd:
+        WINDOWS.focus(w.hwnd)
+    return w
+
+
 def _find_window(app: str) -> Win:
     want = app.lower().strip()
     if want in THIS:
@@ -294,7 +355,12 @@ def window_control(args: dict, ctx: ToolContext) -> str:
     if not args.get("app"):
         raise ToolError("Which app?")
     w = _find_window(args["app"])
-    WINDOWS.show(w.hwnd, action)
+    if action == "focus":
+        if not WINDOWS.focus(w.hwnd):
+            raise ToolError(f"Windows wouldn't let me switch to {w.process.removesuffix('.exe') or w.title}. "
+                            "Click on it once, then ask again.")
+    else:
+        WINDOWS.show(w.hwnd, action)
     label = w.process.removesuffix(".exe") or w.title
     return {"focus": f"Switched to {label}.", "minimize": f"Minimized {label}.",
             "maximize": f"Maximized {label}.", "restore": f"Restored {label}.",

@@ -71,6 +71,10 @@ class FakeWindows:
     def show(self, hwnd, how):
         self.calls.append((hwnd, how))
 
+    def focus(self, hwnd):
+        self.calls.append((hwnd, "focus"))
+        return True
+
     def show_desktop(self):
         self.calls.append("desktop")
 
@@ -140,3 +144,9 @@ async def test_press_key_focuses_the_app_first(settings, registry, wins, monkeyp
     assert bad.is_error and pressed == [0x46]                  # only the allowlisted keys
     remote = await registry.execute("press_key", {"key": "space"}, ToolContext(settings, remote=True))
     assert remote.is_error and "blocked" in remote.content
+
+
+def test_switching_that_windows_blocks_is_reported(settings, wins):
+    wins.focus = lambda hwnd: False
+    with pytest.raises(ToolError, match="wouldn't let me switch"):
+        pc.window_control({"action": "focus", "app": "chrome"}, ToolContext(settings))

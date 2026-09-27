@@ -257,6 +257,7 @@ scripts/           # install, run, register-startup
 - [x] No more silent freezes: every tool has a time limit (30 s default; long ones listed in registry.TOOL_TIMEOUTS) and reports "took too long"; Ollama timeout 60 -> 30 s; if nothing has been said 1.8 s after a request, "One moment, sir."; a soft tick the moment a request is accepted (voice.ack_sound)
 - [x] Plain "pause/resume/skip/previous" act on whatever is actually playing (media sessions: Spotify, YouTube, any player; media key fallback) instead of always Spotify
 - [x] "No, I meant X" / "I said X" is handled as X
+- [x] Owner: "when I tell him to full screen my video or things like that he doesn't". Causes: Windows blocks background programs from switching windows, so F went to whichever window was in front; and F only works when the page (not YouTube's search box) has the keyboard; and Nova reported success without checking. Now: WindowBackend.focus (Alt tap + AttachThreadInput + minimise/restore fallback, verified); video full screen clicks the player's own "Full screen" button (UI Automation) with F as backup and checks the window really covers the screen (says so if not); mute clicks "Mute"; "switch to X" reports when Windows refuses; typing/keys first return the keyboard to your window if Nova's window is in front
 - [x] Grid/numbers instructions spoken once per session, then just "Grid on." / "Numbers on."
 
 ### Phase 8 — Unique features (owner picked 3 of my ideas)

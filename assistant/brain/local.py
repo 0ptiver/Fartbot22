@@ -412,7 +412,7 @@ class _Round:
 
 
 _CORRECTION = re.compile(r"^\s*(?:no[,.!]?\s+|nope[,.!]?\s+|sorry[,.!]?\s+|actually[,.!]?\s+)*"
-                         r"(?:i meant|i said|i mean|make (?:that|it))\s+(.+?)\s*$", re.I)
+                         r"(?:i meant|i said|i mean)\s+(.+?)\s*$", re.I)
 
 _PROMISE = re.compile(
     r"\b(i'?ll|i will|let me|on it|one moment|give me a moment|checking|i'?m going to|"

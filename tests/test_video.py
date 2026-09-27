@@ -21,8 +21,11 @@ class FakeMedia:
 
 
 class FakeWindows:
-    def __init__(self, wins):
-        self.wins, self.calls = wins, []
+    """Pressing F (or clicking the player's button) makes the video full screen; Esc undoes it."""
+
+    def __init__(self, wins, focus_ok=True, f_works=True):
+        self.wins, self.calls, self.full = wins, [], False
+        self.focus_ok, self.f_works = focus_ok, f_works
 
     def list(self):
         return self.wins
@@ -30,8 +33,19 @@ class FakeWindows:
     def show(self, hwnd, how):
         self.calls.append(("show", hwnd, how))
 
+    def focus(self, hwnd):
+        self.calls.append(("show", hwnd, "focus"))
+        return self.focus_ok
+
+    def is_fullscreen(self, hwnd):
+        return self.full
+
     def press(self, vk):
         self.calls.append(("press", vk))
+        if vk == pc.KEYS["f"] and self.f_works:
+            self.full = not self.full
+        if vk == pc.KEYS["escape"]:
+            self.full = False
 
 
 YT = V.Media(0, "308046B0AF4A39CB", "Streamer Gets STALKED by Lil Vape!", "MoreCrown", "paused")
@@ -46,6 +60,8 @@ def wins(monkeypatch):
     fake = FakeWindows(list(WINDOWS))
     monkeypatch.setattr(pc, "WINDOWS", fake)
     monkeypatch.setattr(V.asyncio, "sleep", _no_sleep)
+    from assistant.tools import uia
+    monkeypatch.setattr(uia, "UIA", type("NoUIA", (), {"elements": lambda s, h: []})())   # no buttons: keys
     return fake
 
 
@@ -59,7 +75,7 @@ async def test_owners_case_fullscreen_then_play(settings, wins):
     assert intent == ("video", {"actions": ["fullscreen", "play"]})
     media = FakeMedia([SPOTIFY, YT])
     out = await V.video(intent[1], ToolContext(settings), _media=media)
-    assert out == "Fullscreen, playing: Streamer Gets STALKED by Lil Vape!."
+    assert out == "Full screen, playing: Streamer Gets STALKED by Lil Vape!."
     assert wins.calls[:2] == [("show", 3, "focus"), ("press", pc.KEYS["f"])]   # Firefox, not Nova
     assert media.commands == [("Streamer Gets STALKED by Lil Vape!", "play")]    # not Spotify
 
@@ -124,4 +140,42 @@ async def test_missing_winrt_piece_degrades_instead_of_crashing(settings, wins, 
     pressed = []
     monkeypatch.setattr(music, "press_media_key", pressed.append)
     out = await V.video({"actions": ["fullscreen", "play"]}, ToolContext(settings), _media=V.MediaBackend())
-    assert out.startswith("Fullscreen") and pressed == ["play_pause"]
+    assert out.startswith("Full screen") and pressed == ["play_pause"]
+
+
+async def test_fullscreen_clicks_the_players_button_and_checks(settings, wins, monkeypatch):
+    """Owner's case: 'full screen my video' did nothing (F went to the search box / wrong window)
+    but Nova said it worked. Now the player's own button is clicked and the result checked."""
+    from assistant.tools import grid as G, uia
+    from tests.test_grid import FakeMouse, FakeOverlay
+    wins.f_works = False                                           # F lands in the search box
+    button = uia.Element("Full screen (f)", "button", G.Region(1500, 900, 40, 30))
+    monkeypatch.setattr(uia, "UIA", type("U", (), {"elements": lambda s, h: [
+        uia.Element("Exit full screen (f)", "button", G.Region(0, 0, 1, 1)) if wins.full else button]})())
+    mouse = FakeMouse()
+    real_click = mouse.click
+
+    def click(button="left", double=False):
+        real_click(button, double)
+        wins.full = True                                           # the player goes full screen
+    mouse.click = click
+    ctx = ToolContext(settings, services={"grid": G.GridController(mouse=mouse, overlay=FakeOverlay())})
+    out = await V.video({"actions": ["fullscreen"]}, ctx, _media=FakeMedia([YT]))
+    assert out.startswith("Full screen") and mouse.log[0] == ("move", 1520, 915)
+    out = await V.video({"actions": ["fullscreen"]}, ctx, _media=FakeMedia([YT]))
+    assert out.startswith("Already full screen")
+    out = await V.video({"actions": ["exit_fullscreen"]}, ctx, _media=FakeMedia([YT]))
+    assert out.startswith("Out of full screen") and not wins.full
+
+
+async def test_fullscreen_that_fails_says_so(settings, wins):
+    wins.f_works = False                                           # no button, F does nothing
+    with pytest.raises(ToolError, match="didn't go full screen"):
+        await V.video({"actions": ["fullscreen"]}, ToolContext(settings), _media=FakeMedia([YT]))
+
+
+async def test_window_that_wont_come_forward_says_so(settings, wins):
+    wins.focus_ok = False
+    with pytest.raises(ToolError, match="wouldn't let me switch"):
+        await V.video({"actions": ["fullscreen"]}, ToolContext(settings), _media=FakeMedia([YT]))
+    assert not any(c[0] == "press" for c in wins.calls)            # never presses keys blind
