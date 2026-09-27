@@ -422,7 +422,7 @@ def everyday_intent(t: str) -> tuple[str, dict] | None:
         return "look_at_screen", {"focus": t}
     page = r"(?:this|the|that) (?:page|article|site|website|web page|post|thread|video|story)"
     if re.fullmatch(r"(?:summari[sz]e|sum up|give me (?:a )?(?:summary|tl ?dr|rundown|quick summary) of|tl ?dr"
-                    r"|explain|read me|what(?:'?s| is)(?: the gist of)?) " + page + r"(?: about)?(?: for me)?"
+                    r"|explain|read me|read|what(?:'?s| is)(?: the gist of)?) " + page + r"(?: about)?(?: for me)?"
                     r"|(?:summari[sz]e|sum up|tl ?dr)(?: it| this| that)?|sum (?:it|this|that) up|what(?:'?s| is) (?:the )?(?:gist|summary)", t):
         return "summarize_page", {}
     if m := re.fullmatch(r"(?:what|who|when|where|how|why|which|does|is|are)(?: .+)? (?:on|in) " + page + r"(?: say)?"
