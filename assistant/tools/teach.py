@@ -520,10 +520,14 @@ def register(reg: ToolRegistry) -> None:
                  "name": {"type": "string", "maxLength": 60}},
               "required": ["action"], "additionalProperties": False}, risk=Risk.SAFE, category="teach")(teach)
     reg.tool("replay_click", "(Used by learned tasks.) Click a recorded button in a recorded app.",
-             {"type": "object"}, risk=Risk.SAFE, category="teach")(replay_click)
+             {"type": "object", "properties": {
+                 "button": {"type": "string"}, "double": {"type": "boolean"}, "window": {"type": ["object", "null"]},
+                 "element": {"type": ["object", "null"]}, "rel": {"type": ["array", "null"]},
+                 "abs": {"type": "array"}, "drag_to": {"type": "array"}},
+              "required": ["abs"]}, risk=Risk.SAFE, category="teach", internal=True)(replay_click)
     reg.tool("replay_keys", "(Used by learned tasks.) Type recorded keys.",
              {"type": "object", "properties": {"keys": {"type": "array"}, "shows": {"type": "string"}},
-              "required": ["keys"]}, risk=Risk.SAFE, category="teach")(replay_keys)
+              "required": ["keys"]}, risk=Risk.SAFE, category="teach", internal=True)(replay_keys)
 
 
 def teach_intent(t: str, teacher: Teacher | None = None) -> tuple[str, dict] | None:

@@ -110,3 +110,31 @@ def test_local_config_overrides(tmp_path):
     local.write_text("voice:\n  input_device: 3\n")
     s = load_settings(base, local)
     assert s.voice.input_device == 3 and s.voice.mode == "ptt"
+
+
+def test_every_tool_schema_is_one_ollama_accepts(settings):
+    """Owner's case: one tool schema without "properties" made Ollama reject the whole list
+    ("properties must be an object") and Nova couldn't start."""
+    from assistant.tools import build_registry
+    settings.brain.backend = "local"
+    reg = build_registry(settings)
+
+    def check(schema, where):
+        if schema.get("type") == "object" or schema.get("type") == ["object", "null"]:
+            assert isinstance(schema.get("properties", {}), dict), where
+        for key, sub in (schema.get("properties") or {}).items():
+            assert isinstance(sub, dict), f"{where}.{key}"
+            check(sub, f"{where}.{key}")
+    for d in reg.definitions():
+        assert d["input_schema"].get("type") == "object", d["name"]
+        assert isinstance(d["input_schema"].get("properties"), dict), d["name"]
+        check(d["input_schema"], d["name"])
+    names = {d["name"] for d in reg.definitions()}
+    assert "replay_click" not in names and "replay_keys" not in names       # internal: never offered
+
+
+def test_schema_without_properties_is_fixed(settings):
+    from assistant.tools.registry import ToolRegistry
+    reg = ToolRegistry(settings)
+    reg.tool("bare", "x", {"type": "object"})(lambda a, c: "ok")
+    assert reg.get("bare").input_schema == {"type": "object", "properties": {}}

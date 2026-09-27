@@ -56,6 +56,8 @@ class Tool:
     category: str = "general"
     # For confirmations: args -> what will happen, e.g. "put the PC to sleep".
     describe: Callable[[dict[str, Any]], str] | None = None
+    # Internal tools (used by routines/lessons) are never offered to the model.
+    internal: bool = False
 
     def definition(self) -> dict[str, Any]:
         return {
@@ -118,6 +120,10 @@ class ToolRegistry:
         if tool.name in self._tools:
             raise ValueError(f"duplicate tool name: {tool.name}")
         jsonschema.Draft202012Validator.check_schema(tool.input_schema)
+        # Ollama refuses the whole tool list if any object schema lacks "properties"
+        # (owner's case: Nova couldn't start). Normalise instead of trusting every tool.
+        if tool.input_schema.get("type") == "object" and not isinstance(tool.input_schema.get("properties"), dict):
+            tool.input_schema = {**tool.input_schema, "properties": {}}
         self._tools[tool.name] = tool
         return tool
 
@@ -129,11 +135,12 @@ class ToolRegistry:
         risk: Risk = Risk.SAFE,
         category: str = "general",
         describe: Callable[[dict[str, Any]], str] | None = None,
+        internal: bool = False,
     ) -> Callable[[Handler], Handler]:
         schema = input_schema or {"type": "object", "properties": {}}
 
         def deco(fn: Handler) -> Handler:
-            self.register(Tool(name, description, schema, risk, fn, category, describe))
+            self.register(Tool(name, description, schema, risk, fn, category, describe, internal))
             return fn
 
         return deco
@@ -158,7 +165,7 @@ class ToolRegistry:
     def definitions(self) -> list[dict[str, Any]]:
         # Deterministic order keeps the prompt-cache prefix stable.
         return [self._tools[n].definition() for n in self.names()
-                if self.effective_risk(n, remote=False) != Risk.BLOCKED]
+                if self.effective_risk(n, remote=False) != Risk.BLOCKED and not self._tools[n].internal]
 
     # --- policy -------------------------------------------------------------
     def effective_risk(self, name: str, remote: bool) -> Risk:
