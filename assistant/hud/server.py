@@ -70,6 +70,8 @@ def status(loop, settings: Settings) -> dict[str, Any]:
     return {"type": "status", "state": loop.state, "level": round(min(loop.mic_level * 6, 1.0), 3),
             "standby": loop.standby, "muted": loop.mic_muted, "mode": settings.voice.mode,
             "dictation": bool(getattr(loop, "dictation", False)),
+            "subtitles": bool(getattr(getattr(loop, "ctx", None), "services", {}).get("subtitles") and
+                              loop.ctx.services["subtitles"].on),
             "confirm": pending}
 
 
@@ -183,6 +185,17 @@ def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=Non
                 except Exception as e:
                     await ws_send({"type": "toast", "text": f"Couldn't change the voice: {e}"})
             spawn(voice_job())
+        elif kind == "subtitles":
+            subs = getattr(getattr(loop, "ctx", None), "services", {}).get("subtitles")
+            if subs is None:
+                await ws_send({"type": "toast", "text": "Subtitles only work on Windows, in voice mode."})
+            else:
+                async def subs_job() -> None:
+                    try:
+                        await (subs.start() if msg.get("on") else subs.stop())
+                    except Exception as e:
+                        await ws_send({"type": "toast", "text": str(e)})
+                spawn(subs_job())
         elif kind == "voice_get":
             await ws_send(voice_info(loop))
         elif kind == "mem_add" and memory is not None and isinstance(msg.get("text"), str):

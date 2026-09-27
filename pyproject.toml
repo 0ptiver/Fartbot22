@@ -34,6 +34,7 @@ dependencies = [
     "livekit>=1.0",
     "send2trash>=1.8",
     "pystray>=0.19; sys_platform == 'win32'",   # the tray icon
+    "soundcard>=0.4.6; sys_platform == 'win32'",   # live subtitles: record what the PC plays
     # Which video/music is playing (the list Windows' volume pop-up shows), for exact play/pause.
     # Plus the namespaces its results use: without Foundation.Collections, get_sessions() fails
     # (owner's case). ("[all]" would pull ~85 packages.)

@@ -222,6 +222,14 @@ class TkOverlay:
         if self._thread and self._thread.is_alive():
             self._q.put(("hide", None))
 
+    def captions(self, text: str, english: str = "", partial: bool = False) -> None:
+        self._start()
+        self._q.put(("captions", (text, english, partial)))
+
+    def hide_captions(self) -> None:
+        if self._thread and self._thread.is_alive():
+            self._q.put(("captions_hide", None))
+
     def _run(self) -> None:
         try:
             _dpi_aware()
@@ -290,11 +298,49 @@ class TkOverlay:
             root.attributes("-topmost", True)
             self._click_through(root)
 
+        cc: dict = {}
+
+        def draw_captions(text: str, english: str, partial: bool) -> None:
+            if "win" not in cc:                        # the caption box: made once, reused
+                win = tk.Toplevel(root)
+                win.overrideredirect(True)
+                win.attributes("-topmost", True)
+                win.attributes("-alpha", 0.88)
+                win.configure(bg="#0b1020")
+                wrap = int(root.winfo_screenwidth() * 0.55)
+                top = tk.Label(win, bg="#0b1020", fg="#9fb0c8", font=("Segoe UI", 12), wraplength=wrap, justify="center")
+                main = tk.Label(win, bg="#0b1020", fg="#ffffff", font=("Segoe UI", 17, "bold"), wraplength=wrap,
+                                justify="center")
+                top.pack(padx=18, pady=(10, 0))
+                main.pack(padx=18, pady=(2, 12))
+                cc.update(win=win, top=top, main=main)
+            win, top, main = cc["win"], cc["top"], cc["main"]
+            if english:                                # original small on top, English big below
+                top.configure(text=text)
+                top.pack(padx=18, pady=(10, 0), before=main)
+                main.configure(text=english, fg="#ffffff", font=("Segoe UI", 17, "bold"))
+            else:
+                top.pack_forget()
+                main.configure(text=text, fg="#b8c4d6" if partial else "#ffffff",
+                               font=("Segoe UI", 17, "italic" if partial else "bold"))
+            win.update_idletasks()
+            w, h = win.winfo_reqwidth(), win.winfo_reqheight()
+            sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+            win.geometry(f"{w}x{h}+{(sw - w) // 2}+{sh - h - 110}")
+            win.deiconify()
+            win.lift()
+            self._click_through(win)
+
         def poll() -> None:
             try:
                 while True:
                     cmd, arg = self._q.get_nowait()
-                    if cmd == "labels":
+                    if cmd == "captions":
+                        draw_captions(*arg)
+                    elif cmd == "captions_hide":
+                        if "win" in cc:
+                            cc["win"].withdraw()
+                    elif cmd == "labels":
                         draw_labels(*arg)
                     elif cmd == "show":
                         draw(*arg)

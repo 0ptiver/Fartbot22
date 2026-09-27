@@ -64,16 +64,27 @@ class WhisperSTT(STTProvider):
         async with self._lock:
             return await asyncio.to_thread(self._transcribe, audio)
 
-    def _transcribe(self, audio: np.ndarray) -> Transcript:
+    async def transcribe_any(self, audio: np.ndarray) -> Transcript:
+        """Any language, detected (for subtitles of what the PC is playing)."""
+        if self.model is None:
+            await self.load()
+        if audio.size < 1600:
+            return Transcript("")
+        async with self._lock:
+            return await asyncio.to_thread(self._transcribe, audio, None, None)
+
+    _SAME = object()
+
+    def _transcribe(self, audio: np.ndarray, language=_SAME, hotwords=_SAME) -> Transcript:
         audio = normalize(audio)
         segments, info = self.model.transcribe(
             audio,
             beam_size=self.cfg.beam_size,
-            language=self.cfg.language,
+            language=self.cfg.language if language is self._SAME else language,
             condition_on_previous_text=False,
             without_timestamps=True,
             vad_filter=False,  # we already ran Silero VAD
-            hotwords=self.cfg.hotwords,
+            hotwords=self.cfg.hotwords if hotwords is self._SAME else hotwords,
         )
         # Whisper's own rule: only drop a segment when it's both "probably silence"
         # and low-confidence. (Dropping on no_speech_prob alone loses quiet speech.)

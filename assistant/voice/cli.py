@@ -167,6 +167,9 @@ async def run(args) -> int:
     watchers = Watchers(notify=loop.announce)
     loop.ctx.services["watchers"] = watchers
     watchers_task = asyncio.create_task(watchers.run())
+    subtitles = make_subtitles(settings, loop, stt)
+    if subtitles is not None:
+        loop.ctx.services["subtitles"] = subtitles
     await loop.prewarm()
     hud = None
     if settings.hud.enabled and not args.wav and not args.no_hud:
@@ -220,6 +223,8 @@ async def run(args) -> int:
     finally:
         scheduler_task.cancel()
         watchers_task.cancel()
+        if subtitles is not None and subtitles.on:
+            await subtitles.stop()
         if tray_task is not None:
             tray_task.cancel()
         if tray is not None:
@@ -236,6 +241,21 @@ async def run(args) -> int:
         player.save(args.out)
         print(f"Saved reply audio to {args.out}")
     return exit_code["code"] or 0
+
+
+def make_subtitles(settings, loop, stt):
+    """Live subtitles of the PC's sound (off until asked for). None where it can't work."""
+    if sys.platform != "win32" or not hasattr(stt, "transcribe_any"):
+        return None
+    from assistant.tools.grid import controller
+    from assistant.voice.models import fetch_silero
+    from assistant.voice.subtitles import Subtitles, Translator
+    from assistant.voice.vad import SileroVAD
+
+    overlay = controller(loop.ctx).overlay                  # shares the grid's overlay thread
+    translate = Translator(settings) if settings.brain.backend == "local" else None
+    return Subtitles(stt.transcribe_any, SileroVAD(fetch_silero()), overlay.captions, overlay.hide_captions,
+                     translate=translate, nova_speaking=lambda: loop.speaking)
 
 
 def list_devices() -> None:

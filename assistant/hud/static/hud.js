@@ -237,7 +237,7 @@ const LABEL = {
 };
 function status(ev) {
   S.state = ev.state; S.level = ev.level || 0; S.mode = ev.mode;
-  S.standby = ev.standby; S.muted = ev.muted;
+  S.standby = ev.standby; S.muted = ev.muted; S.subs = !!ev.subtitles;
   if (ev.confirm && !S.confirmShown) showConfirm(ev.confirm, false);
   if (!ev.confirm && S.confirmShown) hideConfirm();
   renderState();
@@ -249,6 +249,7 @@ function renderState() {
   const stand = $("standBtn");
   stand.textContent = S.standby ? "Wake up" : "Stand down";
   stand.classList.toggle("wake", !!S.standby);
+  $("ccBtn").setAttribute("aria-pressed", String(!!S.subs));
   const open = S.mode === "open_mic";
   $("modeBtn").textContent = open ? "Open mic" : "Wake word";
   $("modeBtn").classList.toggle("open", open);
@@ -474,6 +475,7 @@ function init() {
   $("noBtn").onclick = () => answer(false);
   $("stopBtn").onclick = () => send({ type: "stop" });
   $("brainBtn").onclick = () => showBrain($("brainView").hidden);
+  $("ccBtn").onclick = () => send({ type: "subtitles", on: !S.subs });
   $("standBtn").onclick = () => send({ type: S.standby ? "resume" : "stand_down" });
   $("muteBtn").onclick = () => send({ type: "mute", on: !S.muted });
   $("modeBtn").onclick = () => send({ type: "mode", mode: S.mode === "open_mic" ? "wake" : "open_mic" });
