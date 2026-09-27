@@ -273,3 +273,48 @@ async def test_anyone_can_say_stop_but_strangers_cannot_ask(settings, registry, 
     loop, events = talking_loop(settings, registry, tmp_path / "b", 0.2, "what time is it")
     await run_with_story(loop)
     assert "It is noon, sir." not in loop.tts.spoken and "The end." in loop.tts.spoken
+
+
+# --- owner: "he can't even take simple requests like stand down, he's straight up ignoring me" ---
+def lock_loop(settings, registry, tmp_path, cos, say, script=()):
+    from tests.test_barge import make
+    loop, events = make(settings, registry, list(script) or [text_msg("It is noon, sir.")], [
+        ("say", say, 10), ("quiet", 20), ("until", lambda l: l.turns_done >= 1 and not l.busy)], tts=FakeTTS())
+    lock = VP.VoiceLock(tmp_path / "vp.json", FixedEncoder(cos))
+    lock.prints.add([OWNER])
+    lock.set(on=True, threshold=0.75)
+    loop.lock = loop.ctx.services["voicelock"] = lock
+    return loop, events
+
+
+async def test_stand_down_always_works(settings, registry, tmp_path):
+    """A voice the lock doesn't recognise (a new headset) can still stand Nova down."""
+    loop, events = lock_loop(settings, registry, tmp_path, 0.3, "Nova, stand down")
+    await loop.run()
+    assert loop.standby
+
+
+async def test_a_near_miss_is_said_not_silently_ignored(settings, registry, tmp_path):
+    loop, events = lock_loop(settings, registry, tmp_path, 0.66, "Nova, what time is it")
+    await loop.run()
+    assert any("didn't recognise your voice" in s for s in loop.tts.spoken)
+    [ev] = [e for e in events if e["type"] == "ignored"]
+    assert ev["voice"] and ev["near"] and ev["score"] == 0.66 and ev["threshold"] == 0.75
+
+
+async def test_strangers_far_from_the_owner_stay_quiet(settings, registry, tmp_path):
+    loop, events = lock_loop(settings, registry, tmp_path, 0.2, "Nova, what time is it")
+    await loop.run()
+    assert loop.tts.spoken == []                       # game chat: no "didn't recognise you" every time
+
+
+async def test_that_was_me_learns_the_voice_and_does_it(settings, registry, tmp_path):
+    loop, events = lock_loop(settings, registry, tmp_path, 0.66, "Nova, what time is it",
+                             [text_msg("It is noon, sir.")])
+    await loop.run()
+    assert "I'll recognise your voice" in await loop.accept_rejected()
+    if loop._turn:
+        await loop._turn
+    assert "It is noon, sir." in loop.tts.spoken
+    assert len(loop.lock.prints.prints) == 2                 # the new microphone's print, numbers only
+    assert "There's nothing" in await loop.accept_rejected()  # only once

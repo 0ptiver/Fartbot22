@@ -261,6 +261,12 @@ scripts/           # install, run, register-startup
 - [x] Owner: "when I tell him to full screen my video or things like that he doesn't". Causes: Windows blocks background programs from switching windows, so F went to whichever window was in front; and F only works when the page (not YouTube's search box) has the keyboard; and Nova reported success without checking. Now: WindowBackend.focus (Alt tap + AttachThreadInput + minimise/restore fallback, verified); video full screen clicks the player's own "Full screen" button (UI Automation) with F as backup and checks the window really covers the screen (says so if not); mute clicks "Mute"; "switch to X" reports when Windows refuses; typing/keys first return the keyboard to your window if Nova's window is in front
 - [x] Grid/numbers instructions spoken once per session, then just "Grid on." / "Numbers on."
 
+### Fix: "he can't even take simple requests like stand down, he's straight up ignoring me"
+- [x] Likely cause: voice lock is on (every screenshot shows the pill) and was learned on the old Fifine mic; with the Logitech headset the owner's voice can score under the bar and everything was dropped silently (only visible with "show ignored speech")
+- [x] Stand down / stop / cancel always pass the voice lock (safety words)
+- [x] A refused voice within 0.15 of the bar: Nova says "Sorry, I didn't recognise your voice" (at most every 90 s), the Home live feed shows it with a "That was me" button, and Activity always lists it. Far-off voices (game chat) stay silent
+- [x] "That was me" (window only, so strangers can't use it): adds that recording's voiceprint (numbers only; e.g. the new headset) and does what was asked (`VoiceLoop.accept_rejected`, `VoiceLock.adopt`)
+
 ### Fix: "you broke him" (screenshots: "I cannot open Edge or any browser", "I cannot directly navigate to kbb.com", "Pause the video and open spotify" -> "Sorry, I wasn't able to do that")
 - [x] Root cause: every feature added tools; at 54 the 4B model stopped calling them and claimed or refused instead. `tools.MODEL_HIDDEN` hides 23 tools that are said directly or rarely needed (still run by the fast path, routines, the window): the model now picks from 31
 - [x] Compound commands split into direct commands when every part is known ("pause the video and open spotify", "open steam and discord" reusing the verb, up to 3 parts); single-intent phrases ("open kbb.com and search for X", "full screen the video and play it") stay whole

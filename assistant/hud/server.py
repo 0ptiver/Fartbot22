@@ -302,6 +302,10 @@ def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=Non
                     if res.is_error:
                         await ws_send({"type": "toast", "text": str(res.content)})
                 spawn(media_job())
+        elif kind == "voice_accept" and hasattr(loop, "accept_rejected"):
+            async def accept_job() -> None:
+                await ws_send({"type": "toast", "text": await loop.accept_rejected()})
+            spawn(accept_job())
         elif kind == "voice_get":
             await ws_send(voice_info(loop))
         elif isinstance(kind, str) and kind.startswith("phone_") and phone is not None:

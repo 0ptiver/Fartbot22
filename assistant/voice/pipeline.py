@@ -79,6 +79,8 @@ class VoiceLoop:
         self._announcements: list[str] = []           # reminders waiting for a quiet moment
         self.ctx.confirm = self._voice_confirm
         self.lock = None                               # voice lock (voiceprint.VoiceLock), set by the CLI
+        self._rejected = None                          # (text, audio, when) of the last voice the lock refused
+        self._voice_notice_at = -1e9
         # HUD: mic mute button and live level for the orb
         self.mic_muted = False
         self.mic_level = 0.0
@@ -347,9 +349,21 @@ class VoiceLoop:
                 self.on_event({"type": "voice_check", "ok": ok, "score": round(score, 3)})
                 if not ok and (self.busy or barged) and self._stop_phrase(text) is not None:
                     ok = True                              # "stop" while Nova is busy: always allowed
+                if not ok and (is_stand_down(text) or is_cancel(text) or self._stop_phrase(text) is not None):
+                    # Safety words always work (owner: "he can't even take simple requests like
+                    # stand down, he's straight up ignoring me").
+                    ok = True
                 if not ok:
-                    self.on_event({"type": "ignored", "text": text,
-                                   "reason": f"not your voice (match {score:.2f})"})
+                    near = score >= self.lock.threshold - VOICE_NEAR_MISS
+                    self._rejected = (text, audio, time.monotonic())
+                    self.on_event({"type": "ignored", "text": text, "voice": True, "near": near,
+                                   "score": round(score, 2), "threshold": round(self.lock.threshold, 2),
+                                   "reason": f"not your voice (match {score:.2f}, needs {self.lock.threshold:.2f})"})
+                    if near and time.monotonic() - self._voice_notice_at > 90:
+                        # Close to the owner's voice (a new mic?): say so instead of silence.
+                        self._voice_notice_at = time.monotonic()
+                        await self.say(f"Sorry{self._sir(',')}, I didn't recognise your voice. "
+                                       "If that was you, press “That was me” in my window.")
                     return
             if await self._control_words(text):
                 return
@@ -429,6 +443,18 @@ class VoiceLoop:
         await self.say(msg)
         if nxt:
             await self.say(nxt)
+
+    async def accept_rejected(self) -> str:
+        """The window's "That was me": learn that voice (a new headset...) and do what was asked."""
+        r = self._rejected
+        if self.lock is None or r is None or time.monotonic() - r[2] > 180:
+            return "There's nothing recent to learn from."
+        text, audio, _ = r
+        self._rejected = None
+        await asyncio.to_thread(self.lock.adopt, audio)
+        request = match_wake(text, self.cfg.wake.variants, self.cfg.wake.window_words)[1] or text
+        await self.submit_text(request)
+        return "Got it: I'll recognise your voice on this microphone now."
 
     async def stand_down(self) -> None:
         """Kill switch: cancel everything (speech, thinking, tools, a pending question), then
@@ -946,6 +972,8 @@ def _brief_args(args) -> dict:
 _OFFER = re.compile(r"^(?:would you like(?: me)? to|do you want me to|shall i|should i|let me know if|is there anything "
                     r"else|anything else(?: i can)?|can i help (?:you )?with anything|if you(?:'d like| want| need)|feel free to)"
                     r"\b", re.I)
+
+VOICE_NEAR_MISS = 0.15      # a refused voice this close to the owner's gets a spoken "didn't recognise you"
 
 _DETAIL = re.compile(r"\b(?:explain|in detail|tell me (?:about|more)|story|read (?:me|it|this|that|out)|"
                      r"summari[sz]e|walk me through|step by step|how do i|how to|describe|list|what are|"

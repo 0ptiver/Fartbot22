@@ -250,7 +250,28 @@ const NovaHome = (() => {
     $("heroStand").title = s.standby ? "Wake up" : "Stand down";
   }
 
+  // Voice lock refused a voice close to the owner's (a new headset?): say so, with a way to fix it.
+  let sendFn = () => {};
+  function voiceRefused(ev, replay) {
+    if (!ev.voice || !ev.near || replay) return;
+    const li = el("li", "live-item tone-red bad");
+    const ic = el("span", "live-ic");
+    ic.append(svgIcon("i-lock"));
+    const mid = el("div", "live-mid");
+    mid.append(el("b", "", "Didn't recognise your voice"),
+      el("span", "live-detail", `“${ev.text}” · ${Math.round(ev.score * 100)}% match, needs ${Math.round(ev.threshold * 100)}%`));
+    const btn = el("button", "btn primary me-btn", "That was me");
+    btn.type = "button";
+    btn.title = "Learn my voice on this microphone and do what I asked";
+    btn.onclick = () => { btn.disabled = true; btn.textContent = "Learning…"; sendFn({ type: "voice_accept" }); };
+    li.append(ic, mid, btn);
+    $("liveList").prepend(li);
+    while ($("liveList").children.length > 7) $("liveList").lastChild.remove();
+    $("liveEmpty").hidden = true;
+  }
+
   function handle(ev, replay) {
+    if (ev.type === "ignored") voiceRefused(ev, replay);
     switch (ev.type) {
       case "tool": toolStart(ev, replay); break;
       case "tool_done": toolDone(ev, replay); break;
@@ -263,6 +284,7 @@ const NovaHome = (() => {
   }
 
   function init(send) {
+    sendFn = send;
     $("heroStop").onclick = () => send({ type: "stop" });
     $("heroMute").onclick = () => $("muteBtn").click();
     $("heroStand").onclick = () => $("standBtn").click();

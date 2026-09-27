@@ -178,7 +178,8 @@ function handle(ev, replay) {
       if (ev.done) addSys("sys", "🔒 Voice learned: voice lock is on");
       break;
     case "ignored":
-      activity("ignored", `Heard “${ev.text}”`, ev.reason || "", ev.ts);
+      if (ev.voice && ev.near) activity("bad", "Didn't recognise your voice", `“${ev.text}”: ${ev.reason}`, ev.ts);
+      else activity("ignored", `Heard “${ev.text}”`, ev.reason || "", ev.ts);
       break;
   }
   if (!replay) empties();

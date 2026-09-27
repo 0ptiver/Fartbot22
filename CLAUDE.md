@@ -59,6 +59,7 @@ Branch: `claude/jarvis-voice-assistant-lhnfza` (commit and push there after ever
 - Apps started from Nova's console printed their logs into it (Discord): always open things via `core/launch.py` (detached).
 - winrt packages don't pull in the namespaces their results use: list `Foundation.Collections`, `Media` and `Storage.Streams` explicitly (not `[all]`, which pulls ~85 packages).
 - The 4B local model fumbles multi-step PC control: put common commands on the fast path, keep spoken results short, and verify actions.
+- **The voice lock must never ignore the owner silently** (owner: "straight up ignoring me"): near misses are spoken and shown with a "That was me" button; stand down / stop / cancel always pass. A new microphone changes the voiceprint.
 - Voiceprints of speech heard over Nova's own voice (speakers) match worse: the voice lock must be looser there, or the owner can't interrupt (owner's case). "Stop" while Nova is busy skips the lock.
 - **Keep the model's tool list short** (`tools.MODEL_HIDDEN`): at 54 tools the 4B model stopped calling tools and claimed or refused instead ("you broke him"). New tools that are said directly go on the fast path and into MODEL_HIDDEN. Compound "X and Y" commands are split by `LocalBrain._compound` when every part is known.
 - The owner hates chatter: keep the spoken-sentence cap, the preamble hold in `LocalBrain.run_turn` (`_PREAMBLE`), and put common commands on the fast path (`intents.everyday_intent`).

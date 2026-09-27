@@ -365,6 +365,13 @@ class VoiceLock:
     def cancel_enrol(self) -> None:
         self.enrolling = None
 
+    def adopt(self, audio: np.ndarray) -> float:
+        """'That was me': add this recording's voiceprint (e.g. a new headset), so it matches
+        from now on. Only numbers are kept, never the audio. Returns the new match score."""
+        e = self.encoder.embed(audio)
+        self.prints.add([e])
+        return self.prints.score(e)
+
     def set(self, on: bool | None = None, threshold: float | None = None) -> None:
         if on is not None:
             self.on = bool(on) and self.prints.enrolled

@@ -593,3 +593,6 @@ body[data-page="home"] .core { display: none; }
 @media (max-width: 860px) {
   .brain-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(260px, 1fr) auto; margin: 0 16px; }
 }
+
+.live-item .me-btn { padding: 6px 10px; font-size: 12px; white-space: nowrap; }
+.live-item:has(.me-btn) { grid-template-columns: 38px minmax(0, 1fr) auto; }
