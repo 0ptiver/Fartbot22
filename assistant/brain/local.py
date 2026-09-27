@@ -215,7 +215,7 @@ class LocalBrain:
                     yield ev
                 conv.last_action = {"text": user_text, "at": time.time()}
                 return
-            small = _small_talk(user_text, sir, self.settings.assistant.owner_name)
+            small = _small_talk(user_text, sir, self.settings.assistant.owner_name, self.settings.assistant.name)
             if small:
                 async for ev in self._say(conv, user_text, small):
                     yield ev
@@ -296,8 +296,9 @@ class LocalBrain:
         flags = dict(grid_visible=bool(grid and grid.grid is not None), labels=bool(grid and grid.labels is not None),
                      browser_active=_browser_active())
         whole = match_intent(text, **flags)
-        if whole and whole[0] == "browser":
-            return None                                  # "open kbb.com and search for a civic" is one thing
+        if whole and (whole[0] in ("browser", "set_reminder", "set_alarm")
+                      or (whole[0] == "open_website" and whole[1].get("search"))):
+            return None       # "open kbb.com and search for a civic", "open youtube and search for lofi" are one thing
         calls, verb = [], ""
         for p in parts:
             it = match_intent(p, **flags)
@@ -667,10 +668,16 @@ _SMALL_TALK = [
     (r"(?:who (?:made|created|built|programmed|coded) you|who(?:'?s| is) your (?:creator|maker))",
      "{owner} did{sir}. I work for {owner}."),
     (r"(?:who(?:'?s| is) your (?:master|boss|owner)|who do you (?:work for|serve|belong to))", "{owner}{sir}."),
+    (r"(?:who are you|what(?:'?s| is) your name|what are you|what do i call you)",
+     "I'm {name}{sir}, your assistant. {owner} made me."),
+    (r"(?:what can you do|what are you able to do|what can i ask you|what do you do|help|what are your (?:skills|abilities))",
+     "Quite a lot{sir}. Open, switch and close apps; play music and control videos; timers, reminders and "
+     "alarms; the weather and sums; search the web or drive my own browser; press keys and click things "
+     "for you; and remember what you tell me. Just ask."),
 ]
 
 
-def _small_talk(text: str, sir: str, owner: str = "") -> str | None:
+def _small_talk(text: str, sir: str, owner: str = "", name: str = "Nova") -> str | None:
     """Greetings and thanks: an instant, fixed reply instead of waiting for the model."""
     t = re.sub(r"[^\w\s']", "", text.lower()).strip()
     t = re.sub(r"\b(?:nova|sir|mate|buddy)\b", "", t)
@@ -681,7 +688,7 @@ def _small_talk(text: str, sir: str, owner: str = "") -> str | None:
             said = re.search(r"good (morning|afternoon|evening)", t)
             greet = (f"Good {said.group(1)}" if said else
                      "Good morning" if h < 12 else "Good afternoon" if h < 18 else "Good evening")
-            return reply.format(sir=sir, greet=greet, owner=owner or "You")
+            return reply.format(sir=sir, greet=greet, owner=owner or "You", name=name)
     return None
 
 

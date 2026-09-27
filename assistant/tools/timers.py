@@ -42,7 +42,8 @@ def _due(args: dict, ctx: ToolContext) -> tuple[float, str]:
         except ValueError as e:
             raise ToolError(str(e)) from e
         now = datetime.now(ZoneInfo(tz))
-        day = "today" if when.date() == now.date() else "tomorrow"
+        days = (when.date() - now.date()).days
+        day = "today" if days == 0 else "tomorrow" if days == 1 else f"on {when:%A}"
         return when.timestamp(), f"at {when.strftime('%I:%M %p').lstrip('0')} {day}"
     if secs > 0:
         return _sched(ctx).clock() + secs, f"in {human_duration(secs)}"
@@ -94,7 +95,7 @@ def register(reg: ToolRegistry) -> None:
              {"type": "object", "properties": {**dur, "label": {"type": "string", "maxLength": 60}},
               "additionalProperties": False}, risk=Risk.SAFE, category="time")(set_timer)
     reg.tool("set_reminder", "Remind the user about something later: either at a clock time "
-             "(at='7:30 pm') or after a duration (minutes=20).",
+             "(at='7:30 pm', 'tomorrow 9 am', 'friday 3 pm') or after a duration (minutes=20).",
              {"type": "object", "properties": {"text": {"type": "string", "minLength": 1, "maxLength": 200},
                                                "at": {"type": "string", "maxLength": 20}, **dur},
               "required": ["text"], "additionalProperties": False}, risk=Risk.SAFE, category="time")(set_reminder)

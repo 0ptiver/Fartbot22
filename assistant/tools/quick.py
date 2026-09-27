@@ -91,6 +91,97 @@ def calc_intent(t: str) -> tuple[str, dict] | None:
     return None
 
 
+# --- days until -------------------------------------------------------------------------------
+_MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september",
+           "october", "november", "december"]
+
+
+def _easter(year: int):
+    from datetime import date
+    a, b, c = year % 19, year // 100, year % 100
+    d, e = divmod(b, 4)
+    g = (8 * b + 13) // 25
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = divmod(c, 4)
+    l_ = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 19 * l_) // 433
+    month = (h + l_ - 7 * m + 90) // 25
+    return date(year, month, (h + l_ - 7 * m + 33 * month + 19) % 32)
+
+
+_ORD = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6, "seventh": 7, "eighth": 8,
+        "ninth": 9, "tenth": 10, "eleventh": 11, "twelfth": 12, "thirteenth": 13, "fourteenth": 14, "fifteenth": 15,
+        "sixteenth": 16, "seventeenth": 17, "eighteenth": 18, "nineteenth": 19, "twentieth": 20, "thirtieth": 30}
+
+
+def _plain_date(text: str) -> str:
+    """'the twenty fifth of december' / 'the 25th of december' -> 'the 25 of december'."""
+    t = re.sub(r"(\d+)\s*(?:st|nd|rd|th)\b", r"\1", text)
+    t = re.sub(r"\b(twenty|thirty)[ -](first|second|third|fourth|fifth|sixth|seventh|eighth|ninth)\b",
+               lambda m: str({"twenty": 20, "thirty": 30}[m.group(1)] + _ORD[m.group(2)]), t)
+    return re.sub(r"\b(" + "|".join(_ORD) + r")\b", lambda m: str(_ORD[m.group(1)]), t)
+
+
+def _occasion(name: str, year: int):
+    name = _plain_date(name)
+    from datetime import date
+    fixed = {"christmas": (12, 25), "christmas day": (12, 25), "christmas eve": (12, 24), "boxing day": (12, 26),
+             "new year": (1, 1), "new years": (1, 1), "new year's": (1, 1), "new year's day": (1, 1),
+             "new years day": (1, 1), "new year's eve": (12, 31), "new years eve": (12, 31), "halloween": (10, 31),
+             "valentine's day": (2, 14), "valentines day": (2, 14), "valentines": (2, 14), "valentine's": (2, 14),
+             "bonfire night": (11, 5), "guy fawkes night": (11, 5), "st patrick's day": (3, 17),
+             "independence day": (7, 4), "the fourth of july": (7, 4), "fourth of july": (7, 4)}
+    if name in fixed:
+        return date(year, *fixed[name])
+    if name in ("easter", "easter sunday"):
+        return _easter(year)
+    m = (re.fullmatch(r"(?:the )?(\d{1,2}) (?:of )?(" + "|".join(_MONTHS) + ")", name)
+         or re.fullmatch(r"(" + "|".join(_MONTHS) + r") (?:the )?(\d{1,2})", name))
+    if m:
+        a, b = m.groups()
+        day, month = (int(a), b) if a.isdigit() else (int(b), a)
+        try:
+            return date(year, _MONTHS.index(month) + 1, day)
+        except ValueError:
+            return None
+    return None
+
+
+def days_until(args: dict, ctx: ToolContext) -> str:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    what = args["what"].lower().strip(" ?.!")
+    tz = ctx.settings.assistant.timezone if ctx else "UTC"
+    today = datetime.now(ZoneInfo(tz)).date()
+    when = _occasion(what, today.year)
+    if when is None:
+        raise ToolError(f"I don't know when {args['what']} is.")
+    if when < today:
+        when = _occasion(what, today.year + 1)
+    days = (when - today).days
+    is_date = bool(re.search(r"\d", _plain_date(what)))
+    nice = f"{when:%A} {when.day} {when:%B}" if is_date else args["what"].strip(" ?.!").title().replace("'S", "'s")
+    if days == 0:
+        return f"{nice} is today."
+    if days == 1:
+        return f"{nice} is tomorrow."
+    weeks = f", about {round(days / 7)} weeks" if days >= 21 else ""
+    return f"{days} days until {nice}{weeks}." + ("" if is_date else f" It's on a {when:%A}.")
+
+
+_UNTIL = re.compile(r"^(?:how (?:many|much) (?:days|time) (?:is (?:it |there )?|are there |have i got |do i have |left )?"
+                    r"(?:left )?(?:until|till|til|to|before)|how long (?:is it |until|till|til|to|before)(?: until| till)?"
+                    r"|when is|what day is) (?P<what>.+?)$")
+
+
+def until_intent(t: str) -> tuple[str, dict] | None:
+    from datetime import date
+    m = _UNTIL.match(t)
+    if m and _occasion(m.group("what"), date.today().year):
+        return "days_until", {"what": m.group("what")}
+    return None
+
+
 # --- weather ---------------------------------------------------------------------------------
 WMO = {0: "clear", 1: "mostly clear", 2: "partly cloudy", 3: "cloudy", 45: "foggy", 48: "foggy",
        51: "drizzly", 53: "drizzly", 55: "drizzly", 61: "rainy", 63: "rainy", 65: "pouring", 66: "freezing rain",
@@ -167,13 +258,16 @@ def quick_intent(t: str) -> tuple[str, dict] | None:
         if m.group("place"):
             args["place"] = m.group("place")
         return "weather", args
-    return calc_intent(t)
+    return until_intent(t) or calc_intent(t)
 
 
 def register(reg: ToolRegistry) -> None:
     reg.tool("calculate", "Exact arithmetic: '15 times 23', '20 percent of 85', 'square root of 144'.",
              {"type": "object", "properties": {"expression": {"type": "string", "minLength": 1, "maxLength": 200}},
               "required": ["expression"], "additionalProperties": False}, risk=Risk.SAFE, category="system")(calculate)
+    reg.tool("days_until", "How many days until a date or holiday ('christmas', 'the 3rd of june').",
+             {"type": "object", "properties": {"what": {"type": "string", "minLength": 2, "maxLength": 60}},
+              "required": ["what"], "additionalProperties": False}, risk=Risk.SAFE, category="system")(days_until)
     reg.tool("weather", "Current weather or tomorrow's forecast for the user's city (or place).",
              {"type": "object", "properties": {"place": {"type": "string", "maxLength": 80},
                                                "tomorrow": {"type": "boolean"}},

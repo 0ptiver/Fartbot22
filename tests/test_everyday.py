@@ -1,6 +1,8 @@
 """Owner: "Nova is still struggling to answer me on simple commands". The everyday things
 people say are done directly (no model, no chatter); this table guards where each one goes."""
 
+import re
+
 import httpx
 import pytest
 
@@ -27,6 +29,14 @@ ROUTES = [
     ("how much battery do i have", "system_status"), ("open my downloads folder", "open_file"),
     ("what's 15 times 23", "calculate"), ("what is the square root of 144", "calculate"),
     ("remember that my dog is called max", "remember"), ("show the grid", "mouse_grid"), ("type hello world", "type_text"),
+    # second audit (owner: "continue polishing")
+    ("make it louder", "volume"), ("it's too loud", "volume"), ("how much ram am i using", "system_status"),
+    ("what time is it in tokyo", "get_time"), ("play mrbeast on youtube", "open_website"),
+    ("search youtube for lofi", "open_website"), ("open youtube and search for lofi", "open_website"),
+    ("skip the ad", "video"), ("skip ahead 30 seconds", "video"), ("rewind 10 seconds", "video"),
+    ("what did i ask you to remember", "recall"), ("remind me tomorrow at 9 to call the bank", "set_reminder"),
+    ("wake me up tomorrow at 7", "set_alarm"), ("how many days until christmas", "days_until"),
+    ("empty the recycle bin", "empty_recycle_bin"), ("click on search", "click_element"),
 ]
 
 
@@ -88,3 +98,97 @@ def test_small_talk_is_instant():
     assert _small_talk("Thanks Nova!", ", sir") == "You're welcome, sir."
     assert _small_talk("good morning nova", ", sir") == "Good morning, sir."
     assert _small_talk("thanks, open steam", ", sir") is None          # a request: not small talk
+
+
+def test_youtube_opens_results_in_the_normal_browser():
+    """'Play MrBeast on YouTube' went to Spotify as a song called 'mrbeast on youtube'."""
+    assert match_intent("Play MrBeast on YouTube.") == ("open_website", {"site": "youtube", "search": "mrbeast"})
+    assert match_intent("youtube music") is None or match_intent("youtube music")[0] != "open_website"
+
+
+def test_click_on_is_not_part_of_the_name():
+    assert match_intent("click on search") == ("click_element", {"name": "search"})
+    assert match_intent("double click on the file") == ("click_element", {"name": "the file", "action": "double_click"})
+
+
+def test_type_my_email_is_not_typed_literally():
+    assert match_intent("type my email") is None                 # the model (with memories) decides
+    assert match_intent("type hello there") == ("type_text", {"text": "hello there"})
+
+
+def test_reminders_on_a_day():
+    assert match_intent("remind me tomorrow at 9 to call the bank") == \
+        ("set_reminder", {"text": "call the bank", "at": "tomorrow at 9"})
+    assert match_intent("remind me to call the bank on friday at 3 pm") == \
+        ("set_reminder", {"text": "call the bank", "at": "on friday at 3 pm"})
+    assert match_intent("set an alarm for 7 am tomorrow") == ("set_alarm", {"at": "7 am tomorrow"})
+
+
+@pytest.mark.parametrize("said,day,hour", [
+    ("9", 0, 21), ("tomorrow at 9", 1, 9), ("tomorrow at 3", 1, 15), ("9 am tomorrow", 1, 9),
+    ("tonight at 8", 0, 20), ("friday at 3 pm", 5, 15), ("on monday at 10", 1, 10), ("noon tomorrow", 1, 12),
+])
+def test_clock_with_a_day(said, day, hour):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from assistant.core.scheduler import parse_clock
+    now = datetime(2026, 9, 27, 15, 0, tzinfo=ZoneInfo("Europe/London"))           # a Sunday, 3 pm
+    when = parse_clock(said, "Europe/London", now)
+    assert ((when.date() - now.date()).days, when.hour) == (day, hour)
+
+
+def test_time_somewhere_else(local_settings):
+    from assistant.tools.registry import ToolContext
+    from assistant.tools.system import get_time, zone_for
+    assert str(zone_for("new york")) == "America/New_York" and str(zone_for("LA")) == "America/Los_Angeles"
+    out = get_time({"place": "tokyo"}, ToolContext(local_settings))
+    assert out.startswith("It's ") and "in Tokyo" in out and ("ahead" in out or "behind" in out or "same" in out)
+    with pytest.raises(ToolError, match="time zone"):
+        get_time({"place": "atlantis"}, ToolContext(local_settings))
+
+
+@pytest.mark.parametrize("what,ok", [("christmas", True), ("the 3rd of june", True), ("the twenty fifth of december", True),
+                                     ("june 1st", True), ("easter", True), ("my birthday", False)])
+def test_days_until(what, ok):
+    assert (quick.until_intent(f"how many days until {what}") is not None) == ok
+    if ok:
+        out = quick.days_until({"what": what}, None)
+        assert re.search(r"days until|is today|is tomorrow", out)
+
+
+def test_easter_dates():
+    from datetime import date
+    assert quick._easter(2026) == date(2026, 4, 5) and quick._easter(2027) == date(2027, 3, 28)
+
+
+class FakeBin:
+    def __init__(self, items, size, sticky=0):
+        self.items, self.bytes, self.sticky, self.emptied = items, size, sticky, 0
+
+    def size(self):
+        return self.items, self.bytes
+
+    def empty(self):
+        self.emptied += 1
+        self.items = self.sticky
+
+
+def test_empty_recycle_bin_is_checked(monkeypatch):
+    from assistant.tools import files
+    monkeypatch.setattr(files, "BIN", FakeBin(12, 3 * 1024 ** 3))
+    assert files.empty_recycle_bin({}, None) == "Emptied the Recycle Bin: 12 items, 3 GB freed."
+    assert files.empty_recycle_bin({}, None) == "The Recycle Bin is already empty."
+    monkeypatch.setattr(files, "BIN", FakeBin(3, 100, sticky=1))
+    with pytest.raises(ToolError, match="1 item is still there"):
+        files.empty_recycle_bin({}, None)
+
+
+def test_empty_recycle_bin_asks_first_and_not_from_a_phone(registry):
+    assert registry.effective_risk("empty_recycle_bin", remote=False).value == "confirm"
+    assert registry.effective_risk("empty_recycle_bin", remote=True).value == "blocked"
+
+
+@pytest.mark.parametrize("said,start", [("who are you", "I'm Nova, sir, your assistant. Oliver made me."),
+                                        ("what's your name", "I'm Nova"), ("what can you do", "Quite a lot, sir.")])
+def test_who_and_what(said, start):
+    assert _small_talk(said, ", sir", "Oliver", "Nova").startswith(start)

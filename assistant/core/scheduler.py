@@ -130,10 +130,29 @@ class Scheduler:
 _CLOCK = re.compile(r"^\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?\s*$", re.I)
 
 
+_DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+_DAY_WORD = re.compile(r"\b(?:on |this |next )?(today|tonight|this evening|this afternoon|this morning|tomorrow"
+                       r"(?: morning| afternoon| evening| night)?|" + "|".join(_DAYS) + r")(?: morning| afternoon| evening| night)?\b")
+
+
 def parse_clock(text: str, tz: str, now: datetime | None = None) -> datetime:
-    """'7:30 pm', '19:30', '7am', 'noon', 'midnight' -> next such time (today or tomorrow)."""
+    """'7:30 pm', '19:30', '7am', 'noon', 'midnight' -> next such time (today or tomorrow).
+    A day can come with it: 'tomorrow at 9', '3 pm on friday', 'tonight at 8'."""
     t = text.strip().lower().replace("o'clock", "").strip()
     now = now or datetime.now(ZoneInfo(tz))
+    day_offset = None
+    evening = False
+    if d := _DAY_WORD.search(t):
+        word = d.group(1)
+        evening = bool(re.search(r"tonight|evening|afternoon|night", d.group(0)))
+        if word.startswith("tomorrow"):
+            day_offset = 1
+        elif word in _DAYS:
+            day_offset = (_DAYS.index(word) - now.weekday()) % 7 or 7
+        else:
+            day_offset = 0
+        t = (t[:d.start()] + t[d.end():]).replace(" at ", " ")
+        t = re.sub(r"^\s*at\s+|\s+at\s*$", "", t).strip()
     if t in ("noon", "midday"):
         h, m = 12, 0
     elif t == "midnight":
@@ -148,12 +167,20 @@ def parse_clock(text: str, tz: str, now: datetime | None = None) -> datetime:
             h += 12
         elif ampm == "am" and h == 12:
             h = 0
-        if not ampm and h <= 12 and h < now.hour and h + 12 > now.hour:
-            h += 12          # "at 7" in the afternoon means 7 pm, not tomorrow morning
+        if not ampm and h < 12:
+            if day_offset is None:
+                if h < now.hour and h + 12 > now.hour:
+                    h += 12      # "at 7" in the afternoon means 7 pm, not tomorrow morning
+            elif evening or h <= 6:
+                h += 12          # "tomorrow at 3" is the afternoon; "tonight at 8" is 8 pm
         if h > 23 or m > 59:
             raise ValueError(f"'{text}' isn't a valid time.")
     target = now.replace(hour=h, minute=m, second=0, microsecond=0)
-    if target <= now:
+    if day_offset is not None:
+        target += timedelta(days=day_offset)
+        if target <= now:
+            raise ValueError("That time has already gone.")
+    elif target <= now:
         target += timedelta(days=1)
     return target
 

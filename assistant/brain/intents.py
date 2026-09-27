@@ -141,7 +141,7 @@ def grid_intent(t: str, visible: bool = False, labels: bool = False) -> tuple[st
             args["cell"] = int(m.group(2))
         return "mouse", args
     # "click subscribe", "double click the file", "press the sign in button": by name
-    m = re.fullmatch(r"(click|click on|double click|double click on|right click|right click on)"
+    m = re.fullmatch(r"(double click on|double click|right click on|right click|click on|click)"
                      r" (?!(?:it|that|there|here|number)\b)(.*[a-z].*)", n)
     if not m:
         m = re.fullmatch(r"(press|hit|tap|push|open|select|choose) (the .+ (?:button|link|tab|icon|option|checkbox|box))", n)
@@ -189,11 +189,38 @@ _VIDEO_ACTIONS = [
 ]
 
 
+_SEEK = re.compile(r"(?:skip|go|jump|fast forward|move)?(?: ahead| forward| forwards)? ?(\d+|a|an|half a) "
+                   r"(second|sec|minute|min)s?(?: (?:ahead|forward|forwards))?"
+                   r"|(?:rewind|go back|skip back|jump back|back)(?: by)? (\d+|a|an|half a) (second|sec|minute|min)s?")
+
+
+def _seek(t: str) -> tuple[str, dict] | None:
+    """'skip ahead 30 seconds', 'rewind 10 seconds', 'go back a minute' (in the video)."""
+    from assistant.voice.textnorm import normalize_words
+    n = " ".join(normalize_words(t))
+    n = re.sub(r"\s+(?:in|on) (?:the |this |my )?(?:video|youtube)$", "", n)
+    m = _SEEK.fullmatch(n)
+    if not m or not re.search(r"skip|go|jump|forward|rewind|back|ahead|move", n):
+        return None
+    back = m.group(3) is not None
+    amount, unit = (m.group(3), m.group(4)) if back else (m.group(1), m.group(2))
+    value = {"a": 1, "an": 1, "half a": 0.5}.get(amount) or float(amount)
+    seconds = int(value * (60 if unit.startswith("min") else 1))
+    if seconds <= 0:
+        return None
+    return "video", {"actions": ["back" if back else "forward"], "seconds": seconds}
+
+
 def video_intent(t: str) -> tuple[str, dict] | None:
     """Only when a video (or fullscreen) is mentioned, or it's a bare 'hit play'/'press pause':
     'pause' and 'next song' on their own belong to Spotify."""
     if re.fullmatch(r"(?:hit|press) (?:play|pause)", t):
         return "video", {"actions": ["play" if t.endswith("play") else "pause"]}
+    if re.fullmatch(r"skip (?:the |this |that )?ads?|skip (?:the )?(?:ad|advert|commercial)s?(?: (?:on|in) (?:the |this )?video)?"
+                    r"|press skip(?: ad)?|click skip(?: ad)?", t):
+        return "video", {"actions": ["skip_ad"]}
+    if seek := _seek(t):
+        return seek
     if not _VIDEO_WORDS.search(t):
         return None
     # "Close my video" (owner's case: went to the model, which played it instead). Pausing is the
@@ -265,6 +292,8 @@ def keyboard_intent(raw: str, t: str) -> tuple[str, dict] | None:
         text = m.group(1)
         if re.fullmatch(r"[^.!?]+\.", text):                  # Whisper's full stop on a phrase
             text = text[:-1]
+        if re.fullmatch(r"(?:in )?my (?:\w+ ?){1,3}", text.lower()):   # "type my email": not those words
+            return None
         return "type_text", {"text": text}
     for pattern, keys in _SHORTCUTS:
         if re.fullmatch(pattern, t):
@@ -300,6 +329,7 @@ def memory_intent(raw: str, t: str) -> tuple[str, dict] | None:
     if m and not re.match(r"^(?:what|when|where|who|how|if|whether)\b", m.group(1), re.I):
         return "remember", {"text": m.group(1)}
     if re.fullmatch(r"what (?:do|did) you (?:remember|know)(?: about me)?|what have you remembered|"
+                    r"what (?:did|have) i (?:asked|ask|told|tell) you(?: to remember)?|what have you got (?:saved|remembered)|"
                     r"(?:list|show me) (?:your |my )?memor(?:y|ies)", t):
         return "recall", {}
     m = re.fullmatch(r"what (?:do|did) you (?:remember|know) about (.+)", t)
@@ -339,16 +369,28 @@ def everyday_intent(t: str) -> tuple[str, dict] | None:
         g = m.groups()
         amount, u, text = (g[0], g[1], g[2]) if g[0][0].isdigit() else (g[1], g[2], g[0])
         return "set_reminder", {"text": text, _UNIT[u]: float(amount)}
-    clock = r"(\d{1,2}(?::\d{2})? ?(?:am|pm|a\.m\.|p\.m\.)?|noon|midnight)"
-    if m := (re.fullmatch(r"remind me at " + clock + r" (?:to|that|about) (.+)", t)
-             or re.fullmatch(r"remind me (?:to|that|about) (.+) at " + clock, t)):
+    day = (r"(?:on |this |next )?(?:today|tonight|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)"
+           r"(?: morning| afternoon| evening| night)?")
+    clock = (r"((?:" + day + r" )?(?:at )?(?:\d{1,2}(?::\d{2})? ?(?:am|pm|a\.m\.|p\.m\.)?|noon|midnight)"
+             r"(?: (?:" + day + r"))?)")
+    if m := (re.fullmatch(r"remind me (?:at )?" + clock + r" (?:to|that|about) (.+)", t)
+             or re.fullmatch(r"remind me (?:to|that|about) (.+?) (?:at )?" + clock, t)):
         a, b = m.groups()
-        at, text = (a, b) if re.match(r"\d|noon|midnight", a) else (b, a)
+        at, text = (a, b) if re.match(r"\d|noon|midnight|on |this |next |today|tonight|tomorrow|\w+day\b", a) else (b, a)
         return "set_reminder", {"text": text, "at": at}
     if m := re.fullmatch(r"(?:set |wake me up with )?(?:an |my )?alarm (?:for|at) " + clock, t):
         return "set_alarm", {"at": m.group(1)}
-    if m := re.fullmatch(r"wake me (?:up )?at " + clock, t):
+    if m := re.fullmatch(r"wake me (?:up )?(?:at )?" + clock, t):
         return "set_alarm", {"at": m.group(1)}
+    # The time somewhere else: "what time is it in tokyo"
+    if m := re.fullmatch(r"(?:what(?:'?s| is) the time|what time is it|what time(?:'?s| is) it) (?:in|over in) ([a-z .'-]{2,30})", t):
+        return "get_time", {"place": m.group(1)}
+    # YouTube: results in the normal browser ("play X on youtube" opens its results, it can't pick blindly)
+    if m := (re.fullmatch(r"(?:search|look up|find|play|put on|watch|pull up) (.+?) on youtube", t)
+             or re.fullmatch(r"(?:search|look on|look up on|search on) youtube (?:for )?(.+)", t)
+             or re.fullmatch(r"(?:open|go to|go on|pull up) youtube and (?:search|look|look up|find|play)(?: for)? (.+)", t)
+             or re.fullmatch(r"youtube (?!music$)(.+)", t)):
+        return "open_website", {"site": "youtube", "search": m.group(1)}
     # Power (always asks first)
     pc_word = r"(?:the |my )?(?:pc|computer|laptop|system)"
     if re.fullmatch(r"(?:shut ?down|turn off|power off) " + pc_word + r"|shut " + pc_word + r" down", t):
@@ -366,8 +408,11 @@ def everyday_intent(t: str) -> tuple[str, dict] | None:
         if re.fullmatch(r"(?:what(?:'?s| is) |how(?:'?s| is) |check )?(?:my |the )?(?:" + words + r")"
                         r"(?: (?:temp|temperature|usage|level|left|status|space|free))?"
                         r"|how (?:much|hot) (?:is )?(?:my |the )?(?:" + words + r")(?: (?:do i have|left|is))?"
-                        r"|how much (?:" + words + r") (?:do i have|is left|have i got)(?: left)?", t):
+                        r"|how much (?:" + words + r") (?:do i have|is left|have i got|am i using|is being used|is in use|is used)(?: left)?"
+                        r"|(?:" + words + r") usage", t):
             return "system_status", {"what": what}
+    if re.fullmatch(r"(?:empty|clear|clean out|clean) (?:out )?(?:the |my )?(?:recycle bin|recycling bin|bin|trash)", t):
+        return "empty_recycle_bin", {}
     # Folders: "open my downloads (folder)"
     if m := re.fullmatch(r"(?:open|show me|go to) (?:my |the )?(downloads|documents|desktop|pictures|photos|music|videos)"
                          r"(?: folder)?", t):
@@ -380,11 +425,13 @@ def everyday_intent(t: str) -> tuple[str, dict] | None:
         return "open_website", {"search": m.group(1)}
     if m := re.fullmatch(r"(?:set |turn |put )?(?:the )?volume (?:to |at )?(\d{1,3})(?: percent| %)?", n):
         return "volume", {"action": "set", "level": min(100, int(m.group(1)))}
-    if re.fullmatch(r"(?:turn (?:the )?(?:volume|sound|it) up|volume up|louder|turn up the volume|raise the volume)"
-                    r"(?: a (?:bit|little))?", n):
+    if re.fullmatch(r"(?:turn (?:the )?(?:volume|sound|it) up|volume up|louder|turn up the volume|raise the volume|"
+                    r"make it louder|(?:a (?:bit|little) )?louder|turn it up more|pump it up|crank it(?: up)?)"
+                    r"(?: a (?:bit|little)| more)?", n):
         return "volume", {"action": "up"}
     if re.fullmatch(r"(?:turn (?:the )?(?:volume|sound|it) down|volume down|quieter|turn down the volume|"
-                    r"lower the volume)(?: a (?:bit|little))?", n):
+                    r"lower the volume|make it quieter|(?:a (?:bit|little) )?quieter|too loud|it'?s too loud)"
+                    r"(?: a (?:bit|little)| more)?", n):
         return "volume", {"action": "down"}
     if re.fullmatch(r"(?:mute|mute (?:the )?(?:pc|computer|sound|volume|audio))", n):
         return "volume", {"action": "mute"}

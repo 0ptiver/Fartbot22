@@ -19,7 +19,7 @@ TOOL_MODULES = [system, screen, expert, music, files, timers, pc, grid, video, k
 MODEL_HIDDEN = {"dictation", "cancel_shutdown", "cancel_watch", "list_watches", "lessons", "set_location",
                 "show_page", "subtitles", "set_voice", "voice_lock", "teach", "queue_song", "mouse", "mouse_grid",
                 "show_numbers", "press_key", "now_playing", "recall", "music_control", "lock_pc", "power",
-                "delete_file", "move_file"}
+                "delete_file", "move_file", "days_until", "empty_recycle_bin"}
 
 
 def build_registry(settings: Settings, audit: AuditLog | None = None) -> ToolRegistry:

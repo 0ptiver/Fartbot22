@@ -74,7 +74,8 @@ def test_the_model_chooses_from_fewer_tools(settings):
     assert match_intent("lock my pc") == ("lock_pc", {})
 
 
-@pytest.mark.parametrize("text", ["search for salt and pepper", "tom and jerry", "full screen the video and play it"])
+@pytest.mark.parametrize("text", ["search for salt and pepper", "tom and jerry", "full screen the video and play it",
+                                  "open youtube and search for lofi", "remind me to buy milk and eggs at 5 pm"])
 def test_compounds_only_when_every_part_is_a_command(text, settings, ctx):
     from assistant.brain.local import LocalBrain
     brain = LocalBrain(settings, build_registry(settings))

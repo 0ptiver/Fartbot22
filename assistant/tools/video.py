@@ -20,10 +20,11 @@ log = logging.getLogger(__name__)
 BROWSERS = ("firefox", "chrome", "msedge", "brave", "opera", "vivaldi", "arc", "librewolf", "waterfox")
 MUSIC_APPS = ("spotify",)
 # YouTube-style keys; also work on most players (Netflix, Twitch, Prime use f/space/m).
-KEY_ACTIONS = {"fullscreen": "f", "exit_fullscreen": "escape", "mute": "m", "forward": "l", "back": "j"}
+KEY_ACTIONS = {"fullscreen": "f", "exit_fullscreen": "escape", "mute": "m", "forward": "l", "back": "j",
+               "skip_ad": ""}
 SETTLE_S = 0.25            # between checks that play/pause really happened
 ACTIONS = ["play", "pause", "toggle", "fullscreen", "exit_fullscreen", "mute", "forward", "back",
-           "next", "previous"]
+           "next", "previous", "skip_ad"]
 
 
 @dataclass
@@ -146,10 +147,22 @@ async def video(args: dict, ctx: ToolContext, _media: MediaBackend | None = None
             if action == "mute" and await _click_button(window, ("mute", "unmute"), (), ctx):
                 done.append("mute toggled")
                 continue
+            if action == "skip_ad":
+                # YouTube's own "Skip" / "Skip Ad" button; there's no key for it.
+                skip = (("skip ad", "skip ads"), ("skip navigation",))
+                if not await _click_button(window, *skip, ctx, exact="skip"):
+                    raise ToolError("I can't see a Skip button yet. The ad may not be skippable, or not for a few seconds.")
+                await asyncio.sleep(0.6)
+                if await _has_button(window, *skip, exact="skip"):
+                    raise ToolError("I clicked Skip, but the ad is still showing. Try again in a moment.")
+                done.append("skipped the ad")
+                continue
+            if action in ("forward", "back"):
+                done.append(await _seek(window, action, int(args.get("seconds") or 10)))
+                continue
             await asyncio.to_thread(pc.WINDOWS.press, pc.KEYS[KEY_ACTIONS[action]])
             await asyncio.sleep(0.15)
-            done.append({"mute": "mute toggled", "forward": "skipped ahead 10 seconds",
-                         "back": "went back 10 seconds"}[action])
+            done.append("mute toggled")
             continue
         if media is None:
             if action in ("play", "pause", "toggle"):
@@ -185,6 +198,26 @@ async def video(args: dict, ctx: ToolContext, _media: MediaBackend | None = None
     what = f": {media.title}" if media and media.title else ""
     text = ", ".join(done)
     return text[0].upper() + text[1:] + what + "."
+
+
+async def _seek(window, action: str, seconds: int) -> str:
+    """Skip ahead / back: on YouTube L/J jump 10 s and the arrow keys 5 s; elsewhere the arrows."""
+    from assistant.tools import pc
+    seconds = max(5, min(seconds, 600))
+    youtube = "youtube" in window.title.lower()
+    step, arrow = 10, "right" if action == "forward" else "left"
+    if youtube:
+        tens, fives = divmod(seconds, 10)
+        presses = [KEY_ACTIONS[action]] * tens + [arrow] * (1 if fives >= 5 else 0)
+    else:
+        step = 5
+        presses = [arrow] * max(1, round(seconds / step))
+    for key in presses[:60]:
+        await asyncio.to_thread(pc.WINDOWS.press, pc.KEYS[key])
+        await asyncio.sleep(0.03)
+    await asyncio.sleep(0.12)
+    amount = f"{seconds // 60} minute{'s' if seconds >= 120 else ''}" if seconds % 60 == 0 else f"{seconds} seconds"
+    return f"skipped ahead {amount}" if action == "forward" else f"went back {amount}"
 
 
 async def _settled(api: MediaBackend, media: Media, want: str, tries: int = 6) -> bool:
@@ -233,6 +266,16 @@ async def _click_button(window, names: tuple[str, ...], avoid: tuple[str, ...], 
     return False
 
 
+async def _has_button(window, names: tuple[str, ...], avoid: tuple[str, ...], exact: str | None = None) -> bool:
+    from assistant.tools import uia
+    try:
+        elements = await asyncio.to_thread(uia.UIA.elements, window.hwnd)
+    except Exception:
+        return False
+    return any(e.kind == "button" and (any(uia._norm(e.name).startswith(x) for x in names) or uia._norm(e.name) == exact)
+               and not any(a in uia._norm(e.name) for a in avoid) for e in elements)
+
+
 async def _fullscreen(window, want: bool, ctx: ToolContext) -> str:
     """Full screen on/off, checked afterwards: never claim it worked when it didn't."""
     from assistant.tools import pc
@@ -264,10 +307,12 @@ def register(reg: ToolRegistry) -> None:
     register_media(reg)
     reg.tool("video", "Control the video playing in the browser (YouTube, Netflix, Twitch...) or a "
              "video app. Finds it by itself: no need to ask which video. actions run in order, "
-             "e.g. ['fullscreen', 'play']. play/pause are exact (not toggles).",
+             "e.g. ['fullscreen', 'play']. play/pause are exact (not toggles). skip_ad clicks YouTube's Skip button.",
              {"type": "object", "properties": {
                  "actions": {"type": "array", "items": {"type": "string", "enum": ACTIONS},
-                             "minItems": 1, "maxItems": 5}},
+                             "minItems": 1, "maxItems": 5},
+                 "seconds": {"type": "integer", "minimum": 5, "maximum": 600,
+                             "description": "how far forward/back skips (default 10)"}},
               "required": ["actions"], "additionalProperties": False},
              risk=Risk.SAFE, category="media")(video)
 

@@ -222,3 +222,61 @@ def test_a_maximised_window_is_not_full_screen():
     maximised = 0x16CF0000          # WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_MAXIMIZE
     video_full_screen = 0x96000000  # WS_POPUP | WS_VISIBLE | WS_CLIPSIBLINGS
     assert not pc.fullscreen_style(maximised) and pc.fullscreen_style(video_full_screen)
+
+
+def _uia_with(monkeypatch, buttons):
+    from assistant.tools import uia
+    monkeypatch.setattr(uia, "UIA", type("U", (), {"elements": lambda s, h: list(buttons)})())
+
+
+def _grid_ctx(settings, on_click=None):
+    from assistant.tools import grid as G
+    from tests.test_grid import FakeMouse, FakeOverlay
+    mouse = FakeMouse()
+    real_click = mouse.click
+
+    def click(button="left", double=False):
+        real_click(button, double)
+        if on_click:
+            on_click()
+    mouse.click = click
+    return ToolContext(settings, services={"grid": G.GridController(mouse=mouse, overlay=FakeOverlay())}), mouse
+
+
+async def test_skip_ad_clicks_youtubes_skip_button_and_checks(settings, wins, monkeypatch):
+    from assistant.tools import grid as G, uia
+    buttons = [uia.Element("Skip navigation", "button", G.Region(0, 0, 10, 10)),
+               uia.Element("Skip Ad", "button", G.Region(1700, 800, 80, 40))]
+    _uia_with(monkeypatch, buttons)
+    ctx, mouse = _grid_ctx(settings, on_click=lambda: buttons.pop())          # the ad goes away
+    assert match_intent("skip the ad") == ("video", {"actions": ["skip_ad"]})
+    out = await V.video({"actions": ["skip_ad"]}, ctx, _media=FakeMedia([YT]))
+    assert out.startswith("Skipped the ad") and ("move", 1740, 820) in mouse.log
+
+
+async def test_skip_ad_that_isnt_there_or_doesnt_go_says_so(settings, wins, monkeypatch):
+    from assistant.tools import grid as G, uia
+    _uia_with(monkeypatch, [])
+    ctx, _ = _grid_ctx(settings)
+    with pytest.raises(ToolError, match="can't see a Skip button"):
+        await V.video({"actions": ["skip_ad"]}, ctx, _media=FakeMedia([YT]))
+    _uia_with(monkeypatch, [uia.Element("Skip", "button", G.Region(1700, 800, 80, 40))])   # click does nothing
+    with pytest.raises(ToolError, match="still showing"):
+        await V.video({"actions": ["skip_ad"]}, ctx, _media=FakeMedia([YT]))
+
+
+@pytest.mark.parametrize("text,action,seconds", [
+    ("skip ahead 30 seconds", "forward", 30), ("rewind 10 seconds", "back", 10),
+    ("go back a minute in the video", "back", 60), ("fast forward two minutes", "forward", 120),
+])
+def test_seeking_by_time(text, action, seconds):
+    assert match_intent(text) == ("video", {"actions": [action], "seconds": seconds})
+
+
+async def test_seeking_presses_youtubes_ten_second_keys(settings, wins):
+    out = await V.video({"actions": ["forward"], "seconds": 35}, ToolContext(settings), _media=FakeMedia([YT]))
+    presses = [c[1] for c in wins.calls if c[0] == "press"]
+    assert presses == [pc.KEYS["l"]] * 3 + [pc.KEYS["right"]] and out.startswith("Skipped ahead 35 seconds")
+    wins.calls.clear()
+    out = await V.video({"actions": ["back"], "seconds": 60}, ToolContext(settings), _media=FakeMedia([YT]))
+    assert [c[1] for c in wins.calls if c[0] == "press"] == [pc.KEYS["j"]] * 6 and out.startswith("Went back 1 minute")
