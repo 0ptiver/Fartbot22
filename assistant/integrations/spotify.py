@@ -187,10 +187,33 @@ class Spotify:
             return await self._call(method, path, params=params, **kw)
 
     # --- actions -----------------------------------------------------------------------
+    async def search_all(self, query: str, kind: str, limit: int = 10) -> list[dict]:
+        data = await self._call("GET", "/search", params={"q": query, "type": kind, "limit": limit})
+        return [i for i in ((data or {}).get(kind + "s") or {}).get("items", []) if i]
+
     async def search(self, query: str, kind: str) -> dict | None:
-        data = await self._call("GET", "/search", params={"q": query, "type": kind, "limit": 5})
-        items = [i for i in ((data or {}).get(kind + "s") or {}).get("items", []) if i]
+        items = await self.search_all(query, kind, 5)
         return items[0] if items else None
+
+    async def find_track(self, query: str) -> dict | None:
+        """Best track for "title", "title by artist" or "artist title", ranked by how well
+        the title and artist actually match (not just Spotify's first hit)."""
+        title, artist = split_by(query)
+        candidates: list[dict] = []
+        if artist:
+            candidates = await self.search_all(f'track:"{title}" artist:"{artist}"', "track")
+        if not candidates:
+            candidates = await self.search_all(f"{title} {artist}".strip(), "track")
+        if not candidates:
+            return None
+        return max(candidates, key=lambda t: (_track_score(t, title, artist), -candidates.index(t)))
+
+    async def find_artist(self, query: str) -> dict | None:
+        """Only when the query *is* an artist's name ("play Drake")."""
+        for a in await self.search_all(query, "artist", 3):
+            if _simple(a.get("name", "")) == _simple(query):
+                return a
+        return None
 
     async def play(self, query: str | None = None, kind: str = "auto") -> str:
         device = await self.device_id()
@@ -210,12 +233,15 @@ class Spotify:
             t = items[0]["track"]
             body, label = {"uris": [t["uri"]]}, f"{t['name']} by {t['artists'][0]['name']}"
         elif query:
-            kinds = [kind] if kind in ("track", "artist", "album", "playlist") else ["track", "artist", "playlist"]
             item = None
-            for k in kinds:
-                item = await self.search(query, k)
-                if item:
-                    break
+            if kind == "auto":
+                item = await self.find_artist(query) or await self.find_track(query)
+                if item is None:
+                    item = await self.search(query, "playlist")
+            elif kind == "track":
+                item = await self.find_track(query)
+            else:
+                item = await self.search(query, kind)
             if not item:
                 raise SpotifyError(f"I couldn't find \"{query}\" on Spotify.")
             if item["type"] == "track":
@@ -223,7 +249,7 @@ class Spotify:
                 label = f"{item['name']} by {item['artists'][0]['name']}"
             else:
                 body = {"context_uri": item["uri"]}
-                label = item["name"] + (" (playlist)" if item["type"] == "playlist" else "")
+                label = item["name"] + {"playlist": " (playlist)", "album": " (album)"}.get(item["type"], "")
         else:
             label = "where you left off"
         await self._call("PUT", "/me/player/play", params={"device_id": device}, json=body)
@@ -265,7 +291,7 @@ class Spotify:
         return f"{state} {t['name']} by {artists}."
 
     async def queue(self, query: str) -> str:
-        item = await self.search(query, "track")
+        item = await self.find_track(query)
         if not item:
             raise SpotifyError(f"I couldn't find \"{query}\" on Spotify.")
         await self._player("POST", "/me/player/queue", params={"uri": item["uri"]})
@@ -274,3 +300,29 @@ class Spotify:
     async def me(self) -> str:
         data = await self._call("GET", "/me")
         return f"{data.get('display_name') or data.get('id')} ({data.get('product', '?')})"
+
+
+def _simple(text: str) -> str:
+    import re
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+
+def split_by(query: str) -> tuple[str, str]:
+    """ "my way by kanye west" -> ("my way", "kanye west"). """
+    q = query.strip()
+    low = q.lower()
+    idx = low.rfind(" by ")
+    if idx > 0:
+        return q[:idx].strip(), q[idx + 4:].strip()
+    return q, ""
+
+
+def _track_score(track: dict, title: str, artist: str) -> int:
+    name = _simple(track.get("name", ""))
+    want = _simple(title)
+    score = 3 if name == want else 2 if name.startswith(want) or want in name else 0
+    if artist:
+        artists = [_simple(a.get("name", "")) for a in track.get("artists", [])]
+        a = _simple(artist)
+        score += 4 if a in artists else 2 if any(a in x or x in a for x in artists) else 0
+    return score

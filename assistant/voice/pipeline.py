@@ -60,6 +60,7 @@ class VoiceLoop:
         self._mute_until = 0.0
         self._last_said = ""
         self._named = False
+        self._spoke_at = 0.0                           # when Nova last finished speaking
         self.turns_done = 0
         # Phase 3: barge-in, merging, speculative STT
         self._handler: asyncio.Task | None = None     # resolving an utterance (STT + decisions)
@@ -354,10 +355,15 @@ class VoiceLoop:
     async def _check_wake(self, text: str, lat: LatencyTracker) -> str | None:
         """Wake mode: only answer when addressed by name (or during the follow-up window)."""
         w = self.cfg.wake
-        if self._last_said and echo_overlap(text, self._last_said) >= w.echo_overlap:
+        addressed, rest = match_wake(text, w.variants, w.window_words)
+        # Leftover echo can only arrive right after Nova stops talking, and Nova doesn't say
+        # its own name. So: never treat "Nova, ..." as echo, and only check within a short
+        # window. (Otherwise repeating a song title Nova just said gets you ignored.)
+        recently_spoke = time.perf_counter() - self._spoke_at <= w.echo_window_s
+        if (not addressed and recently_spoke and self._last_said
+                and echo_overlap(text, self._last_said) >= w.echo_overlap):
             self.on_event({"type": "ignored", "text": text, "reason": "sounded like my own voice"})
             return None
-        addressed, rest = match_wake(text, w.variants, w.window_words)
         in_follow_up = time.perf_counter() < self._follow_up_until
         if not addressed and not in_follow_up:
             self.on_event({"type": "ignored", "text": text, "reason": "not addressed to me"})
@@ -376,6 +382,7 @@ class VoiceLoop:
 
     def _after_reply(self) -> None:
         now = time.perf_counter()
+        self._spoke_at = now
         self._mute_until = now + self.cfg.wake.cooldown_ms / 1000
         if self.cfg.mode == "wake" and self._named and self.cfg.wake.follow_up_s > 0:
             self._follow_up_until = now + self.cfg.wake.follow_up_s

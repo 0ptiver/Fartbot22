@@ -123,3 +123,22 @@ async def test_follow_up_does_not_chain(settings, registry):
     got = [(e["type"], e.get("text")) for e in events if e["type"] in ("ignored", "transcript")]
     assert got[-1] == ("ignored", "man what is going on here")
     assert loop.tts.spoken == ["It is noon, sir.", "You're welcome, sir."]
+
+
+async def test_repeating_novas_words_with_name_is_not_echo(settings, registry):
+    """Owner's case: Nova said 'Play my way by Kanye West...' and 'Nova play my way by Kanye
+    West' was then ignored as 'my own voice'."""
+    loop, events = make_wake_loop(settings, registry,
+        [text_msg("Play my way by Kanye West, I can't find that track, sir."), text_msg("Playing it now, sir.")],
+        [("Nova, play my way", 1),
+         ("Nova play my way by Kanye West", 1)])
+    await loop.run()
+    assert not [e for e in events if e["type"] == "ignored"]
+    assert loop.tts.spoken[-1] == "Playing it now, sir."
+
+
+async def test_old_words_are_not_echo_after_the_window(settings, registry):
+    loop, events = make_wake_loop(settings, registry, [text_msg("The time is noon, sir.")], [])
+    loop._last_said, loop._spoke_at = "the time is noon sir", 0.0      # long ago
+    loop._follow_up_until = float("inf")
+    assert await loop._check_wake("the time is noon", None) == "the time is noon"

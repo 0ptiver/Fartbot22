@@ -211,7 +211,8 @@ scripts/           # install, run, register-startup
 - [x] Spotify: PKCE login (no secret, loopback callback with state check), refresh-token rotation, search + play (track/artist/album/playlist/liked/recent), control, now playing, queue. Starts the Spotify app when no device is found. Premium/rate-limit errors are spoken plainly
 - [x] Media keys for any app (fallback when Spotify isn't linked)
 - [x] Speech cleanup: maths symbols, markdown and URLs are spoken as words
-- [ ] Investigate: live Kokoro first-audio 0.8–1.0 s vs 72 ms benchmark (GPU contention with Ollama?)
+- [x] Owner test found: (1) "Nova play my way by Kanye West" ignored as echo because Nova's previous reply contained those words. The old text echo check ran on every utterance forever. Now it's never applied to requests with the name, and only within 2 s after speaking. (2) Tool results weren't visible. They're now shown, and the prompt says to relay them faithfully. (3) Spotify search is title/artist-aware ("X by Y" field search, ranked by artist and title match), and a bare artist name plays the artist
+- [ ] Investigate: live Kokoro first-audio ~0.7 s vs 72 ms benchmark. ttsbench now measures "after idle" (GPU power state) and "while the chat model writes" (contention)
 - [ ] Apps/windows, system, files, browser (Playwright), keyboard/mouse, clipboard, screen, shell, productivity, Spotify, Discord, Gmail/Calendar
 - [ ] Confirmation flow (voice "yes" / UI button)
 - [ ] Kill switch, remote policy, routines (YAML), MCP servers as a tool source

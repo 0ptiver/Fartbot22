@@ -124,6 +124,7 @@ class WakeConfig(BaseModel):
     follow_up_s: float = 6.0          # after a reply to "Nova, ...", one more request without the name
     acknowledgement: str = "Yes, sir?"  # said when you only say the name
     echo_overlap: float = 0.6         # ignore what sounds like its own voice from the speakers
+    echo_window_s: float = 2.0        # ...but only this soon after it stopped talking
     cooldown_ms: int = 350            # ignore the mic briefly after it finishes speaking
 
 

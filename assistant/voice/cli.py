@@ -42,7 +42,7 @@ def make_printer(name: str, show_latency: bool):
             state["speaking"] = False
         elif t == "tool_done":
             mark = f"{RED}✗" if ev["is_error"] else "✓"
-            extra = f": {ev['summary'][:100]}" if ev["is_error"] else ""
+            extra = f": {ev['summary'][:120]}" if ev.get("summary") else ""
             print(f"{DIM}  {mark} {ev['name']} took {ev['ms'] / 1000:.1f}s{extra}{RESET}", flush=True)
             state["speaking"] = False
         elif t == "error":
@@ -285,6 +285,9 @@ def ttsbench(profile: bool = False) -> None:
 
     if not best:
         return
+    if gpu:
+        _real_world(kokoro_paths(KOKORO_GPU)[0] if kokoro_paths(KOKORO_GPU)[0].exists()
+                    else kokoro_paths()[0], kokoro_paths()[1], k, make_session)
     if profile and gpu:
         prof_model = kokoro_paths(KOKORO_GPU)[0]
         _profile_kokoro(prof_model if prof_model.exists() else kokoro_paths()[0],
@@ -302,6 +305,56 @@ def ttsbench(profile: bool = False) -> None:
     if not gpu:
         print("\nThe GPU wasn't used. To enable it:  "
               "powershell -ExecutionPolicy Bypass -File scripts\\enable_gpu_tts.ps1")
+
+
+def _real_world(model, voices, k, make_session) -> None:
+    """The benchmark runs back-to-back; real use doesn't. Measure the two differences."""
+    import statistics
+    import threading
+
+    import httpx
+    from kokoro_onnx import Kokoro
+
+    from assistant.core.config import load_settings
+
+    kokoro = Kokoro.from_session(make_session(model, "cuda"), str(voices))
+    kokoro.create("Warm up.", voice=k.voice, speed=k.speed, lang=k.lang)
+    lines = ["It is a quarter past twelve, sir.", "Playing My Way by Kanye West.",
+             "Spotify is open, sir.", "Certainly, sir."]
+
+    def timed(text):
+        t = time.perf_counter()
+        kokoro.create(text, voice=k.voice, speed=k.speed, lang=k.lang)
+        return (time.perf_counter() - t) * 1000
+
+    print("\nReal-world conditions (GPU):")
+    idle = []
+    for text in lines[:3]:
+        time.sleep(3)
+        idle.append(timed(text))
+    print(f"  after 3 s idle             {statistics.median(idle):6.0f} ms   "
+          "(slow here = the GPU power-saves between sentences)")
+
+    s = load_settings().brain.local
+    stop = threading.Event()
+
+    def generate():
+        try:
+            with httpx.Client(base_url=s.host, timeout=60) as c:
+                while not stop.is_set():
+                    c.post("/api/generate", json={"model": s.model, "stream": False, "keep_alive": s.keep_alive,
+                                                  "prompt": "Write a long story about a dragon.",
+                                                  "options": {"num_predict": 200, "num_ctx": s.num_ctx}})
+        except Exception:
+            pass
+
+    th = threading.Thread(target=generate, daemon=True)
+    th.start()
+    time.sleep(1.5)
+    busy = [timed(text) for text in lines * 2]
+    stop.set()
+    print(f"  while the chat model writes {statistics.median(busy):6.0f} ms   "
+          "(slow here = Ollama and the voice compete for the GPU)")
 
 
 def _profile_kokoro(model, voices, k, phrases) -> None:

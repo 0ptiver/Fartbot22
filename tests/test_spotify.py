@@ -189,3 +189,47 @@ async def test_login_rejects_wrong_state(secrets):
     asyncio.get_running_loop().create_task(attacker())
     with pytest.raises(sp.SpotifyError):
         await sp.wait_for_callback("real-state", timeout=3)
+
+
+def test_split_by():
+    assert sp.split_by("My Way by Kanye West") == ("My Way", "Kanye West")
+    assert sp.split_by("Stand by Me") == ("Stand", "Me")          # ambiguous; the ranking copes
+    assert sp.split_by("gods plan") == ("gods plan", "")
+
+
+class SearchFake(FakeSpotify):
+    """Search results depend on the query, like the real API."""
+
+    def handler(self, req):
+        if req.url.path == "/v1/search":
+            q, kind = req.url.params["q"], req.url.params["type"]
+            self.calls.append(("GET", "/v1/search", {"q": q, "type": kind}, None))
+            if kind == "artist":
+                items = [{"type": "artist", "uri": "spotify:artist:drake", "name": "Drake"}] if "drake" in q.lower() else []
+            elif kind == "track" and 'artist:"kanye west"' in q:
+                items = []                                   # field search finds nothing -> fallback
+            elif kind == "track":
+                items = [
+                    {"type": "track", "uri": "spotify:track:a", "name": "My Way", "artists": [{"name": "Fetty Wap"}]},
+                    {"type": "track", "uri": "spotify:track:b", "name": "My Way (Remix)", "artists": [{"name": "Someone"}]},
+                    {"type": "track", "uri": "spotify:track:c", "name": "My Way", "artists": [{"name": "Kanye West"}]},
+                ]
+            else:
+                items = []
+            return httpx.Response(200, json={kind + "s": {"items": items}})
+        return super().handler(req)
+
+
+async def test_ranking_prefers_matching_artist(secrets):
+    fake = SearchFake()
+    out = await fake.client().play("my way by kanye west")
+    assert out == "Playing My Way by Kanye West."
+    queries = [c[2]["q"] for c in fake.calls if c[1] == "/v1/search"]
+    assert 'track:"my way" artist:"kanye west"' in queries      # tried the precise search first
+
+
+async def test_bare_artist_plays_artist(secrets):
+    fake = SearchFake()
+    assert await fake.client().play("Drake") == "Playing Drake."
+    play = [c for c in fake.calls if c[1] == "/v1/me/player/play"][0]
+    assert play[3] == {"context_uri": "spotify:artist:drake"}
