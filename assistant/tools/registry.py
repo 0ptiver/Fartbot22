@@ -14,7 +14,7 @@ from typing import Any, Awaitable, Callable
 
 import jsonschema
 
-from vesper.core.config import Settings
+from assistant.core.config import Settings
 
 
 class Risk(StrEnum):

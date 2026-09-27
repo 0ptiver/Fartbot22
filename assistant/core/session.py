@@ -6,9 +6,9 @@ import asyncio
 import itertools
 from typing import Any, Awaitable, Callable
 
-from vesper.brain.llm import Brain, BrainError, event_to_dict
-from vesper.core.conversation import Conversation
-from vesper.tools.registry import ToolContext
+from assistant.brain.llm import Brain, BrainError, event_to_dict
+from assistant.core.conversation import Conversation
+from assistant.tools.registry import ToolContext
 
 Send = Callable[[dict[str, Any]], Awaitable[None]]
 

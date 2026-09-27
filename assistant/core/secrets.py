@@ -6,9 +6,9 @@ import os
 
 from dotenv import load_dotenv
 
-from vesper.core.config import ROOT
+from assistant.core.config import ROOT
 
-KEYRING_SERVICE = "vesper"
+KEYRING_SERVICE = "pc-assistant"
 
 load_dotenv(ROOT / "config" / ".env")
 

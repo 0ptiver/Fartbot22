@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from vesper.tools.registry import Risk, ToolContext, ToolError, ToolRegistry
+from assistant.tools.registry import Risk, ToolContext, ToolError, ToolRegistry
 
 
 async def escalate(args: dict, ctx: ToolContext) -> str:

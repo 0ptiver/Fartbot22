@@ -1,9 +1,9 @@
 from fastapi.testclient import TestClient
 
 from tests.fakes import FakeClient, text_msg, tool_msg
-from vesper.brain.llm import Brain
-from vesper.core.server import create_app
-from vesper.tools.registry import Risk
+from assistant.brain.llm import Brain
+from assistant.core.server import create_app
+from assistant.tools.registry import Risk
 
 
 def recv_until(ws, kind):

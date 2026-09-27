@@ -1,4 +1,4 @@
-"""Entry point: python -m vesper {serve|chat|tools|secrets|audit}"""
+"""Entry point: python -m assistant {serve|chat|tools|secrets|audit}"""
 
 from __future__ import annotations
 
@@ -12,18 +12,18 @@ def main(argv: list[str] | None = None) -> None:
     if cmd == "serve":
         import uvicorn
 
-        from vesper.core.config import load_settings
-        from vesper.core.server import create_app
+        from assistant.core.config import load_settings
+        from assistant.core.server import create_app
 
         s = load_settings()
         uvicorn.run(create_app(s), host=s.server.host, port=s.server.port, log_level="info")
     elif cmd == "chat":
-        from vesper.cli import main as chat
+        from assistant.cli import main as chat
 
         chat(argv)
     elif cmd == "tools":
-        from vesper.core.config import load_settings
-        from vesper.tools import build_registry
+        from assistant.core.config import load_settings
+        from assistant.tools import build_registry
 
         s = load_settings()
         reg = build_registry(s)
@@ -35,15 +35,15 @@ def main(argv: list[str] | None = None) -> None:
     elif cmd == "audit":
         import json
 
-        from vesper.core.config import load_settings
-        from vesper.tools.registry import AuditLog
+        from assistant.core.config import load_settings
+        from assistant.tools.registry import AuditLog
 
         for rec in AuditLog(load_settings().safety.audit_path()).tail(int(argv[0]) if argv else 20):
             print(json.dumps(rec, ensure_ascii=False))
     elif cmd == "secrets" and len(argv) == 2 and argv[0] == "set":
         import getpass
 
-        from vesper.core.secrets import set_secret
+        from assistant.core.secrets import set_secret
 
         set_secret(argv[1], getpass.getpass(f"{argv[1]}: "))
         print(f"Stored {argv[1]} in the system credential store.")

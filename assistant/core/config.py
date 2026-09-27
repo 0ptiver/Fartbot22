@@ -13,8 +13,8 @@ DEFAULT_CONFIG_PATH = ROOT / "config" / "config.yaml"
 
 
 class AssistantConfig(BaseModel):
-    name: str = "Vesper"
-    wake_phrase: str = "hey vesper"
+    name: str = "Orion"
+    wake_phrase: str = "hey orion"
     address_user_as: str = "sir"
     timezone: str = "America/Chicago"
     personality: str = "british_butler"

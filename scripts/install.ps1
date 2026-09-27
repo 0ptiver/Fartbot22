@@ -1,4 +1,4 @@
-# Vesper installer for Windows (PowerShell). Run from the repo root:
+# Orion installer for Windows (PowerShell). Run from the repo root:
 #   powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path $PSScriptRoot -Parent)
@@ -19,7 +19,7 @@ if (-not (Test-Path .venv)) { py -3.12 -m venv .venv }
 .\.venv\Scripts\python -m pip install --upgrade pip
 .\.venv\Scripts\python -m pip install -e ".[dev]"
 
-if (-not (Test-Path config\.env)) { Copy-Item config\.env.example config\.env; Write-Host "Created config\.env - add your ANTHROPIC_API_KEY (or use: .venv\Scripts\python -m vesper secrets set ANTHROPIC_API_KEY)" }
+if (-not (Test-Path config\.env)) { Copy-Item config\.env.example config\.env; Write-Host "Created config\.env - add your ANTHROPIC_API_KEY (or use: .venv\Scripts\python -m assistant secrets set ANTHROPIC_API_KEY)" }
 
 .\.venv\Scripts\python -m pytest -q
-Write-Host "`nInstalled. Try:  .\.venv\Scripts\python -m vesper chat --local --debug" -ForegroundColor Green
+Write-Host "`nInstalled. Try:  .\.venv\Scripts\python -m assistant chat --local --debug" -ForegroundColor Green

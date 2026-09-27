@@ -9,10 +9,10 @@ from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
-from vesper.brain.llm import Brain
-from vesper.core.config import Settings, load_settings
-from vesper.core.session import Session
-from vesper.tools import build_registry
+from assistant.brain.llm import Brain
+from assistant.core.config import Settings, load_settings
+from assistant.core.session import Session
+from assistant.tools import build_registry
 
 
 def _is_loopback(host: str | None) -> bool:
@@ -33,7 +33,7 @@ def create_app(settings: Settings | None = None, brain: Brain | None = None) -> 
     async def lifespan(app: FastAPI):
         yield
 
-    app = FastAPI(title="Vesper", lifespan=lifespan)
+    app = FastAPI(title="Orion", lifespan=lifespan)
     app.state.brain = brain
 
     @app.get("/health")

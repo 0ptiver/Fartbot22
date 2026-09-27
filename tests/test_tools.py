@@ -3,8 +3,8 @@ import io
 
 from PIL import Image
 
-from vesper.tools import screen, system
-from vesper.tools.registry import ToolError
+from assistant.tools import screen, system
+from assistant.tools.registry import ToolError
 
 
 def test_get_time(ctx):

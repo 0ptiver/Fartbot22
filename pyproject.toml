@@ -1,7 +1,7 @@
 [project]
-name = "vesper"
+name = "pc-assistant"
 version = "0.1.0"
-description = "Vesper: a real-time, voice-first personal assistant for Windows"
+description = "Orion: a real-time, voice-first personal assistant for Windows"
 requires-python = ">=3.12"
 dependencies = [
     "anthropic>=1.8",
@@ -25,14 +25,14 @@ dependencies = [
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "httpx>=0.27"]
 
 [project.scripts]
-vesper = "vesper.__main__:main"
+assistant = "assistant.__main__:main"
 
 [build-system]
 requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["vesper*"]
+include = ["assistant*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -1,6 +1,6 @@
-# Vesper
+# Orion
 
-A real-time, voice-first personal assistant for Windows. Wake phrase **"Hey Vesper"** (coming in Phase 3).
+A real-time, voice-first personal assistant for Windows. Wake phrase **"Hey Orion"** (coming in Phase 3).
 It's calm and concise and calls you "sir", in a British butler style. It runs on your PC and controls it through a tool layer with safety rules.
 
 See [PLAN.md](PLAN.md) for the architecture, chosen stack, costs and phase checklist.
@@ -23,7 +23,7 @@ powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 You need an Anthropic API key (https://console.anthropic.com → API keys). Use either:
 
 - **Windows Credential Manager** (recommended):
-  `.venv\Scripts\python -m vesper secrets set ANTHROPIC_API_KEY`
+  `.venv\Scripts\python -m assistant secrets set ANTHROPIC_API_KEY`
 - or `config\.env`: `ANTHROPIC_API_KEY=sk-ant-...`
 
 Keys are never stored in code or committed. `config/.env` is git-ignored.
@@ -32,11 +32,11 @@ Keys are never stored in code or committed. `config/.env` is git-ignored.
 
 ```powershell
 # Quickest: brain in-process
-.venv\Scripts\python -m vesper chat --local --debug
+.venv\Scripts\python -m assistant chat --local --debug
 
 # Or run the core server, then connect clients to it
-.venv\Scripts\python -m vesper serve          # terminal 1
-.venv\Scripts\python -m vesper chat --debug   # terminal 2
+.venv\Scripts\python -m assistant serve          # terminal 1
+.venv\Scripts\python -m assistant chat --debug   # terminal 2
 ```
 
 `--debug` prints per-turn timings (time to first token, tool time, total) and token usage, including prompt-cache reads and writes.
@@ -44,8 +44,8 @@ Keys are never stored in code or committed. `config/.env` is git-ignored.
 Other commands:
 
 ```powershell
-.venv\Scripts\python -m vesper tools      # list tools and their risk levels
-.venv\Scripts\python -m vesper audit 20   # last 20 tool calls from the audit log
+.venv\Scripts\python -m assistant tools      # list tools and their risk levels
+.venv\Scripts\python -m assistant audit 20   # last 20 tool calls from the audit log
 ```
 
 ### Things to try

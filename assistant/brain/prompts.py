@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from vesper.core.config import Settings
+from assistant.core.config import Settings
 
 PERSONALITIES = {
     "british_butler": (

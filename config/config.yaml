@@ -1,11 +1,11 @@
-# Vesper configuration. Every value here can be changed without touching code.
+# Orion configuration. Every value here can be changed without touching code.
 
 assistant:
-  name: Vesper
-  wake_phrase: hey vesper
+  name: Orion
+  wake_phrase: hey orion
   address_user_as: sir          # set to "" to disable
   timezone: America/Chicago
-  personality: british_butler   # see vesper/brain/prompts.py
+  personality: british_butler   # see assistant/brain/prompts.py
 
 brain:
   # Fast conversational model and the stronger model used by the `escalate` tool.

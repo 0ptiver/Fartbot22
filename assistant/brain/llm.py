@@ -10,11 +10,11 @@ from typing import Any, AsyncIterator
 
 import anthropic
 
-from vesper.brain.prompts import EXPERT_SYSTEM, system_prompt, turn_context
-from vesper.core.config import Settings
-from vesper.core.conversation import Conversation
-from vesper.core.secrets import get_secret
-from vesper.tools.registry import ToolContext, ToolRegistry, _summarize_content
+from assistant.brain.prompts import EXPERT_SYSTEM, system_prompt, turn_context
+from assistant.core.config import Settings
+from assistant.core.conversation import Conversation
+from assistant.core.secrets import get_secret
+from assistant.tools.registry import ToolContext, ToolRegistry, _summarize_content
 
 CACHE = {"type": "ephemeral"}
 
@@ -92,7 +92,7 @@ class Brain:
             if not key:
                 raise RuntimeError(
                     "No ANTHROPIC_API_KEY. Put it in config/.env or run "
-                    "`python -m vesper secrets set ANTHROPIC_API_KEY`."
+                    "`python -m assistant secrets set ANTHROPIC_API_KEY`."
                 )
             self._client = anthropic.AsyncAnthropic(api_key=key)
         return self._client

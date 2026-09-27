@@ -53,10 +53,10 @@ class Printer:
 
 
 async def run_local(debug: bool) -> None:
-    from vesper.brain.llm import Brain
-    from vesper.core.config import load_settings
-    from vesper.core.session import Session
-    from vesper.tools import build_registry
+    from assistant.brain.llm import Brain
+    from assistant.core.config import load_settings
+    from assistant.core.session import Session
+    from assistant.tools import build_registry
 
     settings = load_settings()
     brain = Brain(settings, build_registry(settings))
@@ -140,7 +140,7 @@ async def _repl(handle, wait_idle, cancel) -> None:
 def main(argv: list[str]) -> None:
     import argparse
 
-    p = argparse.ArgumentParser(prog="vesper chat")
+    p = argparse.ArgumentParser(prog="assistant chat")
     p.add_argument("--local", action="store_true", help="run the brain in-process (no server)")
     p.add_argument("--url", default=None, help="server WebSocket URL")
     p.add_argument("--debug", action="store_true", help="show timings and token usage")
@@ -148,7 +148,7 @@ def main(argv: list[str]) -> None:
     if a.local:
         asyncio.run(run_local(a.debug))
     else:
-        from vesper.core.config import load_settings
+        from assistant.core.config import load_settings
 
         s = load_settings()
         asyncio.run(run_remote(a.url or f"ws://{s.server.host}:{s.server.port}/ws", a.debug))

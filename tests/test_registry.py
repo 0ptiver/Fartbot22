@@ -1,7 +1,7 @@
 import asyncio
 import threading
 
-from vesper.tools.registry import Risk, ToolContext, ToolError, ToolRegistry
+from assistant.tools.registry import Risk, ToolContext, ToolError, ToolRegistry
 
 
 def make(settings):

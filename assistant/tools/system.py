@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from vesper.tools.registry import Risk, ToolContext, ToolError, ToolRegistry
+from assistant.tools.registry import Risk, ToolContext, ToolError, ToolRegistry
 
 IS_WINDOWS = sys.platform == "win32"
 

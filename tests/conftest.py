@@ -1,8 +1,8 @@
 import pytest
 
-from vesper.core.config import Settings
-from vesper.tools import build_registry
-from vesper.tools.registry import AuditLog, ToolContext
+from assistant.core.config import Settings
+from assistant.tools import build_registry
+from assistant.tools.registry import AuditLog, ToolContext
 
 
 @pytest.fixture

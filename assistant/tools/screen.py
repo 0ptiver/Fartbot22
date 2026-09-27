@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import io
 
-from vesper.tools.registry import Risk, ToolContext, ToolError, ToolRegistry, ToolResult
+from assistant.tools.registry import Risk, ToolContext, ToolError, ToolRegistry, ToolResult
 
 
 def grab_screen(monitor: int = 1):
