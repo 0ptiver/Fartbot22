@@ -6,10 +6,10 @@ import logging
 
 from assistant.core.config import Settings
 from assistant.tools import (expert, files, grid, keyboard, memory, music, pc, routines, screen, system,
-                             timers, uia, video, watch, web)
+                             timers, uia, video, voice, watch, web)
 from assistant.tools.registry import AuditLog, ToolRegistry
 
-TOOL_MODULES = [system, screen, expert, music, files, timers, pc, grid, video, keyboard, uia, memory, watch]
+TOOL_MODULES = [system, screen, expert, music, files, timers, pc, grid, video, keyboard, uia, memory, watch, voice]
 
 
 def build_registry(settings: Settings, audit: AuditLog | None = None) -> ToolRegistry:

@@ -91,6 +91,7 @@ function handle(ev, replay) {
     case "memories": return NovaBrain.memories(ev.items);
     case "memory_used": if (!replay) NovaBrain.used(ev.ids); return;
     case "toast": return toast(ev.text);
+    case "voice": return NovaVoice.info(ev);
     case "transcript":
       closeLive();
       addMsg("you" + (ev.typed ? " typed" : ""), ev.text);
@@ -455,6 +456,7 @@ function selectTab(name) {
   for (const b of document.querySelectorAll(".tabs button")) b.setAttribute("aria-selected", String(b.dataset.tab === name));
   for (const p of document.querySelectorAll("main > .panel")) p.hidden = p.id !== "tab-" + name;
   if (name === "activity") { S.unseenAct = 0; badge(); }
+  if (name === "voice") send({ type: "voice_get" });
   if (name === "chat") scrollChat();
 }
 

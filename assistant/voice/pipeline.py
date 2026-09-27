@@ -615,6 +615,23 @@ class VoiceLoop:
         await self._synth_and_play(text, None)
         await self.player.drain()
 
+    # --- voice design (HUD's Voice tab, "change your voice to ...") ------------------------------
+    async def set_voice(self, design, save: bool = True) -> None:
+        if not hasattr(self.tts, "set_design"):
+            raise RuntimeError("This voice can't be changed.")
+        await self.tts.set_design(design)
+        if save:
+            self.tts.design.save()
+        self._tts_cache.clear()                  # cached phrases were in the old voice
+        await self.prewarm()
+
+    async def preview_voice(self, design, text: str) -> None:
+        if not hasattr(self.tts, "preview"):
+            raise RuntimeError("This voice can't be changed.")
+        audio = await self.tts.preview(design, text)
+        self.player.stop()
+        self.player.play(audio)
+
     async def prewarm(self) -> None:
         """Pre-synthesize short fixed phrases so they play instantly."""
         for phrase in [*self.cfg.filler_phrases, self.cfg.wake.acknowledgement]:

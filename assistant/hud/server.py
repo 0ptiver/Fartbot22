@@ -45,7 +45,7 @@ _KEEP = {"memory_used", "transcript", "text", "speak", "tool", "tool_done", "ann
          "turn_complete", "latency"}
 _FILES = {"/": ("index.html", "text/html"), "/hud.js": ("hud.js", "text/javascript"),
           "/hud.css": ("hud.css", "text/css"), "/icon.svg": ("icon.svg", "image/svg+xml"),
-          "/brain.js": ("brain.js", "text/javascript")}
+          "/brain.js": ("brain.js", "text/javascript"), "/voice.js": ("voice.js", "text/javascript")}
 
 
 class Hub:
@@ -83,6 +83,19 @@ def timers(scheduler, settings: Settings, watchers=None) -> dict[str, Any]:
 def memories(store) -> dict[str, Any]:
     items = [] if store is None else [{"id": m.id, "text": m.text, "created": m.created} for m in store.all()]
     return {"type": "memories", "items": items}
+
+
+PREVIEW_LINE = "Good evening, sir. Everything is running smoothly, and your tea is on its way."
+
+
+def voice_info(loop) -> dict[str, Any]:
+    from dataclasses import asdict
+
+    from assistant.voice.voicedesign import PRESETS, catalog
+    tts = getattr(loop, "tts", None)
+    if tts is None or not hasattr(tts, "voices") or not tts.voices():
+        return {"type": "voice", "unavailable": True}
+    return {"type": "voice", "voices": catalog(tts.voices()), "design": asdict(tts.design), "presets": PRESETS}
 
 
 def _routines(settings: Settings) -> list[dict[str, str]]:
@@ -154,6 +167,24 @@ def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=Non
         elif kind == "cancel_watch" and watchers is not None and isinstance(msg.get("id"), str):
             watchers.cancel(msg["id"])
             await ws_send(timers(scheduler, settings, watchers))
+        elif kind in ("voice_preview", "voice_save") and isinstance(msg.get("design"), dict):
+            from assistant.voice.voicedesign import VoiceDesign
+
+            async def voice_job() -> None:
+                try:
+                    design = VoiceDesign.from_dict(msg["design"])
+                    if kind == "voice_preview":
+                        text = msg.get("text") if isinstance(msg.get("text"), str) and msg["text"].strip() else PREVIEW_LINE
+                        await loop.preview_voice(design, text[:200])
+                    else:
+                        await loop.set_voice(design)
+                        await ws_send(voice_info(loop))
+                        await ws_send({"type": "toast", "text": "Saved. That's Nova's voice now."})
+                except Exception as e:
+                    await ws_send({"type": "toast", "text": f"Couldn't change the voice: {e}"})
+            spawn(voice_job())
+        elif kind == "voice_get":
+            await ws_send(voice_info(loop))
         elif kind == "mem_add" and memory is not None and isinstance(msg.get("text"), str):
             from assistant.core.memory import SecretRefused
             try:

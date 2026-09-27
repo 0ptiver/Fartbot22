@@ -158,6 +158,32 @@ ol { list-style: none; margin: 0; padding: 0; }
 .routine b { display: block; margin-bottom: 4px; }
 .routine span { color: var(--muted); font-size: 12px; }
 
+/* --- voice designer -------------------------------------------------------------------------- */
+.presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.presets button { border: 1px solid var(--line2); background: rgba(255,255,255,.03); border-radius: 999px; padding: 5px 11px; font-size: 12px; color: var(--muted); }
+.presets button:hover, .presets button[aria-pressed="true"] { color: var(--cyan); border-color: var(--cyan); }
+h3.sub { margin: 4px 0 8px; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.mix { display: flex; flex-direction: column; gap: 8px; }
+.mix-row { display: grid; grid-template-columns: minmax(0, 1fr) 90px 40px 28px; gap: 8px; align-items: center; }
+.mix-row select, .accent select, .field {
+  min-width: 0; background: rgba(255,255,255,.04); color: var(--text); border: 1px solid var(--line2); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 13px;
+}
+.mix-row select option, .accent select option { background: var(--bg2); }
+.mix-row .pct { color: var(--muted); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+.mix-row .x { border: 1px solid var(--line2); background: none; border-radius: 8px; height: 28px; color: var(--muted); }
+.mix-row .x:hover { color: var(--red); }
+input[type="range"] { accent-color: var(--cyan); width: 100%; }
+.link-btn { background: none; border: none; color: var(--cyan); padding: 8px 0; font-size: 13px; }
+.sliders { display: grid; gap: 10px; margin: 10px 0 14px; }
+.sliders label { display: grid; grid-template-columns: 70px 1fr; align-items: center; gap: 4px 10px; font-size: 13px; color: var(--muted); }
+.sliders output { grid-column: 2; grid-row: 1; justify-self: end; font-size: 12px; color: var(--text); font-variant-numeric: tabular-nums; }
+.sliders input[type="range"] { grid-column: 1 / -1; }
+.sliders .accent { grid-template-columns: 70px 1fr; }
+.field { width: 100%; margin-bottom: 10px; }
+.voice-actions { display: flex; gap: 10px; }
+.voice-actions button { flex: 1; padding: 9px; border-radius: 10px; font-weight: 600; }
+.voice-actions .yes { border: 1px solid; }
+
 /* --- input ----------------------------------------------------------------------------------- */
 .ask { display: flex; gap: 8px; padding: 10px 12px 12px; border-top: 1px solid var(--line); background: rgba(6,8,14,.85); }
 .ask input {

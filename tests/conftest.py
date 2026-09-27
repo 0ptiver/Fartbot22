@@ -22,3 +22,10 @@ def registry(settings):
 @pytest.fixture
 def ctx(settings):
     return ToolContext(settings)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_voice_file(tmp_path, monkeypatch):
+    """Nothing in the tests may touch the owner's saved voice (data/voice.json)."""
+    from assistant.voice import voicedesign
+    monkeypatch.setattr(voicedesign, "VOICE_FILE", tmp_path / "voice.json")

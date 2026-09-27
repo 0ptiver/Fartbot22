@@ -316,6 +316,10 @@ def match_intent(text: str, grid_visible: bool = False, labels: bool = False) ->
     w = watch_intent(text)
     if w:
         return w
+    from assistant.tools.voice import voice_intent
+    v = voice_intent(t)
+    if v:
+        return v
     timer = _timer_intent(t)
     if timer:
         return timer

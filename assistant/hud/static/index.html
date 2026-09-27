@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="hud.css">
 <script src="hud.js" defer></script>
 <script src="brain.js" defer></script>
+<script src="voice.js" defer></script>
 </head>
 <body>
 <header class="top">
@@ -76,6 +77,7 @@
   <button role="tab" type="button" data-tab="activity" aria-selected="false">Activity <span class="badge" id="actBadge" hidden></span></button>
   <button role="tab" type="button" data-tab="timers" aria-selected="false">Timers <span class="badge" id="timerBadge" hidden></span></button>
   <button role="tab" type="button" data-tab="routines" aria-selected="false">Routines</button>
+  <button role="tab" type="button" data-tab="voice" aria-selected="false">Voice</button>
 </nav>
 
 <main>
@@ -95,6 +97,29 @@
   <section id="tab-routines" class="panel" role="tabpanel" hidden>
     <div id="routines" class="routines"></div>
     <p class="hint">Add your own in <code>config\local.yaml</code>, then check them with <code>python -m assistant routines</code>.</p>
+  </section>
+  <section id="tab-voice" class="panel" role="tabpanel" hidden>
+    <p class="empty" id="voiceUnavailable" hidden>The voice designer needs Nova's Kokoro voice to be running.</p>
+    <div id="voiceDesigner">
+      <div class="presets" id="voicePresets" aria-label="Starting points"></div>
+      <h3 class="sub">Mix of voices</h3>
+      <div id="voiceMix" class="mix"></div>
+      <button id="voiceAdd" type="button" class="link-btn">+ Blend in another voice</button>
+      <div class="sliders">
+        <label>Speed <output id="speedVal"></output>
+          <input type="range" id="voiceSpeed" min="0.7" max="1.4" step="0.01"></label>
+        <label>Pitch <output id="pitchVal"></output>
+          <input type="range" id="voicePitch" min="-4" max="4" step="0.5"></label>
+        <label class="accent">Accent
+          <select id="voiceLang"><option value="en-gb">British</option><option value="en-us">American</option></select></label>
+      </div>
+      <input id="voiceText" type="text" maxlength="200" class="field" placeholder="Preview line (optional)" aria-label="Preview line">
+      <div class="voice-actions">
+        <button id="voicePreview" type="button" class="ctl">▶ Preview</button>
+        <button id="voiceSave" type="button" class="yes">Save as Nova's voice</button>
+      </div>
+      <p class="hint">Or just say “Nova, change your voice to deep butler”.</p>
+    </div>
   </section>
 </main>
 

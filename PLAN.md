@@ -255,7 +255,7 @@ scripts/           # install, run, register-startup
 ### Phase 8 — Unique features (owner picked 3 of my ideas)
 - [x] "Tell me when ..." watchers (core/watchers.py, tools/watch.py): browser downloads (partial-file extensions in Downloads), Steam downloads (steamapps/downloading of every library), an app closing or going quiet after working (CPU), GPU above/below °C, CPU calming down, battery full/low (not while plugged in), internet back, a web page changing (text fingerprint with digits ignored; "this page" = the active browser's address bar via UI Automation). Announced once like reminders (chime, held while standing down); max 10, expire after a day; listed with cancel buttons in the HUD's Timers tab. Fast path needs "tell me/let me know when ..." so questions like "when is dinner done?" aren't watches. Not yet tried on the PC
 - [ ] Live subtitles + translation of PC audio
-- [ ] Voice designer (Kokoro voice blending)
+- [x] Voice designer (voice/voicedesign.py): blend up to 3 Kokoro voices (weighted average of their style arrays), speed, pitch (-4..+4 semitones: Kokoro renders at speed/f, then the audio is resampled by f, so the pitch moves and the talking speed doesn't), British/American pronunciation. Saved to data/voice.json (wins over config.yaml). HUD Voice tab: presets (Butler, Deep butler, Young gent, Lady Nova, Nova (American), Movie trailer), mix rows, sliders, Preview (plays without switching), Save (switches live, clears the phrase cache, re-warms). "Change your voice to deep butler" / "use your normal voice". Kokoro can't run here: tested with a fake Kokoro; not yet heard on the PC
 
 ## Open questions for the owner
 - Happy with the hotkeys above? (assumed yes until told otherwise)
