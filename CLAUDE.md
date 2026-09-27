@@ -53,11 +53,10 @@ Branch: `claude/jarvis-voice-assistant-lhnfza` (commit and push there after ever
 - CLI: `python -m assistant {voice|chat|serve|doctor [--full]|models [--recheck|--debug-stft]|ttsbench [--profile]|mictest|devices|spotify ...|tools|audit|secrets set NAME}`.
 
 ## Status (end of last session)
-- Phases 1–3 done and verified by the owner: voice works, latency ~0.9–1.3 s, barge-in and echo cancellation work on speakers.
-- Phase 4 started. **Spotify playback is parked** (the owner's call): play is "accepted" but nothing plays. Pause/next/now-playing work. Next steps are in PLAN.md under "Spotify playback: parked".
-- Phase 4 done in code: safety core (voice confirmations, "stand down" kill switch, folder allowlist), file tools, timers/reminders, PC control, routines. The owner said "it seems to be working" after the PC-control update; routines are not yet tried on the PC.
-- HUD built (assistant/hud/, web page in an Edge --app window, served inside `assistant voice`); not yet tried on the PC. Screenshot it locally with playwright + executable_path=/opt/pw-browsers/chromium (a scratch venv; the project venv has no playwright).
-- **Next:** HUD extras (settings editor, audit view, tray) or memory (short-term summaries, long-term SQLite, "forget that", editable in the HUD). Later: Gmail/Calendar, phone access (Tailscale + auth + 2FA), morning briefing, autostart, Spotify playback.
+- Phases 1–4 done; the owner has confirmed on the PC: voice, HUD, PC control, grid (two screens), video, keyboard/click-by-name/dictation, memory + brain view, tray/autostart. Spotify playback is still parked (PLAN.md).
+- Phase 8 (unique features) built: watchers, voice designer, live subtitles, teach by showing. Not all confirmed on the PC yet.
+- Latest: a polish pass for the owner's "he doesn't cancel things and he freezes": universal cancel (VoiceLoop.cancel_last), tool time limits (registry.TOOL_TIMEOUTS), "One moment" after 1.8 s, a "heard you" tick, "pause" = whatever is playing (tools/video.media), "no, I meant X".
+- **Next (owner's list):** voice lock (only obey the owner's voice), then "clip that" + game mode, morning briefing + alerts, phone access, Gmail/Calendar, Spotify fix. Ask the owner for data/logs/nova.log when something freezes.
 
 ## Working conventions
 - Keep PLAN.md checklists updated. Commit messages explain the "why". End commit messages with the attribution lines given by the system.
