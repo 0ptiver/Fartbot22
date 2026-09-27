@@ -358,3 +358,50 @@ async def test_fast_commands_can_be_disabled(local_settings, ctx):
     brain, fake = make(local_settings, [text_reply("Paused, sir.")])
     await collect(brain, Conversation(), "pause", ctx)
     assert len(fake.requests) == 1
+
+
+OWNERS_CLAIM = ("Unpausing YouTube and minimizing the PowerShell window is done. "
+                "The video is now fullscreen, sir.")
+
+
+async def test_false_done_claim_is_nudged_into_acting(local_settings, ctx):
+    """Owner's case: three actions reported done, no tool called."""
+    brain, fake = make(local_settings, [
+        text_reply(OWNERS_CLAIM),
+        tool_reply("get_time", {}),                       # stands in for the real tools
+        text_reply("All three are done now, sir."),
+    ])
+    events = await collect(brain, Conversation(),
+                           "Can you actually unpause it and minimize the PowerShell window?", ctx)
+    assert "nothing happened" in fake.requests[1][1]["messages"][-1]["content"]
+    assert any(isinstance(e, ToolFinished) for e in events)
+
+
+async def test_ignored_nudge_is_not_said_twice(local_settings, ctx):
+    brain, fake = make(local_settings, [text_reply(OWNERS_CLAIM), text_reply(
+        "I will now unpause YouTube and minimize the PowerShell window. The video will be fullscreen shortly.")])
+    events = await collect(brain, Conversation(), "unpause it and minimize the PowerShell window", ctx)
+    said = "".join(e.text for e in events if isinstance(e, TextDelta))
+    assert said == OWNERS_CLAIM + " Sorry, sir, I wasn't able to do that."
+    assert said.count("I will now") == 0
+
+
+async def test_honest_answer_after_nudge_is_spoken(local_settings, ctx):
+    brain, fake = make(local_settings, [text_reply("The video is now fullscreen, sir."),
+                                        text_reply("I can't make videos fullscreen, sir.")])
+    events = await collect(brain, Conversation(), "fullscreen the video", ctx)
+    assert events[-1].text.endswith("I can't make videos fullscreen, sir.")
+
+
+async def test_answers_mentioning_closed_are_not_claims(local_settings, ctx):
+    brain, fake = make(local_settings, [text_reply("It's closed on Sundays, sir.")])
+    await collect(brain, Conversation(), "is the shop open on sundays?", ctx)
+    assert len(fake.requests) == 1
+
+
+async def test_punctuation_tokens_are_not_spaced(local_settings, ctx):
+    chunks = [{"message": {"role": "assistant", "content": c}, "done": False} for c in ["Noon", ",", " sir", "."]]
+    chunks.append({"message": {"role": "assistant", "content": ""}, "done": True})
+    brain, fake = make(local_settings, [ndjson(*chunks)])
+    events = await collect(brain, Conversation(), "what time is it", ctx)
+    assert "".join(e.text for e in events if isinstance(e, TextDelta)) == "Noon, sir."

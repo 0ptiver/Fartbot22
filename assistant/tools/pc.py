@@ -195,6 +195,13 @@ class WindowBackend:
             return
         user32.ShowWindow(hwnd, codes[how])
 
+    def press(self, vk: int) -> None:
+        _need_windows()
+        import ctypes
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+        user32.keybd_event(vk, 0, 0, 0)
+        user32.keybd_event(vk, 0, 2, 0)
+
     def show_desktop(self) -> None:
         _need_windows()
         import ctypes
@@ -237,6 +244,29 @@ def window_control(args: dict, ctx: ToolContext) -> str:
     return {"focus": f"Switched to {label}.", "minimize": f"Minimized {label}.",
             "maximize": f"Maximized {label}.", "restore": f"Restored {label}.",
             "close": f"Closed {label}."}[action]
+
+
+# Single keys only, and none that can type text, submit (Enter) or close things (Alt+F4):
+# enough to control a video or a game menu, not to operate apps on the user's behalf.
+KEYS = {"space": 0x20, "f": 0x46, "k": 0x4B, "m": 0x4D, "j": 0x4A, "l": 0x4C, "f11": 0x7A,
+        "escape": 0x1B, "left": 0x25, "up": 0x26, "right": 0x27, "down": 0x28,
+        "page_up": 0x21, "page_down": 0x22, "home": 0x24, "end": 0x23}
+
+
+async def press_key(args: dict, ctx: ToolContext) -> str:
+    import asyncio
+
+    key = args["key"].lower()
+    if key not in KEYS:
+        raise ToolError(f"I can only press: {', '.join(KEYS)}.")
+    label = ""
+    if args.get("app"):
+        w = await asyncio.to_thread(_find_window, args["app"])
+        await asyncio.to_thread(WINDOWS.show, w.hwnd, "focus")
+        await asyncio.sleep(0.35)                 # let the window come to the front first
+        label = f" in {w.process.removesuffix('.exe') or w.title}"
+    await asyncio.to_thread(WINDOWS.press, KEYS[key])
+    return f"Pressed {key}{label}."
 
 
 # --- websites ---------------------------------------------------------------------------------
@@ -296,6 +326,13 @@ def register(reg: ToolRegistry) -> None:
                  "app": {"type": "string", "maxLength": 80}},
               "required": ["action"], "additionalProperties": False},
              risk=Risk.SAFE, category="apps")(window_control)
+    reg.tool("press_key", "Press one key, optionally in an app first brought to the front. For videos "
+             "(YouTube, a browser, a player): 'f' = fullscreen the video, 'space' or 'k' = pause/play, "
+             "'m' = mute, 'j'/'l' = back/forward 10 s, 'escape' = leave fullscreen, 'f11' = browser "
+             "fullscreen. Example: fullscreen a YouTube video -> key 'f', app 'chrome'.",
+             {"type": "object", "properties": {"key": {"type": "string", "enum": list(KEYS)},
+                                               "app": {"type": "string", "maxLength": 80}},
+              "required": ["key"], "additionalProperties": False}, risk=Risk.SAFE, category="apps")(press_key)
     reg.tool("open_website", "Open a website in the browser (site = name like 'youtube' or an address), "
              "or search (search = words; site = 'youtube'/'amazon'/'maps' to search there, else Google).",
              {"type": "object", "properties": {"site": {"type": "string", "maxLength": 200},

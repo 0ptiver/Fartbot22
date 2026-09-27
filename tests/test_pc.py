@@ -129,3 +129,14 @@ def test_system_status(settings, monkeypatch):
     assert pc.system_status({"what": "gpu"}, ctx, _gpu=lambda: None).startswith("I can't read the GPU")
     assert "free of" in pc.system_status({"what": "disk"}, ctx)
     assert pc.system_status({"what": "uptime"}, ctx).startswith("On for")
+
+
+async def test_press_key_focuses_the_app_first(settings, registry, wins, monkeypatch):
+    pressed = []
+    wins.press = lambda vk: pressed.append(vk)
+    res = await registry.execute("press_key", {"key": "f", "app": "chrome"}, ToolContext(settings))
+    assert res.content == "Pressed f in chrome." and wins.calls[-1] == (2, "focus") and pressed == [0x46]
+    bad = await registry.execute("press_key", {"key": "enter"}, ToolContext(settings))
+    assert bad.is_error and pressed == [0x46]                  # only the allowlisted keys
+    remote = await registry.execute("press_key", {"key": "space"}, ToolContext(settings, remote=True))
+    assert remote.is_error and "blocked" in remote.content

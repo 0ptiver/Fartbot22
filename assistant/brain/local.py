@@ -192,13 +192,32 @@ class LocalBrain:
                     text_parts = None  # already recorded in history
                 else:
                     out = _Round()
+                    # The retry after a nudge is held back until we know whether it acted:
+                    # otherwise a model that ignores the nudge says the same thing twice.
+                    hold = nudged and not tools_used
+                    held: list[TextDelta] = []
+                    first = True             # only a round's first text may need a space before it
                     try:
                         async for ev in self._model_round(conv, allow_tools, out, timings, usage, t0):
+                            if hold:
+                                held.append(ev)
+                                continue
+                            if first:
+                                ev, first = _spaced(ev, spoken), False
                             spoken.append(ev.text)
                             yield ev
                     except _RetryWithoutThink:
                         continue
                     text_parts, calls = out.text, out.calls
+                    if hold:
+                        if not calls and _acts_without_tools("".join(text_parts), user_text):
+                            who = self.settings.assistant.address_user_as
+                            text_parts = [f"Sorry{', ' + who if who else ''}, I wasn't able to do that."]
+                            held = [TextDelta(text_parts[0])]
+                        for i, ev in enumerate(held):
+                            ev = _spaced(ev, spoken) if i == 0 else ev
+                            spoken.append(ev.text)
+                            yield ev
 
                 if text_parts is not None:
                     assistant_msg: dict[str, Any] = {"role": "assistant", "content": "".join(text_parts)}
@@ -206,13 +225,14 @@ class LocalBrain:
                         assistant_msg["tool_calls"] = calls
                     conv.messages.append(assistant_msg)
                 if not calls:
-                    # Small models sometimes *say* they'll do something and stop. Nudge once.
+                    # Small models sometimes *say* they'll do something (or that it's done)
+                    # without calling a tool. Nudge once.
+                    said_text = "".join(text_parts or [])
                     if (not tools_used and not nudged and allow_tools
-                            and _PROMISE.search("".join(text_parts or []))):
+                            and _acts_without_tools(said_text, user_text)):
                         nudged = True
-                        conv.messages.append({"role": "user", "content": NUDGE})
-                        if spoken and not spoken[-1].endswith((" ", "\n")):
-                            spoken.append(" ")
+                        conv.messages.append({"role": "user", "content":
+                                              NUDGE_CLAIM if _CLAIM.search(said_text) else NUDGE})
                         continue
                     break
                 tools_used = True
@@ -239,8 +259,6 @@ class LocalBrain:
                                           "content": text})
                     yield ToolFinished(cid, fn.get("name", "?"), res.is_error,
                                        _summarize_content(text, 200), _ms(started))
-                if spoken and not spoken[-1].endswith((" ", "\n")):
-                    spoken.append(" ")
 
         except asyncio.CancelledError:
             conv.rollback(checkpoint)
@@ -358,6 +376,13 @@ class _RetryWithoutThink(Exception):
     pass
 
 
+def _spaced(ev: TextDelta, spoken: list[str]) -> TextDelta:
+    """A new round's text after earlier text needs a space ("shortly.I will" -> "shortly. I will")."""
+    if spoken and ev.text and not ev.text[0].isspace() and not spoken[-1][-1:].isspace():
+        return TextDelta(" " + ev.text)
+    return ev
+
+
 class _Round:
     def __init__(self) -> None:
         self.text: list[str] = []
@@ -368,8 +393,37 @@ _PROMISE = re.compile(
     r"\b(i'?ll|i will|let me|on it|one moment|give me a moment|checking|i'?m going to|"
     r"right away|looking (?:into|at)|i'?ll (?:check|look|ask|find|open))\b", re.I)
 
+# "... is done", "the video is now fullscreen", "I've minimized it": claims that only a tool
+# could make true (owner's case: three actions reported done, none performed).
+_CLAIM = re.compile(
+    r"\b(?:is|are|has been|have been)\s+(?:now\s+)?(?:open(?:ed)?|closed|minimi[sz]ed|maximi[sz]ed|"
+    r"paused|unpaused|resumed|(?:in\s+)?full\s?screen|muted|unmuted|locked|started|stopped|"
+    r"cancel(?:l)?ed|turned (?:on|off)|switched (?:on|off)|up|down)\b"
+    r"|\bi(?:'?ve| have)\s+(?:now\s+|just\s+|also\s+)?(?:opened|closed|minimi[sz]ed|maximi[sz]ed|paused|unpaused|"
+    r"resumed|started|set|turned|switched|muted|locked|played|cancel(?:l)?ed|done)\b"
+    r"|\b\w+ing\b[^.]{0,80}\b(?:is|are) (?:now )?done\b", re.I)
+
 NUDGE = ("(Note from the system, not the user: you said you would do that but did not call a "
          "tool. Call the right tool now. If no tool can do it, say so in one short sentence.)")
+NUDGE_CLAIM = ("(Note from the system, not the user: you said it was done, but you did not call any "
+               "tool, so nothing happened. Call the right tools now; you can call several at once. "
+               "If no tool can do part of it, say which part in one short sentence.)")
+
+
+_ACTION_REQUEST = re.compile(
+    r"\b(?:open|close|minimi[sz]e|maximi[sz]e|pause|unpause|resume|play|turn|set|mute|unmute|lock|"
+    r"full\s?screen|start|stop|switch|launch|cancel|volume|skip|show|hide|search|remind)\b", re.I)
+_QUESTION = re.compile(r"^\W*(?:is|are|was|were|does|do|did|when|what|where|why|how|which|who)\b", re.I)
+
+
+def _acts_without_tools(text: str, request: str | None = None) -> bool:
+    """Promised an action, or claimed one was done. A claim only counts when the user asked for
+    an action ("is the shop open?" -> "it's closed on Sundays" is just an answer)."""
+    if _PROMISE.search(text):
+        return True
+    if not _CLAIM.search(text):
+        return False
+    return request is None or (bool(_ACTION_REQUEST.search(request)) and not _QUESTION.match(request))
 
 _ASK_CLAUDE = re.compile(
     r"^\s*(?:please\s+)?(?:can you\s+|could you\s+)?(?:ask|have|get|tell)\s+claude\s*"

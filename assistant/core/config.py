@@ -204,7 +204,7 @@ class SafetyConfig(BaseModel):
     risk_overrides: dict[str, str] = Field(default_factory=dict)
     # Never from a phone or another PC (secure by default, even without config.yaml).
     remote_blocked_tools: list[str] = Field(default_factory=lambda: [
-        "run_shell", "delete_file", "move_file", "power"])
+        "run_shell", "delete_file", "move_file", "power", "press_key", "window"])
     audit_log: str = "data/audit.jsonl"
 
     def audit_path(self) -> Path:
