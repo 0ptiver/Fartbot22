@@ -213,6 +213,15 @@ async def check(full: bool) -> int:
             line(WARN, "video control limited (play/pause falls back to the media key)",
                  f"{type(e).__name__}: {e}. Run scripts\\update.ps1")
 
+    from assistant.voice.voiceprint import WEIGHTS_FILE, VoiceLock
+    lock = VoiceLock()
+    if not WEIGHTS_FILE.exists():
+        line(WARN, "voice lock model not downloaded", "python -m assistant models")
+    elif lock.prints.enrolled:
+        line(OK, f"voice lock {'on' if lock.on else 'off'} (your voice is learned; bar {lock.threshold:.2f})")
+    else:
+        line(OK, "voice lock ready (say \"Nova, learn my voice\" to turn it on)")
+
     from assistant.integrations.spotify import Spotify
     line(OK if Spotify.linked() else WARN, "Spotify " + ("linked" if Spotify.linked() else "not linked"),
          "" if Spotify.linked() else "for music control: python -m assistant spotify login")

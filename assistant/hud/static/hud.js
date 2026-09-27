@@ -151,6 +151,9 @@ function handle(ev, replay) {
       addSys("sys err", ev.message || "Something went wrong");
       activity("bad", "Error", ev.message || "", ev.ts);
       break;
+    case "voice_enrol":
+      if (ev.done) addSys("sys", "🔒 Voice learned: voice lock is on");
+      break;
     case "ignored":
       activity("ignored", `Heard “${ev.text}”`, ev.reason || "", ev.ts);
       break;
@@ -233,12 +236,14 @@ const LABEL = {
   confirm: () => "Waiting for your answer", muted: () => "Microphone off",
   dictation: () => "Dictating: say “stop dictation” when done",
   recording: () => `Watching what you do. Say “${S.name}, done” when you've finished`,
+  enrolling: () => "Learning your voice: read the line Nova says",
   standby: () => `Standing down. Say “${S.name}, wake up” or press Wake up`,
   offline: () => "Not connected",
 };
 function status(ev) {
   S.state = ev.state; S.level = ev.level || 0; S.mode = ev.mode;
   S.standby = ev.standby; S.muted = ev.muted; S.subs = !!ev.subtitles;
+  NovaVoice.lock(ev.lock);
   if (ev.confirm && !S.confirmShown) showConfirm(ev.confirm, false);
   if (!ev.confirm && S.confirmShown) hideConfirm();
   renderState();
@@ -259,7 +264,7 @@ function renderState() {
 const COLORS = {
   idle: [70, 180, 230], listening: [74, 222, 128], thinking: [167, 139, 250], speaking: [90, 216, 255],
   confirm: [255, 181, 71], standby: [100, 116, 139], muted: [248, 113, 113], offline: [70, 80, 100],
-  dictation: [236, 240, 245], recording: [255, 77, 109],
+  dictation: [236, 240, 245], recording: [255, 77, 109], enrolling: [52, 211, 153],
 };
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const orb = { c: [70, 180, 230], amp: 0.02, lvl: 0, glow: 0.5, t: 0 };

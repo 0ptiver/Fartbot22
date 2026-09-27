@@ -33,6 +33,7 @@ async def set_voice(args: dict, ctx: ToolContext) -> str:
 
 def register(reg: ToolRegistry) -> None:
     register_subtitles(reg)
+    register_voice_lock(reg)
     reg.tool("set_voice", "Change your speaking voice to a preset: " + ", ".join(PRESETS) + ".",
              {"type": "object", "properties": {"preset": {"type": "string", "maxLength": 40}},
               "required": ["preset"], "additionalProperties": False}, risk=Risk.SAFE, category="voice")(set_voice)
@@ -85,4 +86,67 @@ def subtitles_intent(t: str) -> tuple[str, dict] | None:
     if re.fullmatch(r"(?:turn |switch )?(?:off )?(?:the )?" + words + r" off|(?:turn|switch) off (?:the )?" + words
                     + r"|(?:hide|stop|close) (?:the )?" + words + r"|stop translating", t):
         return "subtitles", {"on": False}
+    return None
+
+
+# --- voice lock ----------------------------------------------------------------------------------------
+def voice_lock(args: dict, ctx: ToolContext) -> str:
+    lock = ctx.services.get("voicelock")
+    loop = ctx.services.get("voice")
+    if lock is None or loop is None:
+        raise ToolError("Voice lock only works while we're talking.")
+    a = args["action"]
+    if a == "learn":
+        try:
+            _ = lock.encoder                              # downloads the model the first time
+        except Exception as e:
+            raise ToolError(f"I couldn't load the voice-recognition model ({e}). Run the update script.") from e
+        first = lock.start_enrol()
+        return ("I'll learn your voice. Read each line after me; you don't need to say my name. "
+                f"First line: {first}")
+    if a == "on":
+        if not lock.prints.enrolled:
+            return "I don't know your voice yet. Say 'Nova, learn my voice' first."
+        lock.set(on=True)
+        return "Voice lock on. I'll only take orders from you."
+    if a == "off":
+        lock.set(on=False)
+        return "Voice lock off. I'll listen to anyone who says my name."
+    if a == "forget":
+        lock.forget()
+        return "I've forgotten your voice, and voice lock is off."
+    if a == "sensitivity":
+        lock.set(threshold=args.get("value", lock.threshold))
+        return f"Voice lock strictness set to {lock.threshold:.2f}."
+    if not lock.prints.enrolled:
+        return "Voice lock is off: I haven't learned your voice. Say 'Nova, learn my voice'."
+    return (f"Voice lock is {'on' if lock.on else 'off'}"
+            + (f"; the last request matched your voice at {lock.last_score:.2f}" if lock.last_score is not None else "")
+            + f" (the bar is {lock.threshold:.2f}).")
+
+
+def register_voice_lock(reg: ToolRegistry) -> None:
+    reg.tool("voice_lock", "Voice lock: only obey the owner's voice. learn (enrol their voice), on, off, "
+             "forget, status, sensitivity (value 0.5-0.95).",
+             {"type": "object", "properties": {
+                 "action": {"type": "string", "enum": ["learn", "on", "off", "forget", "status", "sensitivity"]},
+                 "value": {"type": "number", "minimum": 0.5, "maximum": 0.95}},
+              "required": ["action"], "additionalProperties": False}, risk=Risk.SAFE, category="voice")(voice_lock)
+
+
+def voicelock_intent(t: str) -> tuple[str, dict] | None:
+    import re
+    if re.fullmatch(r"(?:learn|remember|record|train on|recogni[sz]e) my voice(?: again)?|(?:set up|start) voice lock"
+                    r"|lock (?:yourself |it )?to my voice|only (?:listen to|obey|take orders from) me", t):
+        return "voice_lock", {"action": "learn" if "only" not in t else "on"}
+    if re.fullmatch(r"(?:turn |switch )?(?:on )?(?:the )?voice lock(?: on)?|(?:turn|switch) on (?:the )?voice lock"
+                    r"|lock (?:onto|on to) my voice", t):
+        return "voice_lock", {"action": "on"}
+    if re.fullmatch(r"(?:turn |switch )?(?:off )?(?:the )?voice lock off|(?:turn|switch) off (?:the )?voice lock"
+                    r"|listen to (?:everyone|anybody|anyone)|unlock (?:your|the) voice(?: lock)?", t):
+        return "voice_lock", {"action": "off"}
+    if re.fullmatch(r"forget my voice(?:print)?|delete my voice(?:print)?", t):
+        return "voice_lock", {"action": "forget"}
+    if re.fullmatch(r"is (?:the )?voice lock on|voice lock status|(?:do|does) you (?:know|recogni[sz]e) my voice", t):
+        return "voice_lock", {"action": "status"}
     return None

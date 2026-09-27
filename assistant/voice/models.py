@@ -66,6 +66,12 @@ def fetch_all(include_whisper_model: str | None = None) -> None:
             _download(KOKORO_BASE + name, dest)
         print("  ok:", dest)
     make_gpu_kokoro()
+    print("Voice lock (voice recognition):")
+    try:
+        from assistant.voice.voiceprint import fetch_weights
+        print("  ok:", fetch_weights())
+    except Exception as e:                        # optional: only voice lock needs it
+        print(f"  skipped ({e}); voice lock will try again when you use it")
     if include_whisper_model:
         print(f"Whisper {include_whisper_model} (from Hugging Face, cached by faster-whisper):")
         from faster_whisper.utils import download_model

@@ -167,6 +167,9 @@ async def run(args) -> int:
     watchers = Watchers(notify=loop.announce)
     loop.ctx.services["watchers"] = watchers
     watchers_task = asyncio.create_task(watchers.run())
+    from assistant.voice.voiceprint import VoiceLock
+    loop.lock = VoiceLock()                                   # off until "Nova, learn my voice"
+    loop.ctx.services["voicelock"] = loop.lock
     subtitles = make_subtitles(settings, loop, stt)
     if subtitles is not None:
         loop.ctx.services["subtitles"] = subtitles

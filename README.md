@@ -197,6 +197,17 @@ Closed it? `.venv\Scripts\python -m assistant hud` reopens it. Don't want it?
 It only works on this PC: it listens on 127.0.0.1, needs a new secret key each time Nova starts,
 refuses other websites, and runs in its own browser profile with no extensions.
 
+### Voice lock: only your voice
+
+Say **"Nova, learn my voice"** and read the 5 short lines Nova says (no need to say "Nova").
+From then on Nova only obeys you: game chat, the TV or visitors saying "Nova…" are ignored,
+and so are their "yes" answers. Only a voiceprint (256 numbers, no audio) is kept, on this PC.
+
+- "Voice lock off" / "turn on voice lock" / "forget my voice" / "is voice lock on?"
+- New headset or mic? "Learn my voice again" adds a print for it (up to 5).
+- The **Voice** tab shows how well each request matched and has a strictness slider. If it ever
+  ignores you, lower it a little; if others get through, raise it. Typing to Nova always works.
+
 ### Cancel, correct, and knowing it heard you
 
 - **"Nova, cancel"** (or "never mind", "cancel that", "undo that") stops whatever Nova is doing, or

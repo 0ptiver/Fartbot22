@@ -100,7 +100,40 @@ const NovaVoice = (() => {
     $("voiceSave").onclick = () => send({ type: "voice_save", design: current() });
   }
 
-  return { info, init };
+  let lastLock = "";
+  function lock(st) {
+    const card = $("lockCard");
+    if (!st) { card.hidden = true; return; }
+    card.hidden = false;
+    $("lockBadge").hidden = !(st.on && st.enrolled);
+    const key = JSON.stringify(st);
+    if (key === lastLock) return;
+    lastLock = key;
+    $("lockState").textContent = st.enrolling ? "learning…" : st.on && st.enrolled ? "on" : "off";
+    $("lockState").className = "lock-state" + (st.on && st.enrolled ? " on" : "");
+    $("lockText").textContent = st.enrolling ? "Read each line Nova says. Say “cancel” to stop."
+      : !st.enrolled ? "Only obey your voice: people in game chat, the TV or visitors are ignored. Nova learns your voice from 5 short sentences; only a voiceprint (numbers, no audio) is kept on this PC."
+      : (st.on ? "Only your voice is obeyed." : "Your voice is learned; the lock is off.") +
+        (st.score != null ? ` Last request matched ${Math.round(st.score * 100)}% (needs ${Math.round(st.threshold * 100)}%).` : "");
+    $("lockLearn").textContent = st.enrolled ? "Learn again (new mic)" : "Learn my voice";
+    $("lockLearn").disabled = !!st.enrolling;
+    $("lockToggle").hidden = !st.enrolled;
+    $("lockToggle").textContent = st.on ? "Turn off" : "Turn on";
+    $("lockForget").hidden = !st.enrolled;
+    $("lockSliderRow").hidden = !st.enrolled;
+    if (document.activeElement !== $("lockSlider")) $("lockSlider").value = String(st.threshold);
+    $("lockVal").textContent = Math.round(st.threshold * 100) + "%";
+  }
+
+  function initLock() {
+    $("lockLearn").onclick = () => send({ type: "voice_lock", action: "learn" });
+    $("lockToggle").onclick = () => send({ type: "voice_lock", action: $("lockToggle").textContent === "Turn off" ? "off" : "on" });
+    $("lockForget").onclick = () => { if (confirm("Forget your voice? Voice lock will turn off.")) send({ type: "voice_lock", action: "forget" }); };
+    $("lockSlider").onchange = () => send({ type: "voice_lock", action: "strictness", value: Number($("lockSlider").value) });
+    $("lockSlider").oninput = () => { $("lockVal").textContent = Math.round(Number($("lockSlider").value) * 100) + "%"; };
+  }
+
+  return { info, init: () => { init(); initLock(); }, lock };
 })();
 
 document.addEventListener("DOMContentLoaded", () => NovaVoice.init());

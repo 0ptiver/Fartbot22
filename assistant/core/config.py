@@ -217,7 +217,7 @@ class SafetyConfig(BaseModel):
     remote_blocked_tools: list[str] = Field(default_factory=lambda: [
         "run_shell", "delete_file", "move_file", "power", "press_key", "window", "mouse", "mouse_grid",
         "type_text", "press_keys", "click_element", "show_numbers", "forget", "teach", "replay_click",
-        "replay_keys", "run_routine"])
+        "replay_keys", "run_routine", "voice_lock"])
     audit_log: str = "data/audit.jsonl"
 
     def audit_path(self) -> Path:

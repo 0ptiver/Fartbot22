@@ -16,6 +16,7 @@
   <div class="brand">
     <span class="conn" id="conn" title="Connecting"></span>
     <span id="name">NOVA</span>
+    <span id="lockBadge" class="lock-badge" hidden title="Voice lock: only your voice is obeyed">🔒</span>
   </div>
   <div class="top-actions">
     <button id="brainBtn" class="chip" type="button" aria-pressed="false" title="Nova's memory: everything it has been asked to remember">Brain</button>
@@ -101,6 +102,20 @@
   </section>
   <section id="tab-voice" class="panel" role="tabpanel" hidden>
     <p class="empty" id="voiceUnavailable" hidden>The voice designer needs Nova's Kokoro voice to be running.</p>
+    <div class="lock-card" id="lockCard">
+      <div class="lock-head">
+        <h3 class="sub">Voice lock</h3>
+        <span id="lockState" class="lock-state">off</span>
+      </div>
+      <p id="lockText" class="small">Only obey your voice: people in game chat, the TV or visitors are ignored.</p>
+      <div class="lock-actions">
+        <button id="lockLearn" type="button" class="ctl">Learn my voice</button>
+        <button id="lockToggle" type="button" class="ctl" hidden>Turn off</button>
+        <button id="lockForget" type="button" class="ctl" hidden>Forget my voice</button>
+      </div>
+      <label class="lock-slider" id="lockSliderRow" hidden>Strictness <output id="lockVal"></output>
+        <input type="range" id="lockSlider" min="0.5" max="0.95" step="0.01"></label>
+    </div>
     <div id="voiceDesigner">
       <div class="presets" id="voicePresets" aria-label="Starting points"></div>
       <h3 class="sub">Mix of voices</h3>

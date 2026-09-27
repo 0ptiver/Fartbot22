@@ -70,9 +70,18 @@ def status(loop, settings: Settings) -> dict[str, Any]:
     return {"type": "status", "state": loop.state, "level": round(min(loop.mic_level * 6, 1.0), 3),
             "standby": loop.standby, "muted": loop.mic_muted, "mode": settings.voice.mode,
             "dictation": bool(getattr(loop, "dictation", False)),
+            "lock": _lock_status(getattr(loop, "lock", None)),
             "subtitles": bool(getattr(getattr(loop, "ctx", None), "services", {}).get("subtitles") and
                               loop.ctx.services["subtitles"].on),
             "confirm": pending}
+
+
+def _lock_status(lock) -> dict | None:
+    if lock is None:
+        return None
+    return {"on": bool(lock.on), "enrolled": lock.prints.enrolled, "enrolling": lock.enrolling is not None,
+            "score": None if lock.last_score is None else round(lock.last_score, 2),
+            "threshold": round(lock.threshold, 2)}
 
 
 def timers(scheduler, settings: Settings, watchers=None) -> dict[str, Any]:
@@ -200,6 +209,17 @@ def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=Non
                     except Exception as e:
                         await ws_send({"type": "toast", "text": str(e)})
                 spawn(subs_job())
+        elif kind == "voice_lock" and getattr(loop, "lock", None) is not None:
+            lock, a = loop.lock, msg.get("action")
+            if a == "learn":
+                spawn(loop.submit_text("learn my voice"))
+            elif a in ("on", "off"):
+                lock.set(on=a == "on")
+            elif a == "forget":
+                lock.forget()
+                await ws_send({"type": "toast", "text": "Your voiceprint is deleted and voice lock is off."})
+            elif a == "strictness" and isinstance(msg.get("value"), (int, float)):
+                lock.set(threshold=float(msg["value"]))
         elif kind == "voice_get":
             await ws_send(voice_info(loop))
         elif kind == "mem_add" and memory is not None and isinstance(msg.get("text"), str):

@@ -78,6 +78,7 @@ class VoiceLoop:
         self.standby = False                          # after "stand down": only "wake up" works
         self._announcements: list[str] = []           # reminders waiting for a quiet moment
         self.ctx.confirm = self._voice_confirm
+        self.lock = None                               # voice lock (voiceprint.VoiceLock), set by the CLI
         # HUD: mic mute button and live level for the orb
         self.mic_muted = False
         self.mic_level = 0.0
@@ -115,6 +116,8 @@ class VoiceLoop:
         teacher = self.ctx.services.get("teacher")
         if teacher is not None and teacher.recording:
             return "recording"
+        if self.lock is not None and self.lock.enrolling is not None:
+            return "enrolling"
         if self.mic_muted:
             return "muted"
         if self.dictation:
@@ -201,6 +204,10 @@ class VoiceLoop:
 
     async def _barge_verify(self, audio: np.ndarray) -> None:
         text = (await self.stt.transcribe(audio)).text
+        if text and self.lock is not None and self.lock.active:
+            ok, _ = await asyncio.to_thread(self.lock.check, audio)
+            if not ok:
+                return                                   # someone else can't talk over Nova either
         if text and not self._barged and self.speaking and self._is_new_speech(text):
             self._barged = True
             await self.interrupt(reason=f'heard "{text}"')
@@ -284,11 +291,15 @@ class VoiceLoop:
         if kind == "normal":
             self.on_event({"type": "thinking"})
         prev = self._handler if self._handler and not self._handler.done() else None
+        # Voice lock: check who's speaking while Whisper works out what they said.
+        voice_check = (asyncio.create_task(asyncio.to_thread(self.lock.check, end.audio))
+                       if self.lock is not None and self.lock.active and end.audio.size else None)
         self._handler = asyncio.create_task(
-            self._handle_utterance(session, spec, lat, end.audio, kind, self._barged, prev))
+            self._handle_utterance(session, spec, lat, end.audio, kind, self._barged, prev, voice_check))
 
     async def _handle_utterance(self, session, spec, lat: LatencyTracker, audio, kind: str,
-                                barged: bool, prev: asyncio.Task | None) -> None:
+                                barged: bool, prev: asyncio.Task | None,
+                                voice_check: asyncio.Task | None = None) -> None:
         """Turn an utterance into text, then decide: new request, merge, interruption, or ignore."""
         started_reply = False
         try:
@@ -312,6 +323,19 @@ class VoiceLoop:
                     self.on_event({"type": "idle", "reason": "heard nothing",
                                    "hint": diagnose_silence(audio)})
                 return
+            if self.lock is not None and self.lock.enrolling is not None:
+                if kind == "overlap":                      # heard over Nova's own voice: not a clean sample
+                    self.on_event({"type": "ignored", "text": text, "reason": "said while I was talking"})
+                    return
+                await self._enrol_sample(text, audio)
+                return
+            if voice_check is not None:
+                ok, score = await voice_check
+                self.on_event({"type": "voice_check", "ok": ok, "score": round(score, 3)})
+                if not ok:
+                    self.on_event({"type": "ignored", "text": text,
+                                   "reason": f"not your voice (match {score:.2f})"})
+                    return
             if await self._control_words(text):
                 return
             if self.dictation and await self._dictate(text):
@@ -370,6 +394,26 @@ class VoiceLoop:
         finally:
             if not started_reply:
                 self.turns_done += 1
+
+    async def _enrol_sample(self, text: str, audio) -> None:
+        """'Learn my voice': each thing said is one sample; five and it's done."""
+        if is_cancel(text):
+            self.lock.cancel_enrol()
+            await self.say(f"All right{self._sir(',')}, I've stopped learning your voice.")
+            return
+        from assistant.voice.voiceprint import ENROL_LINES
+        expected = set(normalize_words(ENROL_LINES[len(self.lock.enrolling)]))
+        heard = set(normalize_words(text))
+        if expected and len(expected & heard) < 0.4 * len(expected):
+            # Must be the line it asked for: not a TV, not someone else, not Nova's own echo.
+            await self.say("Please read this line:")
+            await self.say(ENROL_LINES[len(self.lock.enrolling)])
+            return
+        nxt, msg = await asyncio.to_thread(self.lock.add_sample, audio)
+        self.on_event({"type": "voice_enrol", "next": nxt, "done": nxt is None})
+        await self.say(msg)
+        if nxt:
+            await self.say(nxt)
 
     async def stand_down(self) -> None:
         """Kill switch: cancel everything (speech, thinking, tools, a pending question), then
@@ -525,6 +569,9 @@ class VoiceLoop:
         teacher = self.ctx.services.get("teacher")
         if teacher is not None and (teacher.recording or teacher.awaiting_name):
             return await asyncio.to_thread(teacher.cancel)
+        if self.lock is not None and self.lock.enrolling is not None:
+            self.lock.cancel_enrol()
+            return f"I've stopped learning your voice{sir}."
         if self.dictation:
             self.set_dictation(False)
             return f"Dictation off{sir}."

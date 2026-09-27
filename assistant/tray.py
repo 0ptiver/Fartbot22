@@ -15,11 +15,11 @@ log = logging.getLogger(__name__)
 COLORS = {"idle": (70, 180, 230), "listening": (74, 222, 128), "thinking": (167, 139, 250),
           "speaking": (90, 216, 255), "confirm": (255, 181, 71), "standby": (100, 116, 139),
           "muted": (248, 113, 113), "dictation": (236, 240, 245), "starting": (100, 116, 139),
-          "recording": (255, 77, 109)}
+          "recording": (255, 77, 109), "enrolling": (52, 211, 153)}
 LABELS = {"idle": "listening for “Nova”", "listening": "listening…", "thinking": "thinking…",
           "speaking": "speaking", "confirm": "waiting for your yes or no", "standby": "standing down",
           "muted": "microphone off", "dictation": "dictating", "starting": "starting up…",
-          "recording": "watching what you do"}
+          "recording": "watching what you do", "enrolling": "learning your voice"}
 
 
 def icon_image(state: str, size: int = 64):

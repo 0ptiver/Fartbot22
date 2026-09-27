@@ -162,6 +162,19 @@ ol { list-style: none; margin: 0; padding: 0; }
 .routine b { display: block; margin-bottom: 4px; }
 .routine span { color: var(--muted); font-size: 12px; }
 
+/* --- voice lock ------------------------------------------------------------------------------ */
+.lock-card { padding: 12px 14px; margin-bottom: 16px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); }
+.lock-head { display: flex; justify-content: space-between; align-items: center; }
+.lock-head h3.sub { margin: 0; }
+.lock-state { font-size: 12px; color: var(--muted); padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line2); }
+.lock-state.on { color: var(--green); border-color: rgba(74,222,128,.5); }
+.lock-card .small { color: var(--muted); font-size: 12px; margin: 8px 0 10px; }
+.lock-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.lock-actions .ctl { min-width: 0; flex: 1; font-size: 12px; padding: 6px 10px; }
+.lock-slider { display: grid; grid-template-columns: 1fr auto; gap: 4px; margin-top: 10px; font-size: 12px; color: var(--muted); }
+.lock-slider input { grid-column: 1 / -1; }
+.lock-badge { font-size: 11px; letter-spacing: 0; }
+
 /* --- voice designer -------------------------------------------------------------------------- */
 .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 .presets button { border: 1px solid var(--line2); background: rgba(255,255,255,.03); border-radius: 999px; padding: 5px 11px; font-size: 12px; color: var(--muted); }
