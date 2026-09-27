@@ -74,7 +74,7 @@ def fetch_all(include_whisper_model: str | None = None) -> None:
 
 def make_gpu_kokoro(voice: str = "bm_george", lang: str = "en-gb") -> Path | None:
     """Create kokoro-v1.0.gpu.onnx (STFT -> Conv) and keep it only if the audio matches."""
-    from assistant.voice.tts.onnx_fix import convert, verify_kokoro
+    from assistant.voice.tts.onnx_fix import convert, verification_ok, verify_kokoro
 
     src, voices = kokoro_paths()
     dst = MODELS_DIR / KOKORO_GPU
@@ -85,15 +85,18 @@ def make_gpu_kokoro(voice: str = "bm_george", lang: str = "en-gb") -> Path | Non
     try:
         for line in convert(src, tmp):
             print("  " + line)
-        diff = verify_kokoro(src, tmp, voices, voice, lang)
+        v = verify_kokoro(src, tmp, voices, voice, lang)
     except Exception as e:
         print(f"  skipped: {type(e).__name__}: {e}")
         tmp.unlink(missing_ok=True)
         return None
-    if diff > 1e-3:
-        print(f"  audio differs by {diff:.2g}; not using it")
+    print(f"  STFT maths error {v['stft_math_error']:.1e} (must be < 1e-4); "
+          f"speech length x{v['length_ratio']:.2f}, loudness x{v['loudness_ratio']:.2f}; "
+          f"original's own run-to-run variation {v['original_run_to_run_diff']:.2f}")
+    if not verification_ok(v):
+        print("  not using it")
         tmp.unlink(missing_ok=True)
         return None
     tmp.replace(dst)
-    print(f"  ok (audio identical within {diff:.1g}): {dst}")
+    print(f"  ok: {dst}")
     return dst

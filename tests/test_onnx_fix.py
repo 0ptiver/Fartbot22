@@ -67,3 +67,28 @@ def test_dynamic_window_left_alone():
     report = replace_stft(model)
     assert "left on CPU" in report[0]
     assert any(n.op_type == "STFT" for n in model.graph.node)
+
+
+def test_math_check_with_kokoro_settings():
+    from assistant.voice.tts.onnx_fix import stft_math_error, stft_specs
+    model = stft_model("initializer", rank=2)          # frame 20, hop 5, like Kokoro
+    (spec,) = stft_specs(model)
+    assert (spec["frame_length"], spec["step"], spec["onesided"]) == (20, 5, True)
+    assert stft_math_error(spec) < 1e-5
+
+
+def test_unused_constants_pruned():
+    model = stft_model("initializer", rank=2)
+    replace_stft(model)
+    names = {i.name for i in model.graph.initializer}
+    assert not names & {"step", "flen", "win"}        # only the old STFT used these
+
+
+def test_verification_rules():
+    from assistant.voice.tts.onnx_fix import verification_ok
+    good = {"stft_math_error": 1e-6, "length_ratio": 1.0, "loudness_ratio": 1.03,
+            "original_run_to_run_diff": 0.25}
+    assert verification_ok(good)
+    assert not verification_ok({**good, "stft_math_error": 1e-2})
+    assert not verification_ok({**good, "loudness_ratio": 0.3})
+    assert not verification_ok({**good, "length_ratio": 1.5})

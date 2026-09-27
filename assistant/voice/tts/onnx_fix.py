@@ -60,6 +60,33 @@ def dft_kernels(window: np.ndarray, frame_length: int, onesided: bool) -> np.nda
     return np.concatenate([real, imag])[:, None, :]
 
 
+def stft_spec(graph, node, producers) -> dict | None:
+    """Constant parameters of an STFT node, or None if they aren't constant."""
+    ins = list(node.input) + [""] * (4 - len(node.input))
+    _, step_name, window_name, length_name = ins[:4]
+    step = _const_value(graph, step_name, producers)
+    window = _const_value(graph, window_name, producers)
+    length = _const_value(graph, length_name, producers)
+    if step is None or (window is None and length is None):
+        return None
+    frame_length = int(np.asarray(length).reshape(-1)[0]) if length is not None else len(window)
+    return {
+        "name": node.name or "STFT",
+        "step": int(np.asarray(step).reshape(-1)[0]),
+        "frame_length": frame_length,
+        "window": window if window is not None else np.ones(frame_length, np.float32),
+        "has_window": window is not None,
+        "onesided": bool(next((a.i for a in node.attribute if a.name == "onesided"), 1)),
+    }
+
+
+def stft_specs(model) -> list[dict]:
+    graph = model.graph
+    producers = {o: n for n in graph.node for o in n.output}
+    return [spec for n in graph.node if n.op_type == "STFT"
+            if (spec := stft_spec(graph, n, producers)) is not None]
+
+
 def replace_stft(model) -> list[str]:
     """Rewrite STFT nodes in place. Returns a report line per node."""
     from onnx import helper, numpy_helper
@@ -72,20 +99,14 @@ def replace_stft(model) -> list[str]:
         if node.op_type != "STFT":
             new_nodes.append(node)
             continue
-        ins = list(node.input) + [""] * (4 - len(node.input))
-        signal, step_name, window_name, length_name = ins[:4]
-        step = _const_value(graph, step_name, producers)
-        window = _const_value(graph, window_name, producers)
-        length = _const_value(graph, length_name, producers)
-        onesided = bool(next((a.i for a in node.attribute if a.name == "onesided"), 1))
-        if step is None or (window is None and length is None):
+        signal = node.input[0]
+        spec = stft_spec(graph, node, producers)
+        if spec is None:
             report.append(f"{node.name or 'STFT'}: left on CPU (window/step not constant)")
             new_nodes.append(node)
             continue
-        step = int(np.asarray(step).reshape(-1)[0])
-        frame_length = int(np.asarray(length).reshape(-1)[0]) if length is not None else len(window)
-        if window is None:
-            window = np.ones(frame_length, np.float32)
+        step, frame_length, window, onesided = (spec["step"], spec["frame_length"],
+                                                spec["window"], spec["onesided"])
         dtype = window.dtype if window.dtype in (np.float16, np.float32) else np.float32
         weights = dft_kernels(window.astype(np.float64), frame_length, onesided).astype(dtype)
         bins = weights.shape[0] // 2
@@ -107,7 +128,22 @@ def replace_stft(model) -> list[str]:
         report.append(f"{node.name or 'STFT'}: -> Conv (frame {frame_length}, hop {step}, {bins} bins)")
     del graph.node[:]
     graph.node.extend(new_nodes)
+    _prune_unused(graph)
     return report
+
+
+def _prune_unused(graph) -> None:
+    """Drop constants only the old STFT nodes used (avoids onnxruntime warnings)."""
+    while True:
+        used = {i for n in graph.node for i in n.input} | {o.name for o in graph.output}
+        dead_nodes = [n for n in graph.node if n.op_type == "Constant" and n.output[0] not in used]
+        dead_inits = [i for i in graph.initializer if i.name not in used]
+        if not dead_nodes and not dead_inits:
+            return
+        for n in dead_nodes:
+            graph.node.remove(n)
+        for i in dead_inits:
+            graph.initializer.remove(i)
 
 
 def convert(src: Path, dst: Path) -> list[str]:
@@ -120,17 +156,71 @@ def convert(src: Path, dst: Path) -> list[str]:
     return report
 
 
-def verify_kokoro(original: Path, converted: Path, voices: Path, voice: str, lang: str) -> float:
-    """Synthesize the same sentence with both models (CPU) and return the max audio difference."""
+def stft_math_error(spec: dict) -> float:
+    """Run the original STFT and its Conv replacement on the same test signal (with the
+    model's real window/hop/length) and return the largest relative difference."""
+    import onnxruntime as ort
+    from onnx import TensorProto, helper, numpy_helper
+
+    rng = np.random.default_rng(0)
+    t = np.arange(24000) / 24000
+    signal = (0.5 * np.sin(2 * np.pi * 220 * t) + 0.2 * np.sin(2 * np.pi * 3100 * t)
+              + 0.05 * rng.standard_normal(t.size)).astype(np.float32)[None, :]
+    last = None
+    for rank in (2, 3):
+        x = signal if rank == 2 else signal[..., None]
+        inits = [numpy_helper.from_array(np.array(spec["step"], np.int64), "step"),
+                 numpy_helper.from_array(np.array(spec["frame_length"], np.int64), "flen")]
+        win = ""
+        if spec["has_window"]:
+            inits.append(numpy_helper.from_array(spec["window"].astype(np.float32), "win"))
+            win = "win"
+        node = helper.make_node("STFT", ["x", "step", win, "flen"], ["y"], onesided=int(spec["onesided"]))
+        graph = helper.make_graph([node], "stft", [helper.make_tensor_value_info("x", TensorProto.FLOAT, list(x.shape))],
+                                  [helper.make_tensor_value_info("y", TensorProto.FLOAT, [None] * 4)], inits)
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)], ir_version=9)
+        try:
+            want = ort.InferenceSession(model.SerializeToString(), providers=["CPUExecutionProvider"]).run(None, {"x": x})[0]
+        except Exception as e:  # this runtime doesn't accept this input rank
+            last = e
+            continue
+        replace_stft(model)
+        got = ort.InferenceSession(model.SerializeToString(), providers=["CPUExecutionProvider"]).run(None, {"x": x})[0]
+        if got.shape != want.shape:
+            return float("inf")
+        return float(np.max(np.abs(got - want)) / max(float(np.max(np.abs(want))), 1e-9))
+    raise RuntimeError(f"STFT check failed: {last}")
+
+
+def verify_kokoro(original: Path, converted: Path, voices: Path, voice: str, lang: str) -> dict:
+    """Kokoro adds random noise while generating, so two runs never match sample-for-sample.
+    Instead: (1) the STFT maths must match exactly, (2) the converted model must produce
+    speech of the same length and loudness, (3) report the original's run-to-run noise."""
+    import onnx
     import onnxruntime as ort
     from kokoro_onnx import Kokoro
 
-    outs = []
-    for path in (original, converted):
+    specs = stft_specs(onnx.load(str(original)))
+    math_err = max((stft_math_error(sp) for sp in specs), default=0.0)
+
+    text = "Good evening, sir. The time is a quarter past eleven."
+    audio = {}
+    for tag, path in (("orig", original), ("orig2", original), ("conv", converted)):
         sess = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
-        k = Kokoro.from_session(sess, str(voices))
-        audio, _ = k.create("Good evening, sir. The time is a quarter past eleven.",
-                            voice=voice, lang=lang, trim=False)
-        outs.append(audio)
-    n = min(len(outs[0]), len(outs[1]))
-    return float(np.max(np.abs(outs[0][:n] - outs[1][:n]))) if n else 1.0
+        audio[tag], _ = Kokoro.from_session(sess, str(voices)).create(text, voice=voice, lang=lang, trim=False)
+
+    def rms(a):
+        return float(np.sqrt(np.mean(np.square(a)))) if len(a) else 0.0
+
+    n = min(len(audio["orig"]), len(audio["orig2"]))
+    return {
+        "stft_math_error": math_err,
+        "length_ratio": len(audio["conv"]) / max(len(audio["orig"]), 1),
+        "loudness_ratio": rms(audio["conv"]) / max(rms(audio["orig"]), 1e-9),
+        "original_run_to_run_diff": float(np.max(np.abs(audio["orig"][:n] - audio["orig2"][:n]))) if n else 0.0,
+    }
+
+
+def verification_ok(v: dict) -> bool:
+    return (v["stft_math_error"] < 1e-4 and 0.9 <= v["length_ratio"] <= 1.1
+            and 0.8 <= v["loudness_ratio"] <= 1.25)
