@@ -37,7 +37,12 @@ def make_printer(name: str, show_latency: bool):
                 state["speaking"] = True
             print(ev["text"], end="", flush=True)
         elif t == "tool":
-            print(f"\n{DIM}  ⚙ {ev['name']}{RESET}", flush=True)
+            print(f"\n{DIM}  ⚙ {ev['name']}…{RESET}", flush=True)
+            state["speaking"] = False
+        elif t == "tool_done":
+            mark = f"{RED}✗" if ev["is_error"] else "✓"
+            extra = f": {ev['summary'][:100]}" if ev["is_error"] else ""
+            print(f"{DIM}  {mark} {ev['name']} took {ev['ms'] / 1000:.1f}s{extra}{RESET}", flush=True)
             state["speaking"] = False
         elif t == "error":
             print(f"\n{RED}{ev['message']}{RESET}", flush=True)
@@ -252,7 +257,17 @@ def ttsbench() -> None:
             kokoro.create(p, voice=k.voice, speed=k.speed, lang=k.lang)
             (repeat if 3 <= i < 6 else fresh).append((time.perf_counter() - t) * 1000)
         ms = statistics.median(fresh)
-        print(f"  {label:<22} {ms:6.0f} ms   (repeated sentence: {statistics.median(repeat):.0f} ms)")
+        # Where does the time go? Phonemes (espeak, CPU) vs the neural model.
+        ph, model_t = [], []
+        for p in phrases:
+            t = time.perf_counter()
+            phon = kokoro.tokenizer.phonemize(p, k.lang)
+            ph.append((time.perf_counter() - t) * 1000)
+            t = time.perf_counter()
+            kokoro.create(phon, voice=k.voice, speed=k.speed, lang=k.lang, is_phonemes=True)
+            model_t.append((time.perf_counter() - t) * 1000)
+        print(f"  {label:<22} {ms:6.0f} ms   (repeat {statistics.median(repeat):.0f} ms; "
+              f"phonemes {statistics.median(ph):.0f} + model {statistics.median(model_t):.0f})")
         if best is None or ms < best[0]:
             best = (ms, label, model_file, device, threads, search)
 

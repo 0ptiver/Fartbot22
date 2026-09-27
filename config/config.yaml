@@ -16,6 +16,8 @@ brain:
     model: qwen3:4b-instruct-2507-q4_K_M   # instruct = answers straight away (no "thinking")
     vision: ollama               # "what's on my screen": ollama (local, free) | claude_code (subscription)
     vision_model: qwen3-vl:4b
+    vision_max_px: 1024          # smaller screenshot = much faster local vision
+    vision_keep_alive: 2m
     num_ctx: 8192
     keep_alive: 30m
     think: false                 # model "thinking" adds seconds of silence; keep off for voice

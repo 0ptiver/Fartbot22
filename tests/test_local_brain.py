@@ -295,3 +295,15 @@ def test_ask_claude_pattern():
     assert direct_escalation("have claude, summarize this", c) is not None
     assert direct_escalation("I asked Claude yesterday", c) is None
     assert direct_escalation("what time is it", c) is None
+
+
+def test_shrink_jpeg():
+    import base64, io
+    from PIL import Image
+    from assistant.brain.local import shrink_jpeg
+    buf = io.BytesIO()
+    Image.new("RGB", (1568, 882), "red").save(buf, format="JPEG")
+    small = shrink_jpeg(base64.b64encode(buf.getvalue()).decode(), 1024)
+    assert max(Image.open(io.BytesIO(base64.b64decode(small))).size) == 1024
+    tiny = base64.b64encode(buf.getvalue()).decode()
+    assert shrink_jpeg(tiny, 4000) == tiny

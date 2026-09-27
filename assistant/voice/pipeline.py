@@ -14,7 +14,7 @@ from typing import Any, Callable
 
 import numpy as np
 
-from assistant.brain.llm import Brain, BrainError, TextDelta, ToolStarted, TurnComplete
+from assistant.brain.llm import Brain, BrainError, TextDelta, ToolFinished, ToolStarted, TurnComplete
 from assistant.core.config import Settings
 from assistant.core.conversation import Conversation
 from assistant.tools.registry import ToolContext
@@ -235,6 +235,7 @@ class VoiceLoop:
                     self.on_event({"type": "text", "text": ev.text})
                     push(chunker.feed(ev.text))
                 elif isinstance(ev, ToolStarted):
+                    lat.mark("llm_first_token")  # a tool call is the model's first response too
                     push(chunker.flush())       # speak what's been said so far first
                     if chunker.emitted == 0 and ev.name in self.cfg.filler_tools:
                         filler = next(self._fillers)
@@ -242,6 +243,9 @@ class VoiceLoop:
                             push([filler])
                             chunker.emitted += 1
                     self.on_event({"type": "tool", "name": ev.name})
+                elif isinstance(ev, ToolFinished):
+                    self.on_event({"type": "tool_done", "name": ev.name, "ms": ev.duration_ms,
+                                   "is_error": ev.is_error, "summary": ev.summary})
                 elif isinstance(ev, BrainError):
                     push(chunker.flush())
                     push([ev.message])

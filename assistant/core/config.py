@@ -34,6 +34,8 @@ class LocalLLMConfig(BaseModel):
     model: str = "qwen3:4b-instruct-2507-q4_K_M"
     vision_model: str = "qwen3-vl:4b"   # used for "what's on my screen" when vision: ollama
     vision: str = "ollama"              # ollama | claude_code
+    vision_max_px: int = 1024           # screenshots are shrunk to this for the local vision model
+    vision_keep_alive: str = "2m"       # unload soon after; it competes for VRAM with the chat model
     num_ctx: int = 8192
     keep_alive: str = "30m"             # keep the model in VRAM between turns
     think: bool = False                 # Qwen3 "thinking" adds seconds of silence; off for voice

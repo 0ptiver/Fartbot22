@@ -16,6 +16,8 @@ import time
 from pathlib import Path
 from typing import Any, AsyncIterator
 
+import logging
+
 import httpx
 
 from assistant.brain.expert import Expert, ExpertError, create_expert
@@ -25,6 +27,9 @@ from assistant.brain.prompts import system_prompt, turn_context
 from assistant.core.config import Settings
 from assistant.core.conversation import Conversation
 from assistant.tools.registry import ToolContext, ToolRegistry, ToolResult, _summarize_content
+
+
+log = logging.getLogger(__name__)
 
 
 class OllamaError(Exception):
@@ -88,6 +93,7 @@ class LocalBrain:
         self._system = system_prompt(settings, local=True)
         self._think_supported = True
         self._hold_think = False               # set for models that can't stop thinking
+        self.last_vision_stats: dict = {}
 
     # --- helpers ----------------------------------------------------------------
     def tools(self) -> list[dict[str, Any]]:
@@ -292,16 +298,25 @@ class LocalBrain:
                 path = Path(d) / "screen.jpg"
                 path.write_bytes(base64.b64decode(b64_jpeg))
                 return await self.expert.ask(question, image_path=path)
-        body = {"model": self.cfg.vision_model, "stream": True, "keep_alive": "5m", "think": False,
+        b64_jpeg = shrink_jpeg(b64_jpeg, self.cfg.vision_max_px)
+        body = {"model": self.cfg.vision_model, "stream": True, "think": False,
+                "keep_alive": self.cfg.vision_keep_alive,
                 "messages": [{"role": "user", "content": question, "images": [b64_jpeg]}]}
         out = []
-        try:
-            async for chunk in self._stream(body):
-                out.append((chunk.get("message") or {}).get("content", ""))
-        except _RetryWithoutThink:
-            body.pop("think")
-            async for chunk in self._stream(body):
-                out.append((chunk.get("message") or {}).get("content", ""))
+        stats: dict = {}
+        for attempt in range(2):
+            try:
+                async for chunk in self._stream(body):
+                    out.append((chunk.get("message") or {}).get("content", ""))
+                    if chunk.get("done"):
+                        stats = chunk
+                break
+            except _RetryWithoutThink:
+                body.pop("think", None)
+        self.last_vision_stats = {k: round(stats.get(k, 0) / 1e6) for k in
+                                  ("load_duration", "prompt_eval_duration", "eval_duration")}
+        log.info("vision %s: load %d ms, image+prompt %d ms, answer %d ms", self.cfg.vision_model,
+                 *self.last_vision_stats.values())
         text = "".join(out)
         if ThinkFilter.CLOSE in text:        # drop any reasoning that leaked into the answer
             text = text.split(ThinkFilter.CLOSE, 1)[1]
@@ -347,6 +362,21 @@ def direct_escalation(user_text: str, conv: Conversation) -> dict | None:
     if recent:
         args["context"] = "Recent conversation with the user:\n" + "\n".join(recent)
     return {"function": {"name": "escalate", "arguments": args}}
+
+
+def shrink_jpeg(b64_jpeg: str, max_px: int) -> str:
+    """Downscale a base64 JPEG; small vision models are far faster on smaller images."""
+    import io
+
+    from PIL import Image
+
+    img = Image.open(io.BytesIO(base64.b64decode(b64_jpeg)))
+    if max(img.size) <= max_px:
+        return b64_jpeg
+    img.thumbnail((max_px, max_px))
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, format="JPEG", quality=85)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
 def _workspace(expert: Expert) -> str | None:

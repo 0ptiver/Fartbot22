@@ -81,6 +81,35 @@ async def check(full: bool) -> int:
                         line(FAIL, "local model gave no reply", err)
                         problems += 1
                         break
+                vl = s.brain.local.vision_model
+                if s.brain.local.vision == "ollama" and (vl in have or f"{vl}:latest" in have):
+                    import base64
+                    import io
+
+                    from PIL import Image, ImageDraw
+                    img = Image.new("RGB", (1920, 1080), "white")
+                    ImageDraw.Draw(img).text((800, 500), "Error: CommandNotFoundException", fill="red")
+                    buf = io.BytesIO()
+                    img.save(buf, format="JPEG")
+                    t = time.perf_counter()
+                    try:
+                        desc = await brain.describe_image(base64.b64encode(buf.getvalue()).decode())
+                        st = brain.last_vision_stats
+                        secs = time.perf_counter() - t
+                        line(OK if secs < 8 else WARN,
+                             f"screen reading: {secs:.1f}s (load {st['load_duration'] / 1000:.1f}s, "
+                             f"image {st['prompt_eval_duration'] / 1000:.1f}s, answer {st['eval_duration'] / 1000:.1f}s)",
+                             repr(desc[:50]))
+                    except Exception as e:
+                        line(FAIL, "screen reading failed", str(e)[:100])
+                    t = time.perf_counter()
+                    async for ev in brain.run_turn(conv, "Say OK.", ToolContext(s)):
+                        if ev.type == "text":
+                            break
+                    ms = (time.perf_counter() - t) * 1000
+                    line(OK if ms < 1000 else WARN, f"chat reply after screen reading: {ms:.0f} ms",
+                         "" if ms < 1000 else "the vision model pushed the chat model off the GPU. "
+                         "Consider brain.local.vision: claude_code")
                 async with httpx.AsyncClient(base_url=s.brain.local.host, timeout=5) as c:
                     for m in (await c.get("/api/ps")).json().get("models", []):
                         on_gpu = m.get("size_vram", 0) / max(m.get("size", 1), 1)

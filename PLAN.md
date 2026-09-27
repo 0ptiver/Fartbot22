@@ -178,6 +178,10 @@ scripts/           # install, run, register-startup
 - [x] `ttsbench` + `voice.tts.kokoro.threads` to tune Kokoro on the hybrid i9. Owner result: CPU is 586–753 ms at every setting (8 threads best)
 - [x] Kokoro on the GPU: `device: auto` uses onnxruntime-gpu when present (`scripts/enable_gpu_tts.ps1`, run by the installer on NVIDIA PCs). The int8 model is a CPU fallback. doctor and ttsbench report which is in use
 - [x] Owner: onnxruntime-gpu 1.30 (CUDA 13) works on the RTX 5070. Kokoro GPU 210 ms vs CPU 545 ms (int8 on CPU was 2337 ms, so it's dropped from the benchmark)
+- [x] Owner test: tools now act (open_app, look_at_screen read an error correctly). Plain reply total 1.07 s. Heuristic cuDNN search was fastest (248 ms)
+- [x] Fix: latency report went negative when the filler line was spoken before the model's first word. Tool calls now count as the first model response. The voice CLI shows how long each tool took
+- [ ] Screen reading took ~30 s: screenshots are now shrunk to 1024 px for local vision, and doctor --full times vision and checks whether it evicts the chat model from VRAM. Waiting on owner numbers to decide between local vision and Claude Code
+- [ ] Kokoro ~230 ms on the GPU: ttsbench now splits phonemes (CPU) vs model time
 - [x] cuDNN algorithm search set to HEURISTIC (the default EXHAUSTIVE re-benchmarks every new sentence length). ttsbench compares heuristic, default and exhaustive on fresh sentences
 
 ### Phase 3 — Real-time feel

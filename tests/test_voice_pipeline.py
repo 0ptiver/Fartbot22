@@ -133,3 +133,18 @@ def test_normalize_boosts_quiet_audio_only():
     assert np.max(normalize(silent)) == 0
     tiny = np.full(100, 0.001, np.float32)
     assert np.max(normalize(tiny)) == pytest.approx(0.03)  # gain capped at 30x
+
+
+async def test_latency_marks_ordered_with_filler(settings, registry):
+    settings.voice.mode = "ptt"
+    settings.voice.filler_phrases = ["One moment, sir."]
+    settings.brain.expert.backend = "anthropic"
+    ptt = FakePTT()
+    mic = ScriptedMic(ptt, press_at=2, release_at=10, total=20)
+    loop, events, stt, tts, player = make_loop(settings, registry,
+        [tool_msg("get_time", {}), text_msg("Noon.")], mic, lambda f: 0.0, ptt)
+    settings.voice.filler_tools = ["get_time"]
+    await loop.run(max_turns=1)
+    b = loop.last_latency.breakdown()
+    assert all(v is None or v >= 0 for v in b.values()), b
+    assert any(e["type"] == "tool_done" and e["name"] == "get_time" for e in events)
