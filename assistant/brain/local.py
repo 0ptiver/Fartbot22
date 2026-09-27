@@ -118,6 +118,14 @@ class LocalBrain:
             body["think"] = self.cfg.think
         return body
 
+    def _fitted(self, messages: list[dict], allow_tools: bool) -> list[dict]:
+        """The history cut to what fits the model's window (see brain/fit.py)."""
+        from assistant.brain import fit
+        # Measured with Qwen's tokenizer: prose ~4.3 characters a token, the tool schemas ~3.6.
+        tools = len(json.dumps(self.tools(), ensure_ascii=False)) / 3.5 if allow_tools else 0
+        fixed = int(len(self._system) / 4.2 + tools) + 150          # + the chat template's own tokens
+        return fit.fit(messages, max(1000, self.cfg.num_ctx - fit.REPLY_TOKENS - fixed))
+
     async def capabilities(self, model: str | None = None) -> list[str]:
         r = await self.http.post("/api/show", json={"model": model or self.cfg.model})
         return r.json().get("capabilities", []) if r.status_code == 200 else []
@@ -490,7 +498,7 @@ class LocalBrain:
                     if (not tools_used and not nudged and allow_tools
                             and _acts_without_tools(said_text, user_text)):
                         nudged = True
-                        conv.messages.append({"role": "user", "content":
+                        conv.messages.append({"role": "user", "nudge": True, "content":
                                               NUDGE_CAN if _REFUSES.search(said_text) else
                                               NUDGE_CLAIM if _CLAIM.search(said_text) else NUDGE})
                         continue
@@ -573,7 +581,7 @@ class LocalBrain:
                            timings: dict, usage: dict, t0: float) -> AsyncIterator[TextDelta]:
         """One streamed model response: yields speakable text, collects tool calls in `out`."""
         think = ThinkFilter(hold=self._hold_think)
-        async for chunk in self._stream(self._body(conv.messages, tools=allow_tools)):
+        async for chunk in self._stream(self._body(self._fitted(conv.messages, allow_tools), tools=allow_tools)):
             msg = chunk.get("message") or {}
             # msg["thinking"] (separated reasoning) is never spoken.
             text = think.feed(msg.get("content") or "")

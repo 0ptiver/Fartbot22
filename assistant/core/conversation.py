@@ -7,7 +7,7 @@ from typing import Any
 
 def _is_turn_start(msg: dict[str, Any]) -> bool:
     """A user message that isn't just tool results starts a new user turn."""
-    if msg["role"] != "user":
+    if msg["role"] != "user" or msg.get("nudge"):
         return False
     content = msg["content"]
     if isinstance(content, str):
