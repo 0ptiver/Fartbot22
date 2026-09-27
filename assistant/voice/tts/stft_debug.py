@@ -97,18 +97,19 @@ def debug_stft(original: Path, voices: Path, voice: str = "bm_george", lang: str
     print(f"Final audio max difference: {np.max(np.abs(audio_o[:n] - audio_c[:n])):.3g}")
 
 
-def _descendants(model, start: str) -> list:
-    """Nodes downstream of tensor `start`, in graph (topological) order."""
-    reach = {start}
-    out = []
-    for node in model.graph.node:
-        if any(i in reach for i in node.input):
-            out.append(node)
-            reach.update(node.output)
-    return out
+def _float_tensors(model) -> list[str]:
+    """Names of float tensors produced by top-level nodes, in graph order (via shape inference)."""
+    import onnx
+    from onnx import TensorProto
+
+    inferred = onnx.shape_inference.infer_shapes(model)
+    types = {vi.name: vi.type.tensor_type.elem_type
+             for vi in list(inferred.graph.value_info) + list(inferred.graph.output)}
+    return [o for n in model.graph.node if n.op_type != "Constant"
+            for o in n.output if types.get(o) == TensorProto.FLOAT]
 
 
-def _run(path: Path, feeds: dict, optimize: bool, taps: list[str] | None = None):
+def _run(path: Path, feeds: dict, optimize: bool, taps: list[str] | None = None, workdir: Path | None = None):
     import onnxruntime as ort
 
     opts = ort.SessionOptions()
@@ -116,7 +117,7 @@ def _run(path: Path, feeds: dict, optimize: bool, taps: list[str] | None = None)
     if not optimize:
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
     if taps:
-        tmp = path.with_name(path.stem + "_tapped.onnx")
+        tmp = (workdir or path.parent) / (path.stem + "_tapped.onnx")
         _with_outputs(path, taps, tmp)
         path = tmp
     sess = ort.InferenceSession(str(path), sess_options=opts, providers=["CPUExecutionProvider"])
@@ -125,17 +126,21 @@ def _run(path: Path, feeds: dict, optimize: bool, taps: list[str] | None = None)
 
 
 def debug_downstream(original: Path, voices: Path, voice: str = "bm_george", lang: str = "en-gb") -> None:
-    """Is it the optimizer? And which node downstream of the STFT first diverges?"""
+    """Is it the optimizer? And which node in the whole graph first diverges?"""
     import onnx
 
     from assistant.voice.tts.onnx_fix import replace_stft
 
+    # Clean up a stray file an earlier version of this tool left next to the model.
+    (original.parent / (original.stem + "_tapped.onnx")).unlink(missing_ok=True)
+
     text = "Good evening, sir. The time is a quarter past eleven."
     feeds = _capture_inputs(original, voices, voice, lang, text)
+    orig_model = onnx.load(str(original))
     model = onnx.load(str(original))
-    stft = next(n for n in model.graph.node if n.op_type == "STFT")
     with tempfile.TemporaryDirectory() as d:
-        conv_path = Path(d) / "conv.onnx"
+        work = Path(d)
+        conv_path = work / "conv.onnx"
         replace_stft(model)
         onnx.save(model, str(conv_path))
 
@@ -147,27 +152,32 @@ def debug_downstream(original: Path, voices: Path, voice: str = "bm_george", lan
             print(f"   optimizer {'ON ' if optimize else 'OFF'}: {np.max(np.abs(a[:n] - b[:n])):.3g}  "
                   f"(loudness x{np.sqrt(np.mean(b ** 2)) / max(np.sqrt(np.mean(a ** 2)), 1e-9):.2f})")
 
-        print("\n2) First steps after the STFT whose output differs (optimizer OFF):")
-        down = _descendants(onnx.load(str(original)), stft.output[0])
-        taps = [o for n in down for o in n.output]
-        got_o, _ = _run(original, feeds, False, taps)
-        got_c, _ = _run(conv_path, feeds, False, taps)
+        # Whole-graph search, in order, in batches (keeps memory reasonable).
+        conv_names = {o for n in model.graph.node for o in n.output}
+        names = [t for t in _float_tensors(orig_model) if t in conv_names]
+        node_of = {o: n for n in orig_model.graph.node for o in n.output}
+        print(f"\n2) First steps in the whole model whose output differs (optimizer OFF, "
+              f"{len(names)} tensors checked in order):")
         shown = 0
-        for node in down:
-            for o in node.output:
-                if o not in got_o or o not in got_c:
-                    continue
-                x, y = np.asarray(got_o[o]), np.asarray(got_c[o])
+        for i in range(0, len(names), 150):
+            batch = names[i:i + 150]
+            got_o, _ = _run(original, feeds, False, batch, work)
+            got_c, _ = _run(conv_path, feeds, False, batch, work)
+            for t in batch:
+                x, y = np.asarray(got_o.get(t)), np.asarray(got_c.get(t))
                 if x.shape != y.shape:
-                    print(f"   {node.op_type:<12} {o}: shape {x.shape} vs {y.shape}")
-                    shown += 1
-                elif x.size and x.dtype.kind == "f":
-                    rel = float(np.max(np.abs(x - y)) / max(float(np.max(np.abs(x))), 1e-9))
-                    if rel > 1e-3:
-                        ins = ", ".join(i.split("/")[-1] for i in node.input)
-                        print(f"   {node.op_type:<12} {o.split('/')[-1]}: rel diff {rel:.2e}  (inputs: {ins})")
-                        shown += 1
-                if shown >= 6:
+                    detail = f"shape {x.shape} vs {y.shape}"
+                elif x.size and float(np.max(np.abs(x - y))) / max(float(np.max(np.abs(x))), 1e-9) > 1e-3:
+                    detail = f"rel diff {float(np.max(np.abs(x - y))) / max(float(np.max(np.abs(x))), 1e-9):.2e}"
+                else:
+                    continue
+                node = node_of[t]
+                ins = ", ".join(n.split("/")[-1] or n for n in node.input)
+                print(f"   #{names.index(t)} {node.op_type:<14} {t.split('/')[-1]}: {detail}")
+                print(f"        node {node.name}; inputs: {ins}")
+                shown += 1
+                if shown >= 5:
                     return
+            del got_o, got_c
         if not shown:
-            print(f"   none of the {len(taps)} downstream tensors differ with the optimizer off")
+            print("   no tensor differs. The difference must be in the final output step itself.")
