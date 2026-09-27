@@ -208,6 +208,13 @@ class LocalBrain:
                 async for ev in self._say(conv, user_text, reply):
                     yield ev
                 return
+            missed = self._complaint(user_text, ctx)
+            if missed:
+                # "You didn't close my video and you didn't open Spotify!": do those, don't apologise.
+                async for ev in self._run_calls(conv, user_text, missed, ctx):
+                    yield ev
+                conv.last_action = {"text": user_text, "at": time.time()}
+                return
             small = _small_talk(user_text, sir)
             if small:
                 async for ev in self._say(conv, user_text, small):
@@ -303,6 +310,20 @@ class LocalBrain:
         if whole and whole[0] == "video" and all(c["tool"] in ("video", "media") for c in calls):
             return None                                  # "full screen the video and play it": one video command
         return calls
+
+    def _complaint(self, text: str, ctx: ToolContext) -> list[dict] | None:
+        """The things the user says Nova didn't do, as direct commands (all of them known, or None)."""
+        clauses = _DIDNT.findall(text)
+        if not clauses:
+            return None
+        calls = []
+        for c in clauses:
+            c = re.sub(r"\b(?:yet|either|at all|properly|like i asked|when i asked|for me)\b", "", c).strip(" ,.!?")
+            got = self._compound(c, ctx) or ([{"tool": i[0], "args": i[1]}] if (i := match_intent(c)) else None)
+            if not got:
+                return None
+            calls += got
+        return calls[:4]
 
     def _fast_path(self, text: str, ctx: ToolContext) -> bool:
         grid = ctx.services.get("grid")
@@ -659,6 +680,8 @@ def _small_talk(text: str, sir: str) -> str | None:
     return None
 
 
+_DIDNT = re.compile(r"\byou (?:didn'?t|did not|never|haven'?t|have not|still haven'?t|forgot to)\s+(.+?)"
+                    r"(?=\s*(?:[,.!?;]|\band\b|\bbut\b)\s*(?:you\b|$|and\b|but\b)|$)", re.I)
 _SPLIT = re.compile(r"\s*,?\s*\b(?:and then|and also|and|then|also)\b\s*|\s*,\s*", re.I)
 
 _OPEN_BROWSER = re.compile(

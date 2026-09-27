@@ -79,3 +79,27 @@ def test_compounds_only_when_every_part_is_a_command(text, settings, ctx):
     from assistant.brain.local import LocalBrain
     brain = LocalBrain(settings, build_registry(settings))
     assert brain._compound(text, ctx) is None
+
+
+async def test_you_didnt_do_it_redoes_it(local_settings, ctx):
+    """Screenshot: 'Hello? Are you even listening to me? I just told you that you didn't close my
+    video and you didn't open Spotify!' -> 'Sorry, sir, I wasn't able to do that.'"""
+    brain, fake = make(local_settings, [])
+    brain.registry._tools["video"].handler = lambda a, c: f"Video: {a['actions'][0]}."
+    brain.registry._tools["open_app"].handler = lambda a, c: "Spotify is open."
+    events = await collect(brain, Conversation(), "Hello? Are you even listening to me? I just told you that you "
+                                                  "didn't close my video and you didn't open Spotify!", ctx)
+    assert tools(events) == ["video", "open_app"] and not fake.requests
+    assert said(events) == "Video: pause. Spotify is open."
+
+
+def test_close_my_video_pauses_it():
+    """The model played the video when asked to close it; closing means pausing (safe)."""
+    assert match_intent("close my video") == ("video", {"actions": ["pause"]})
+    assert match_intent("exit the video") == ("video", {"actions": ["pause"]})
+    assert match_intent("close youtube")[0] == "window"             # the app/tab itself: still closes it
+
+
+def test_a_complaint_that_isnt_a_command_goes_to_the_model(settings, ctx):
+    from assistant.brain.local import LocalBrain
+    assert LocalBrain(settings, build_registry(settings))._complaint("you didn't tell me the truth", ctx) is None
