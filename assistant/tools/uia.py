@@ -71,7 +71,47 @@ class UIABackend:
         return out
 
 
+    def edit_values(self, hwnd: int) -> list[str]:
+        """The text in each box of a window (a browser's address bar among them)."""
+        if sys.platform != "win32":
+            return []
+        import comtypes
+        import comtypes.client
+        try:
+            comtypes.CoInitializeEx(comtypes.COINIT_MULTITHREADED)
+        except OSError:
+            pass
+        mod = comtypes.client.GetModule("UIAutomationCore.dll")
+        uia = comtypes.client.CreateObject(mod.CUIAutomation, interface=mod.IUIAutomation)
+        cache = uia.CreateCacheRequest()
+        cache.AddProperty(30045)                                   # Value.Value
+        found = uia.ElementFromHandle(hwnd).FindAllBuildCache(
+            _DESCENDANTS, uia.CreatePropertyCondition(_CTYPE, 50004), cache)
+        out = []
+        for i in range(min(found.Length, 50)):
+            try:
+                v = found.GetElement(i).GetCachedPropertyValue(30045)
+            except Exception:
+                continue
+            if isinstance(v, str) and v.strip():
+                out.append(v.strip())
+        return out
+
+
 UIA = UIABackend()
+_URLISH = re.compile(r"^(?:https?://)?(?:[\w-]+\.)+[a-z]{2,}(?:[/?#:]\S*)?$", re.I)
+
+
+def current_url() -> str:
+    """The address of the page in the browser you're using."""
+    from assistant.tools import pc
+    w = pc.active_window()
+    if w.process.lower().removesuffix(".exe") not in ("firefox", "chrome", "msedge", "brave", "opera", "vivaldi"):
+        raise ToolError("Open the page in your browser first, then ask again.")
+    for v in UIA.edit_values(w.hwnd):
+        if _URLISH.match(v) and " " not in v:
+            return v if v.startswith("http") else "https://" + v
+    raise ToolError("I couldn't read the address of that page. Tell me the website instead.")
 
 
 def _norm(s: str) -> str:

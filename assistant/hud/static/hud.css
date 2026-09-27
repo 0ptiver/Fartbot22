@@ -147,6 +147,7 @@ ol { list-style: none; margin: 0; padding: 0; }
 .timer .label { font-weight: 600; }
 .timer .kind { color: var(--muted); font-size: 12px; text-transform: capitalize; }
 .timer .left { font: 600 20px "Cascadia Code", Consolas, monospace; color: var(--cyan); font-variant-numeric: tabular-nums; }
+.timer.watching .eye { font-size: 16px; color: var(--violet); animation: blink 2.4s ease-in-out infinite; }
 .timer .x { border: 1px solid var(--line2); background: none; border-radius: 8px; width: 30px; height: 30px; color: var(--muted); }
 .timer .x:hover { color: var(--red); border-color: rgba(248,113,113,.6); }
 

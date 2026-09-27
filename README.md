@@ -147,6 +147,7 @@ Speech stack (all switchable in `config/config.yaml` → `voice`):
 | "Copy" / "paste" / "undo" / "save" / "new tab" / "close tab" / "go back" / "refresh" / "switch windows" | shortcuts |
 | "Minimise this" / "snap this to the left" / "move this window to the other screen" | the window you're using |
 | "Start dictation" … (talk) … "new line" / "scratch that" / "stop dictation" | everything you say is typed |
+| "Tell me when my download finishes" / "…my game finishes downloading" / "…Blender is done" / "…my GPU cools down" / "…the battery is full" / "…the internet is back" / "…this page changes" | Nova watches and speaks up (see them in the window's Timers tab) |
 | "Remember that my sister's birthday is June 3" / "what do you remember?" / "forget that" | memory (on this PC only; never passwords) |
 | **Brain** button in the window | everything Nova remembers around a glowing brain: search, click to forget, teach it new things |
 | "Show the grid" … "click 14" / "zoom 14" / "double click 3" / "scroll down" / "hide the grid" | voice mouse (numbers work without "Nova" while the grid is showing) |

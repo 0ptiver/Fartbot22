@@ -353,6 +353,7 @@ function answer(yes) { send({ type: "confirm", approved: yes }); hideConfirm(); 
 // --- timers ----------------------------------------------------------------------------------
 function timersIn(ev) {
   S.timers = ev.items || [];
+  S.watches = ev.watches || [];
   S.clockSkew = (ev.now || Date.now() / 1000) - Date.now() / 1000;
   renderTimers();
 }
@@ -386,9 +387,28 @@ function renderTimers() {
     }
     li.querySelector(".left").textContent = fmtLeft(t.due - now);
   }
+  for (const w of S.watches || []) {
+    const id = "w:" + w.id;
+    keep.add(id);
+    let li = existing.get(id);
+    if (!li) {
+      li = el("li", "timer watching");
+      li.dataset.id = id;
+      const info = el("div");
+      info.append(el("div", "label", w.text.charAt(0).toUpperCase() + w.text.slice(1)), el("div", "kind", "watching for it"));
+      const x = el("button", "x", "✕");
+      x.type = "button";
+      x.title = "Stop watching";
+      x.setAttribute("aria-label", `Stop watching for ${w.text}`);
+      x.onclick = () => send({ type: "cancel_watch", id: w.id });
+      li.append(info, el("span", "left eye", "◉"), x);
+      list.append(li);
+    }
+  }
   for (const [id, li] of existing) if (!keep.has(id)) li.remove();
-  $("timerBadge").hidden = S.timers.length === 0;
-  $("timerBadge").textContent = String(S.timers.length);
+  const count = S.timers.length + (S.watches || []).length;
+  $("timerBadge").hidden = count === 0;
+  $("timerBadge").textContent = String(count);
   empties();
 }
 
@@ -409,7 +429,7 @@ function renderRoutines() {
 function empties() {
   $("chatEmpty").hidden = $("chat").children.length > 0;
   $("actEmpty").hidden = $("activity").children.length > 0;
-  $("timersEmpty").hidden = S.timers.length > 0;
+  $("timersEmpty").hidden = S.timers.length + (S.watches || []).length > 0;
 }
 
 let toastTimer = null;

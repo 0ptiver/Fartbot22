@@ -163,11 +163,15 @@ async def run(args) -> int:
                           notify=lambda r, missed: loop.announce(r.spoken(tz, missed)))
     loop.ctx.services["scheduler"] = scheduler
     scheduler_task = asyncio.create_task(scheduler.run())
+    from assistant.core.watchers import Watchers
+    watchers = Watchers(notify=loop.announce)
+    loop.ctx.services["watchers"] = watchers
+    watchers_task = asyncio.create_task(watchers.run())
     await loop.prewarm()
     hud = None
     if settings.hud.enabled and not args.wav and not args.no_hud:
         from assistant.hud.server import start_hud
-        hud = await start_hud(settings, loop, hub, scheduler)
+        hud = await start_hud(settings, loop, hub, scheduler, watchers=watchers)
         if hud is None:
             print(f"{RED}The window (HUD) couldn't start: port {settings.hud.port} is in use. "
                   f"Is Nova already running?{RESET}")
@@ -215,6 +219,7 @@ async def run(args) -> int:
                 raise
     finally:
         scheduler_task.cancel()
+        watchers_task.cancel()
         if tray_task is not None:
             tray_task.cancel()
         if tray is not None:

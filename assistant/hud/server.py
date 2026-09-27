@@ -73,10 +73,11 @@ def status(loop, settings: Settings) -> dict[str, Any]:
             "confirm": pending}
 
 
-def timers(scheduler, settings: Settings) -> dict[str, Any]:
+def timers(scheduler, settings: Settings, watchers=None) -> dict[str, Any]:
     items = [] if scheduler is None else [
         {"id": r.id, "kind": r.kind, "text": r.text, "due": r.due} for r in scheduler.upcoming()]
-    return {"type": "timers", "items": items, "now": time.time()}
+    watching = [] if watchers is None else [{"id": w.id, "text": w.describe()} for w in watchers.items.values()]
+    return {"type": "timers", "items": items, "watches": watching, "now": time.time()}
 
 
 def memories(store) -> dict[str, Any]:
@@ -91,7 +92,7 @@ def _routines(settings: Settings) -> list[dict[str, str]]:
 
 
 def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=None,
-                   trust_test_client: bool = False, memory=None) -> FastAPI:
+                   trust_test_client: bool = False, memory=None, watchers=None) -> FastAPI:
     port = settings.hud.port
     hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
     origins = {f"http://{h}" for h in hosts}
@@ -149,7 +150,10 @@ def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=Non
         elif kind == "cancel_timer" and scheduler is not None and isinstance(msg.get("id"), str):
             if any(r.id == msg["id"] for r in scheduler.upcoming()):
                 scheduler.cancel(msg["id"])
-            await ws_send(timers(scheduler, settings))
+            await ws_send(timers(scheduler, settings, watchers))
+        elif kind == "cancel_watch" and watchers is not None and isinstance(msg.get("id"), str):
+            watchers.cancel(msg["id"])
+            await ws_send(timers(scheduler, settings, watchers))
         elif kind == "mem_add" and memory is not None and isinstance(msg.get("text"), str):
             from assistant.core.memory import SecretRefused
             try:
@@ -191,7 +195,7 @@ def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=Non
                     "user": settings.assistant.address_user_as, "routines": _routines(settings),
                     "confirm_timeout_s": settings.voice.confirm_timeout_s,
                     "show_ignored": settings.hud.show_ignored, "backlog": list(hub.backlog)})
-        await send(timers(scheduler, settings))
+        await send(timers(scheduler, settings, watchers))
         await send(memories(memory))
         hub.clients.add(queue)
 
@@ -210,7 +214,7 @@ def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=Non
                     await send(status(loop, settings))
                 if now - last_timers >= 1.0:
                     last_timers = now
-                    await send(timers(scheduler, settings))
+                    await send(timers(scheduler, settings, watchers))
 
         pumper = asyncio.create_task(pump())
         try:
@@ -293,7 +297,8 @@ def watch_memory(store, hub: Hub, aio_loop: asyncio.AbstractEventLoop) -> None:
     store.used_listeners.append(used)
 
 
-async def start_hud(settings: Settings, loop, hub: Hub, scheduler=None, memory=None) -> HudHandle | None:
+async def start_hud(settings: Settings, loop, hub: Hub, scheduler=None, memory=None,
+                    watchers=None) -> HudHandle | None:
     """Serve the HUD on 127.0.0.1 and (optionally) open its window. None if it can't start."""
     try:
         sock = _bind(settings.hud.port)
@@ -306,7 +311,7 @@ async def start_hud(settings: Settings, loop, hub: Hub, scheduler=None, memory=N
         memory = get_store(settings)
     if memory is not None:
         watch_memory(memory, hub, asyncio.get_running_loop())
-    app = create_hud_app(settings, loop, hub, token, scheduler, memory=memory)
+    app = create_hud_app(settings, loop, hub, token, scheduler, memory=memory, watchers=watchers)
     server = _QuietServer(app, sock)
     task = asyncio.create_task(server.serve())
     url = f"http://127.0.0.1:{settings.hud.port}/#k={token}"

@@ -252,6 +252,11 @@ scripts/           # install, run, register-startup
 - [x] Always-on (owner's pick): `assistant background` = a tiny supervisor that runs `pythonw -m assistant voice --background` and restarts it after a crash or a failed start (Ollama still loading at boot): 5 s, doubling, max 60 s, reset after a 10-minute run; tray Quit ends both, Restart starts fresh. Tray icon (pystray) shows the state in colour with Open / Microphone off / Stand down-Wake up / Start with Windows / Open log / Restart / Quit. `assistant autostart on|off|status` (HKCU Run key: no admin). No console: print output and errors go to data/logs/nova.log (1 MB x 3, colours stripped). One Nova at a time (named mutex): a second start opens the window. At sign-in: a soft chime, no speech, no window. update.ps1 stops a running Nova first (locked files) and starts it again after. Not yet tried on the PC
 - [ ] Installer, offline fallback
 
+### Phase 8 — Unique features (owner picked 3 of my ideas)
+- [x] "Tell me when ..." watchers (core/watchers.py, tools/watch.py): browser downloads (partial-file extensions in Downloads), Steam downloads (steamapps/downloading of every library), an app closing or going quiet after working (CPU), GPU above/below °C, CPU calming down, battery full/low (not while plugged in), internet back, a web page changing (text fingerprint with digits ignored; "this page" = the active browser's address bar via UI Automation). Announced once like reminders (chime, held while standing down); max 10, expire after a day; listed with cancel buttons in the HUD's Timers tab. Fast path needs "tell me/let me know when ..." so questions like "when is dinner done?" aren't watches. Not yet tried on the PC
+- [ ] Live subtitles + translation of PC audio
+- [ ] Voice designer (Kokoro voice blending)
+
 ## Open questions for the owner
 - Happy with the hotkeys above? (assumed yes until told otherwise)
 

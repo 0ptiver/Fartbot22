@@ -312,6 +312,10 @@ def match_intent(text: str, grid_visible: bool = False, labels: bool = False) ->
     mem = memory_intent(text, t)
     if mem:
         return mem
+    from assistant.tools.watch import watch_intent
+    w = watch_intent(text)
+    if w:
+        return w
     timer = _timer_intent(t)
     if timer:
         return timer
