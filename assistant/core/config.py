@@ -136,7 +136,7 @@ class BargeInConfig(BaseModel):
     mode: str = "verified"
     fast_min_ms: int = 250           # fast mode: speech needed before interrupting
     check_every_s: float = 0.8       # verified mode: how often to check speech over Nova's voice
-    min_new_words: int = 3           # verified mode: words needed (besides stop words / the name)
+    min_new_words: int = 2           # verified mode: words needed (besides stop words / the name)
     stop_words: list[str] = Field(default_factory=lambda: [
         "stop", "stop it", "stop talking", "cancel", "never mind", "nevermind", "shut up",
         "quiet", "be quiet", "enough", "that's enough", "okay stop", "ok stop", "wait"])
@@ -165,6 +165,9 @@ class VoiceConfig(BaseModel):
     ack_sound: bool = True              # a soft tick the moment Nova accepts a request
     still_working_s: float = 1.8        # nothing said by then? "One moment, sir." (0 = never)
     first_chunk_min_chars: int = 12
+    # Out loud, replies stop after this many sentences (the whole reply is still in the window).
+    max_spoken_sentences: int = 3
+    max_spoken_sentences_detail: int = 10   # when you ask for detail ("explain", "tell me about")
     latency_report: bool = True
     # Said when a slow tool starts and nothing has been said yet this turn.
     filler_phrases: list[str] = Field(default_factory=lambda: [

@@ -27,10 +27,10 @@ from assistant.brain.intents import match_intent
     ("Play the last song I listened to", ("play_music", {"kind": "recently_played"})),
     ("Play my chill playlist", ("play_music", {"query": "chill", "kind": "playlist"})),
     ("What's on my screen?", None),
-    ("Open Spotify", None),
+    ("Open Spotify", ("open_app", {"name": "spotify"})),     # everyday commands skip the model now
     ("How do I lock my PC", None),
     ("Shut down the PC", None),                      # power always goes via the model + a yes/no
-    ("What time is it", None),
+    ("What time is it", ("get_time", {})),
     ("Stop the timer", ("cancel_timer", {"which": "timer"})),
 ])
 def test_match_intent(text, expected):
@@ -54,4 +54,27 @@ def test_match_intent(text, expected):
     ("Remind me in an hour to call mum", None),        # the model handles reminders
 ])
 def test_timer_intents(text, expected):
+    assert match_intent(text) == expected
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("volume up", ("volume", {"action": "up"})),
+    ("turn it down a bit", ("volume", {"action": "down"})),
+    ("turn the volume down a bit", ("volume", {"action": "down"})),
+    ("set the volume to 30", ("volume", {"action": "set", "level": 30})),
+    ("mute", ("volume", {"action": "mute"})),
+    ("open up steam", ("open_app", {"name": "steam"})),
+    ("launch youtube", ("open_website", {"site": "youtube"})),
+    ("close discord", ("window", {"action": "close", "app": "discord"})),
+    ("close it", ("window", {"action": "close", "app": "this"})),
+    ("minimise this window", ("window", {"action": "minimize", "app": "this"})),
+    ("switch to firefox", ("window", {"action": "focus", "app": "firefox"})),
+    ("open my documents folder", None),                 # files: the model decides
+    ("open discord and play some music", None),         # two things: the model
+    ("start gaming mode", None),                        # a routine, not an app
+    ("what's the weather", None),
+])
+def test_everyday_commands_skip_the_model(text, expected):
+    """Owner: "he talks a ton instead of just doing". The commonest commands are done
+    directly and answered with the tool's own short result."""
     assert match_intent(text) == expected

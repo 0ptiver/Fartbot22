@@ -55,6 +55,9 @@ Branch: `claude/jarvis-voice-assistant-lhnfza` (commit and push there after ever
 - Apps started from Nova's console printed their logs into it (Discord): always open things via `core/launch.py` (detached).
 - winrt packages don't pull in the namespaces their results use: list `Foundation.Collections`, `Media` and `Storage.Streams` explicitly (not `[all]`, which pulls ~85 packages).
 - The 4B local model fumbles multi-step PC control: put common commands on the fast path, keep spoken results short, and verify actions.
+- Voiceprints of speech heard over Nova's own voice (speakers) match worse: the voice lock must be looser there, or the owner can't interrupt (owner's case). "Stop" while Nova is busy skips the lock.
+- The owner hates chatter: keep the spoken-sentence cap, the preamble hold in `LocalBrain.run_turn` (`_PREAMBLE`), and put common commands on the fast path (`intents.everyday_intent`).
+- pytest sometimes prints a Rust "panic in a function that cannot unwind" after all tests pass (a livekit tokio thread at interpreter exit, sandbox only). The results above it are what count.
 - "Cancel" in game chat must not do anything: it only counts with the name, in the follow-up window, while Nova is busy, or while the grid, dictation or a lesson is active.
 
 ## Status (end of this session)

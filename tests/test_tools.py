@@ -9,7 +9,7 @@ from assistant.tools.registry import ToolError
 
 def test_get_time(ctx):
     out = system.get_time({}, ctx)
-    assert "America/Chicago" in out
+    assert out.startswith("It's ") and ("AM" in out or "PM" in out) and len(out) < 60
 
 
 class FakeEndpoint:

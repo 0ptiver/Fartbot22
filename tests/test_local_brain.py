@@ -119,7 +119,9 @@ async def test_escalation_goes_to_expert(local_settings, ctx):
     events = await collect(brain, conv, "research monitors", ctx)
     assert expert.calls[0][0] == "best 1440p monitor under $400"
     assert conv.messages[2]["content"] == "The best monitor is X."
-    assert events[-1].text == "On it, sir. Claude recommends X, sir."
+    # "On it, sir." before a tool call is dropped: the voice loop says its own short filler for
+    # slow tools, then the answer (owner: "he talks a ton instead of just doing").
+    assert events[-1].text == "Claude recommends X, sir."
 
 
 async def test_expert_failure_is_reported_not_raised(local_settings, ctx):
@@ -262,7 +264,7 @@ async def test_promise_without_action_is_nudged(local_settings, ctx):
         text_reply("It is noon."),
     ])
     conv = Conversation()
-    events = await collect(brain, conv, "what time is it", ctx)
+    events = await collect(brain, conv, "how late is it", ctx)
     assert any(isinstance(e, ToolFinished) and e.name == "get_time" for e in events)
     assert "did not call a tool" in fake.requests[1][1]["messages"][-1]["content"]
     assert events[-1].text == "I'll check that for you, sir. It is noon."
@@ -403,5 +405,29 @@ async def test_punctuation_tokens_are_not_spaced(local_settings, ctx):
     chunks = [{"message": {"role": "assistant", "content": c}, "done": False} for c in ["Noon", ",", " sir", "."]]
     chunks.append({"message": {"role": "assistant", "content": ""}, "done": True})
     brain, fake = make(local_settings, [ndjson(*chunks)])
-    events = await collect(brain, Conversation(), "what time is it", ctx)
+    events = await collect(brain, Conversation(), "how late is it", ctx)
     assert "".join(e.text for e in events if isinstance(e, TextDelta)) == "Noon, sir."
+
+
+async def test_preamble_before_a_tool_is_not_said(local_settings, ctx):
+    """Owner: "he talks a ton instead of just doing". "Certainly, sir. I'll check the time."
+    followed by a tool call isn't read out: only the result is."""
+    brain, fake = make(local_settings, [
+        tool_reply("get_time", {}, text="Certainly, sir. I'll check the time for you."),
+        text_reply("It's noon, sir."),
+    ])
+    events = await collect(brain, Conversation(), "how late is it", ctx)
+    assert "".join(e.text for e in events if isinstance(e, TextDelta)) == "It's noon, sir."
+
+
+async def test_an_answer_that_starts_like_a_preamble_is_still_said(local_settings, ctx):
+    brain, fake = make(local_settings, [text_reply("Certainly, sir. Paris is the capital of France.")])
+    events = await collect(brain, Conversation(), "capital of france?", ctx)
+    assert "".join(e.text for e in events if isinstance(e, TextDelta)) == \
+        "Certainly, sir. Paris is the capital of France."
+
+
+async def test_normal_answers_stream_straight_away(local_settings, ctx):
+    brain, fake = make(local_settings, [text_reply("Paris is the capital, sir.")])
+    events = await collect(brain, Conversation(), "capital of france?", ctx)
+    assert "".join(e.text for e in events if isinstance(e, TextDelta)) == "Paris is the capital, sir."

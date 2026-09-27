@@ -34,6 +34,7 @@ WHEEL_SHA256 = "8f12eb2f1a9982d32e8db7856de754709b59c93a77bcf0ff536584b619a9dd1f
 WEIGHTS_FILE = MODELS_DIR / "voice_encoder.npz"
 PRINT_FILE = ROOT / "data" / "voiceprint.json"
 RATE = 16000
+OVER_SPEECH_LEEWAY = 0.12         # voice check on speech that overlapped Nova's own voice
 N_FFT, HOP, N_MELS, PARTIAL = 400, 160, 40, 160
 
 
@@ -327,11 +328,13 @@ class VoiceLock:
         p.write_text(json.dumps({"prints": [np.round(x, 5).tolist() for x in self.prints.prints],
                                  "on": self.on, "threshold": round(self.threshold, 3)}), encoding="utf-8")
 
-    def check(self, audio: np.ndarray) -> tuple[bool, float]:
-        """(is it the owner?, similarity). Short phrases get a little leeway."""
+    def check(self, audio: np.ndarray, over_speech: bool = False) -> tuple[bool, float]:
+        """(is it the owner?, similarity). Short phrases get a little leeway, and so does
+        speech heard over Nova's own voice from the speakers (it muddies the voiceprint:
+        without this, the owner couldn't interrupt with voice lock on)."""
         score = self.prints.score(self.encoder.embed(audio))
         self.last_score = score
-        leeway = 0.05 if audio.size < RATE * 1.2 else 0.0
+        leeway = (0.05 if audio.size < RATE * 1.2 else 0.0) + (OVER_SPEECH_LEEWAY if over_speech else 0.0)
         return score >= self.threshold - leeway, score
 
     # enrolment: "Nova, learn my voice" -> read five sentences

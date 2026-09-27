@@ -137,6 +137,8 @@ def test_new_speech_rules(settings, registry):
     assert not loop._is_new_speech("it lived in the wood")
     assert loop._is_new_speech("what time is it")                           # shares words, not phrases
     assert not loop._is_new_speech("fox")                                   # too short to judge
+    assert loop._is_new_speech("open discord")                              # 2 new words: you
+    assert not loop._is_new_speech("a fox")                                 # 2 of its own words: echo
     assert loop._is_new_speech("stop")
     assert loop._is_new_speech("Nova, hang on")
     assert loop._stop_phrase("Nova, stop.") == "stop"
@@ -161,3 +163,27 @@ def test_echo_with_numbers_and_symbols(settings, registry):
     loop._last_said = "Once upon a time there was a fox. It lived in a wood."
     assert loop._is_new_speech("what time is it")
     assert loop._sounds_like_echo("once upon a time there was a fax")
+
+
+LONG = text_msg("First point. Second point. Third point. Fourth point. Fifth point. Sixth point.")
+
+
+async def test_long_replies_are_cut_short_out_loud(settings, registry):
+    """Owner: "he talks a ton". Three sentences out loud; the rest only in the window."""
+    loop, events = make(settings, registry, [LONG], [("say", "Nova, what do you think", 10), ("quiet", 20),
+                                                     ("until", lambda l: l.turns_done >= 1 and not l.busy)],
+                        tts=FakeTTS())
+    await loop.run()
+    said = " ".join(loop.tts.spoken)
+    assert "Third point." in said and "Fourth point." not in said
+    assert loop.tts.spoken[-1] == "The rest is in the window."
+    shown = "".join(e["text"] for e in events if e["type"] == "text")
+    assert "Sixth point." in shown
+
+
+async def test_asking_for_detail_gets_it_all(settings, registry):
+    loop, events = make(settings, registry, [LONG], [("say", "Nova, explain it to me", 10), ("quiet", 20),
+                                                     ("until", lambda l: l.turns_done >= 1 and not l.busy)],
+                        tts=FakeTTS())
+    await loop.run()
+    assert "Sixth point." in " ".join(loop.tts.spoken)

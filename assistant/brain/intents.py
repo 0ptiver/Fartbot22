@@ -306,6 +306,56 @@ def memory_intent(raw: str, t: str) -> tuple[str, dict] | None:
     return None
 
 
+_SITES = {"youtube", "google", "netflix", "twitch", "reddit", "gmail", "amazon", "twitter", "facebook",
+          "instagram", "tiktok", "wikipedia", "github", "chatgpt", "claude", "google maps", "maps",
+          "outlook", "prime video", "disney plus", "hulu", "ebay"}
+_NOT_AN_APP = re.compile(r"\b(?:file|folder|document|documents|downloads|pictures|photo|tab|window|link|"
+                         r"grid|numbers|settings for|and|then|with|it|that|this|routine|timer|video|movie|music|song|playlist|"
+                         r"dictation|recording|lesson|mode|watching|over|again)\b")
+_THIS = r"(?:this|that|it|the|this window|that window|the window|current window|the app|this app)"
+
+
+def everyday_intent(t: str) -> tuple[str, dict] | None:
+    """The commands people say most, done without the model (faster, and no chatter):
+    'what time is it', 'volume up', 'set the volume to 30', 'open discord', 'close spotify',
+    'switch to firefox', 'minimize this'."""
+    from assistant.voice.textnorm import normalize_words
+
+    n = " ".join(normalize_words(t))
+    if re.fullmatch(r"(?:what(?:'?s| is) the time(?: now)?|what time is it(?: now)?|tell me the time)", t):
+        return "get_time", {}
+    if m := re.fullmatch(r"(?:set |turn |put )?(?:the )?volume (?:to |at )?(\d{1,3})(?: percent| %)?", n):
+        return "volume", {"action": "set", "level": min(100, int(m.group(1)))}
+    if re.fullmatch(r"(?:turn (?:the )?(?:volume|sound|it) up|volume up|louder|turn up the volume|raise the volume)"
+                    r"(?: a (?:bit|little))?", n):
+        return "volume", {"action": "up"}
+    if re.fullmatch(r"(?:turn (?:the )?(?:volume|sound|it) down|volume down|quieter|turn down the volume|"
+                    r"lower the volume)(?: a (?:bit|little))?", n):
+        return "volume", {"action": "down"}
+    if re.fullmatch(r"(?:mute|mute (?:the )?(?:pc|computer|sound|volume|audio))", n):
+        return "volume", {"action": "mute"}
+    if re.fullmatch(r"(?:unmute|unmute (?:the )?(?:pc|computer|sound|volume|audio))", n):
+        return "volume", {"action": "unmute"}
+    if m := re.fullmatch(r"(minimi[sz]e|maximi[sz]e|restore) " + _THIS, n):
+        action = {"minimi": "minimize", "maximi": "maximize"}.get(m.group(1)[:6], "restore")
+        return "window", {"action": action, "app": "this"}
+    if re.fullmatch(r"(?:close|quit|exit) " + _THIS, n):
+        return "window", {"action": "close", "app": "this"}
+    m = re.fullmatch(r"(open|launch|start|close|quit|exit|switch to|bring up|go to) (?:up )?(?:the |my )?(.+?)"
+                     r"(?: app| application| program)?", n)
+    if m and len(m.group(2).split()) <= 3 and not _NOT_AN_APP.search(m.group(2)):
+        verb, what = m.group(1), m.group(2)
+        if verb in ("open", "launch", "go to") and what in _SITES:
+            return "open_website", {"site": what}
+        if verb in ("open", "launch", "start"):
+            return "open_app", {"name": what}
+        if verb in ("close", "quit", "exit"):
+            return "window", {"action": "close", "app": what}
+        if verb in ("switch to", "bring up"):
+            return "window", {"action": "focus", "app": what}
+    return None
+
+
 def match_intent(text: str, grid_visible: bool = False, labels: bool = False) -> tuple[str, dict] | None:
     t = _clean(text)
     if not t:
@@ -343,6 +393,9 @@ def match_intent(text: str, grid_visible: bool = False, labels: bool = False) ->
     for pattern, tool, args in _RULES:
         if pattern.match(t):
             return tool, dict(args)
+    daily = everyday_intent(t)
+    if daily:
+        return daily
     if len(t.split()) <= 14 and _NOW_PLAYING_ANYWHERE.search(t):
         return "now_playing", {}
     m = re.match(r"^play (.+?)(?: on spotify)?$", t)

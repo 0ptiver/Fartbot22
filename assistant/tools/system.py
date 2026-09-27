@@ -18,7 +18,8 @@ IS_WINDOWS = sys.platform == "win32"
 def get_time(args: dict, ctx: ToolContext) -> str:
     tz = ZoneInfo(ctx.settings.assistant.timezone)
     now = datetime.now(tz)
-    return now.strftime(f"%A %d %B %Y, %I:%M %p ({ctx.settings.assistant.timezone})")
+    # Short enough to be read out as it is (the fast path speaks it): "It's 1:26 PM, Sunday 27 September."
+    return f"It's {now.hour % 12 or 12}:{now:%M} {now:%p}, {now:%A} {now.day} {now:%B}."
 
 
 # --- volume ----------------------------------------------------------------

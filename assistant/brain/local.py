@@ -209,10 +209,28 @@ class LocalBrain:
                     hold = nudged and not tools_used
                     held: list[TextDelta] = []
                     first = True             # only a round's first text may need a space before it
+                    # "Sure, I'll open that for you." then a tool call then "Spotify is open." is
+                    # twice the talking. A round that starts like a preamble is held back and
+                    # dropped if it calls a tool (the result gets confirmed instead).
+                    lead: list[TextDelta] | None = [] if allow_tools and not hold else None
                     try:
                         async for ev in self._model_round(conv, allow_tools, out, timings, usage, t0):
                             if hold:
                                 held.append(ev)
+                                continue
+                            if lead is not None:
+                                lead.append(ev)
+                                so_far = "".join(e.text for e in lead).lstrip()
+                                if len(so_far.split()) < 3 and not re.search(r"[.!?,]", so_far):
+                                    continue                 # too early to tell
+                                if _PREAMBLE.match(so_far):
+                                    continue                 # keep holding until the round ends
+                                pending, lead = lead, None
+                                for e in pending:
+                                    if first:
+                                        e, first = _spaced(e, spoken), False
+                                    spoken.append(e.text)
+                                    yield e
                                 continue
                             if first:
                                 ev, first = _spaced(ev, spoken), False
@@ -221,6 +239,12 @@ class LocalBrain:
                     except _RetryWithoutThink:
                         continue
                     text_parts, calls = out.text, out.calls
+                    if lead and not calls:           # held preamble, but no tool: it was the answer
+                        for e in lead:
+                            if first:
+                                e, first = _spaced(e, spoken), False
+                            spoken.append(e.text)
+                            yield e
                     if hold:
                         if not calls and _acts_without_tools("".join(text_parts), user_text):
                             who = self.settings.assistant.address_user_as
@@ -413,6 +437,15 @@ class _Round:
 
 _CORRECTION = re.compile(r"^\s*(?:no[,.!]?\s+|nope[,.!]?\s+|sorry[,.!]?\s+|actually[,.!]?\s+)*"
                          r"(?:i meant|i said|i mean)\s+(.+?)\s*$", re.I)
+
+# How a round starts when the model is about to act: held back in case a tool call follows.
+_PREAMBLE = re.compile(
+    r"(?:(?:sure|certainly|of course|absolutely|okay|ok|alright|all right|right|very well|no problem|"
+    r"yes|got it|understood)\b[\s,.!-]*(?:sir\b[\s,.!-]*)?)*"
+    r"(?:i'?ll|i will|let me|i'?m going to|i am going to|one moment|give me a (?:moment|second)|"
+    r"right away|on it|opening|launching|starting|setting|turning|playing|pausing|checking|looking|"
+    r"switching|closing|minimi[sz]ing|maximi[sz]ing|searching|getting|creating|adding|sending|"
+    r"(?:sure|certainly|of course|absolutely|okay|ok|alright|all right|very well|no problem)\b)", re.I)
 
 _PROMISE = re.compile(
     r"\b(i'?ll|i will|let me|on it|one moment|give me a moment|checking|i'?m going to|"

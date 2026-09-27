@@ -2,6 +2,7 @@
 (The numpy encoder was checked against the original PyTorch Resemblyzer here: identical weights,
 mel error < 2e-7, embedding cosine 1.0000.)"""
 
+import asyncio
 import io
 import pickle
 import sys
@@ -223,3 +224,52 @@ async def test_wrong_line_during_learning_is_not_used(settings, registry, tmp_pa
 ])
 def test_phrases(text, action):
     assert match_intent(text) == ("voice_lock", {"action": action})
+
+
+# --- interrupting with voice lock on (owner: "Nova doesn't really allow me to interrupt anymore") ---
+class FixedEncoder:
+    """Every sound matches the owner's voiceprint this well (cosine)."""
+
+    def __init__(self, cos):
+        self.cos = cos
+
+    def embed(self, audio):
+        e = self.cos * OWNER + np.sqrt(1 - self.cos ** 2) * STRANGER
+        return e.astype(np.float32)
+
+
+def talking_loop(settings, registry, tmp_path, cos, said):
+    from tests.test_barge import STORY, SlowTTS, make
+    loop, events = make(settings, registry, [STORY, text_msg("It is noon, sir.")], [
+        ("until", lambda l: l.speaking),
+        ("say", said, 40), ("quiet", 20)], tts=SlowTTS())
+    lock = VP.VoiceLock(tmp_path / "vp.json", FixedEncoder(cos))
+    lock.prints.add([OWNER])
+    lock.set(on=True, threshold=0.75)
+    loop.lock = loop.ctx.services["voicelock"] = lock
+    return loop, events
+
+
+async def run_with_story(loop):
+    async def ask():
+        await asyncio.sleep(0.01)
+        await loop.submit_text("tell me a story")          # typed: no voice check for the request
+    await asyncio.gather(loop.run(), ask())
+
+
+async def test_owner_can_talk_over_nova_with_voice_lock_on(settings, registry, tmp_path):
+    """Over Nova's own voice the owner's voiceprint matches worse (0.68 < 0.75): still the owner."""
+    loop, events = talking_loop(settings, registry, tmp_path, 0.68, "what time is it")
+    await run_with_story(loop)
+    assert "interrupted" in [e["type"] for e in events]
+    assert "It is noon, sir." in loop.tts.spoken and "The end." not in loop.tts.spoken
+
+
+async def test_anyone_can_say_stop_but_strangers_cannot_ask(settings, registry, tmp_path):
+    loop, events = talking_loop(settings, registry, tmp_path, 0.2, "stop")
+    await run_with_story(loop)
+    assert "interrupted" in [e["type"] for e in events] and "The end." not in loop.tts.spoken
+
+    loop, events = talking_loop(settings, registry, tmp_path / "b", 0.2, "what time is it")
+    await run_with_story(loop)
+    assert "It is noon, sir." not in loop.tts.spoken and "The end." in loop.tts.spoken

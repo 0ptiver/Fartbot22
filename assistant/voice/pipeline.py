@@ -196,19 +196,32 @@ class VoiceLoop:
                 await self.interrupt(reason="you started talking")
             return
         audio = self.endpointer.audio()
-        due = len(audio) - self._barge_checked >= b.check_every_s * 16000
+        step = 0.45 if self._barge_checked == 0 else b.check_every_s   # first look comes sooner
+        due = len(audio) - self._barge_checked >= step * 16000
         if b.mode == "verified" and due and hasattr(self.stt, "transcribe") and (
                 self._barge_check is None or self._barge_check.done()):
             self._barge_checked = len(audio)
             self._barge_check = asyncio.create_task(self._barge_verify(audio[-32000:]))
 
     async def _barge_verify(self, audio: np.ndarray) -> None:
-        text = (await self.stt.transcribe(audio)).text
-        if text and self.lock is not None and self.lock.active:
-            ok, _ = await asyncio.to_thread(self.lock.check, audio)
-            if not ok:
-                return                                   # someone else can't talk over Nova either
-        if text and not self._barged and self.speaking and self._is_new_speech(text):
+        # Who is it, worked out while Whisper works out what was said (not one after the other).
+        voice = (asyncio.create_task(asyncio.to_thread(self.lock.check, audio, True))
+                 if self.lock is not None and self.lock.active else None)
+        try:
+            text = (await self.stt.transcribe(audio)).text
+            if not text:
+                return
+            # "Stop" (or the name) always works: stopping is harmless, and a voiceprint heard over
+            # Nova's own voice is unreliable. Anything else still has to be the owner.
+            harmless = self._stop_phrase(text) is not None or match_wake(text, self.cfg.wake.variants, 99)[0]
+            if voice is not None and not harmless:
+                ok, _ = await voice
+                if not ok:
+                    return                               # someone else can't talk over Nova
+        finally:
+            if voice is not None and not voice.done():
+                voice.cancel()
+        if not self._barged and self.speaking and self._is_new_speech(text):
             self._barged = True
             await self.interrupt(reason=f'heard "{text}"')
 
@@ -292,7 +305,7 @@ class VoiceLoop:
             self.on_event({"type": "thinking"})
         prev = self._handler if self._handler and not self._handler.done() else None
         # Voice lock: check who's speaking while Whisper works out what they said.
-        voice_check = (asyncio.create_task(asyncio.to_thread(self.lock.check, end.audio))
+        voice_check = (asyncio.create_task(asyncio.to_thread(self.lock.check, end.audio, kind == "overlap"))
                        if self.lock is not None and self.lock.active and end.audio.size else None)
         self._handler = asyncio.create_task(
             self._handle_utterance(session, spec, lat, end.audio, kind, self._barged, prev, voice_check))
@@ -332,6 +345,8 @@ class VoiceLoop:
             if voice_check is not None:
                 ok, score = await voice_check
                 self.on_event({"type": "voice_check", "ok": ok, "score": round(score, 3)})
+                if not ok and (self.busy or barged) and self._stop_phrase(text) is not None:
+                    ok = True                              # "stop" while Nova is busy: always allowed
                 if not ok:
                     self.on_event({"type": "ignored", "text": text,
                                    "reason": f"not your voice (match {score:.2f})"})
@@ -808,9 +823,16 @@ class VoiceLoop:
         speaker = asyncio.create_task(self._speaker(queue, lat))
 
         pushed = [0]
+        budget = [self._spoken_budget(text)]
+        cut = [False]
 
-        def push(chunks: list[str]) -> None:
+        def push(chunks: list[str], counts: bool = True) -> None:
             for c in chunks:
+                if counts and budget[0] <= 0:
+                    cut[0] = True                  # shown in the window, not read out
+                    continue
+                if counts:
+                    budget[0] -= max(1, len(re.findall(r"[.!?](?:\s|$)", c)))
                 lat.mark("first_chunk")
                 self.on_event({"type": "speak", "text": c})
                 queue.put_nowait(c)
@@ -822,7 +844,7 @@ class VoiceLoop:
             if pushed[0] == 0:
                 filler = next(self._fillers)
                 if filler:
-                    push([filler])
+                    push([filler], counts=False)
                     chunker.emitted += 1
         notice = asyncio.create_task(still_working()) if self.cfg.still_working_s > 0 else None
 
@@ -838,7 +860,7 @@ class VoiceLoop:
                     if chunker.emitted == 0 and pushed[0] == 0 and ev.name in self.cfg.filler_tools:
                         filler = next(self._fillers)
                         if filler:
-                            push([filler])
+                            push([filler], counts=False)
                             chunker.emitted += 1
                     self.on_event({"type": "tool", "name": ev.name})
                 elif isinstance(ev, ToolFinished):
@@ -850,6 +872,8 @@ class VoiceLoop:
                     self.on_event({"type": "error", "message": ev.message})
                 elif isinstance(ev, TurnComplete):
                     push(chunker.flush())
+                    if cut[0]:
+                        push(["The rest is in the window."], counts=False)
                     self.on_event({"type": "turn_complete", "timings": ev.timings, "usage": ev.usage})
             queue.put_nowait(None)
             await speaker
@@ -867,6 +891,12 @@ class VoiceLoop:
         self.on_event({"type": "latency", "breakdown": lat.breakdown(),
                        "report": lat.report()})
         self.on_event({"type": "idle"})
+
+    def _spoken_budget(self, request: str) -> int:
+        """How many sentences to read out: a few, unless the user asked for detail."""
+        if _DETAIL.search(request or ""):
+            return self.cfg.max_spoken_sentences_detail
+        return self.cfg.max_spoken_sentences
 
     async def _speaker(self, queue: asyncio.Queue, lat: LatencyTracker) -> None:
         said = []
@@ -894,6 +924,10 @@ def chime(sample_rate: int = 24000) -> np.ndarray:
     out.append(np.zeros(int(sample_rate * 0.08)))
     return np.concatenate(out).astype(np.float32)
 
+
+_DETAIL = re.compile(r"\b(?:explain|in detail|tell me (?:about|more)|story|read (?:me|it|this|that|out)|"
+                     r"summari[sz]e|walk me through|step by step|how do i|how to|describe|list|what are|"
+                     r"the news|all of|everything)\b", re.I)
 
 _STOP_FILLER = {"please", "now", "thanks", "thank", "you", "nova", "sir", "for", "a", "sec", "that", "this",
                 "all", "everything", "then", "it's", "okay", "ok",
