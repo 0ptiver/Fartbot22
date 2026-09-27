@@ -199,7 +199,7 @@ def video_intent(t: str) -> tuple[str, dict] | None:
     # "Close my video" (owner's case: went to the model, which played it instead). Pausing is the
     # safe reading: it doesn't close the browser window the video is in.
     if re.fullmatch(r"(?:close|exit|end|kill|shut|shut off|turn off|get rid of|stop playing) (?:the |my |this |that )?"
-                    r"(?:youtube )?" + _VIDEO_NOUN + r"(?: off)?", t):
+                    r"(?:youtube )?(?:video|clip|stream|movie|episode|show)(?: off)?", t):
         return "video", {"actions": ["pause"]}
     parts = [p for p in re.split(r"\s*(?:,|\band then\b|\bthen\b|\band\b|\balso\b)\s*", t) if p.strip()]
     actions = []
