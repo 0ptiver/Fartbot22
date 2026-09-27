@@ -120,6 +120,8 @@ def logout() -> None:
 
 # --- API client ------------------------------------------------------------------------
 class Spotify:
+    verify_delay = 0.8   # seconds to wait before checking that playback really started
+
     def __init__(self, http: httpx.AsyncClient | None = None, open_app=None):
         self.http = http or httpx.AsyncClient(timeout=10)
         self._token: str | None = None
@@ -162,19 +164,48 @@ class Spotify:
         return r.json()
 
     # --- devices ---------------------------------------------------------------------
-    async def device_id(self) -> str:
-        """An active device, or this PC's Spotify app (starting it if needed)."""
+    async def devices(self) -> list[dict]:
+        return (await self._call("GET", "/me/player/devices") or {}).get("devices", [])
+
+    @staticmethod
+    def pick_device(devices: list[dict], hostname: str | None = None) -> dict | None:
+        """Prefer the Spotify app on *this* PC (named after the computer), then whatever is
+        active, then any computer. Web-player tabs and other PCs are also type 'Computer'."""
+        import socket
+
+        host = (hostname or socket.gethostname()).lower()
+        usable = [d for d in devices if not d.get("is_restricted")]
+        this_pc = [d for d in usable if d.get("type") == "Computer" and d.get("name", "").lower() == host]
+        active = [d for d in usable if d.get("is_active")]
+        apps = [d for d in usable if d.get("type") == "Computer" and "web player" not in d.get("name", "").lower()]
+        computers = [d for d in usable if d.get("type") == "Computer"]
+        return (this_pc or active or apps or computers or usable or [None])[0]
+
+    async def device(self) -> dict:
+        """The device to play on, starting this PC's Spotify app if none is available."""
         for attempt in range(12):
-            devices = (await self._call("GET", "/me/player/devices") or {}).get("devices", [])
-            active = [d for d in devices if d.get("is_active")]
-            computers = [d for d in devices if d.get("type") == "Computer"]
-            pick = (active or computers or devices or [None])[0]
+            pick = self.pick_device(await self.devices())
             if pick:
-                return pick["id"]
+                return pick
             if attempt == 0 and self._open_app:
                 self._open_app()
             await asyncio.sleep(0.75)
         raise SpotifyError("I couldn't find a Spotify player. Is the Spotify app open and signed in?")
+
+    async def device_id(self) -> str:
+        return (await self.device())["id"]
+
+    async def _is_playing(self, uris: list[str] | None, context: str | None) -> bool:
+        state = await self._call("GET", "/me/player")
+        if not state or not state.get("is_playing"):
+            return False
+        item_uri = (state.get("item") or {}).get("uri")
+        ctx = (state.get("context") or {}).get("uri")
+        if uris:
+            return item_uri in uris
+        if context:
+            return ctx == context or item_uri is not None
+        return True
 
     async def _player(self, method: str, path: str, **kw) -> Any:
         try:
@@ -216,7 +247,15 @@ class Spotify:
         return None
 
     async def play(self, query: str | None = None, kind: str = "auto") -> str:
-        device = await self.device_id()
+        # Find the player while searching, instead of one after the other.
+        device_task = asyncio.create_task(self.device())
+        try:
+            return await self._play(device_task, query, kind)
+        finally:
+            if not device_task.done():
+                device_task.cancel()
+
+    async def _play(self, device_task: asyncio.Task, query: str | None, kind: str) -> str:
         body: dict[str, Any] = {}
         label = "your music"
         if kind == "liked_songs":
@@ -235,7 +274,8 @@ class Spotify:
         elif query:
             item = None
             if kind == "auto":
-                item = await self.find_artist(query) or await self.find_track(query)
+                artist, track = await asyncio.gather(self.find_artist(query), self.find_track(query))
+                item = artist or track
                 if item is None:
                     item = await self.search(query, "playlist")
             elif kind == "track":
@@ -252,8 +292,23 @@ class Spotify:
                 label = item["name"] + {"playlist": " (playlist)", "album": " (album)"}.get(item["type"], "")
         else:
             label = "where you left off"
-        await self._call("PUT", "/me/player/play", params={"device_id": device}, json=body)
-        return f"Playing {label}."
+        device = await device_task
+        await self._call("PUT", "/me/player/play", params={"device_id": device["id"]}, json=body)
+        # Spotify answers "OK" even when the device then doesn't play (not ready, another
+        # tab, a stale entry). Check, and if needed hand playback over explicitly and retry.
+        uris, context = body.get("uris"), body.get("context_uri")
+        for attempt in range(3):
+            await asyncio.sleep(self.verify_delay)
+            if await self._is_playing(uris, context):
+                return f"Playing {label} on {device.get('name', 'Spotify')}."
+            if attempt == 0:
+                await self._call("PUT", "/me/player", json={"device_ids": [device["id"]], "play": False})
+                await asyncio.sleep(self.verify_delay)
+                await self._call("PUT", "/me/player/play", params={"device_id": device["id"]}, json=body)
+        raise SpotifyError(
+            f"Spotify accepted the request, but nothing is playing on {device.get('name', 'your device')}. "
+            "Is the Spotify app open on this PC and signed into the same account? "
+            "Run 'python -m assistant spotify devices' to see what Spotify reports.")
 
     async def control(self, action: str, level: int | None = None) -> str:
         if action == "pause":

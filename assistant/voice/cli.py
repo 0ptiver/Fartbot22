@@ -94,6 +94,10 @@ async def build(settings, wav: str | None, out: str | None):
                                                     ("voice", getattr(tts, "device", None))) if dev]
     print(f"Models ready in {time.perf_counter() - t0:.1f}s"
           + (f" ({', '.join(where)})" if where else ""), flush=True)
+    import shutil
+    if getattr(tts, "device", None) == "cpu" and vcfg.tts.kokoro.device != "cpu" and shutil.which("nvidia-smi"):
+        print(f"{RED}! The voice is running on the CPU (~0.6 s slower per sentence). This happens after "
+              f"a pip install.\n  Fix: powershell -ExecutionPolicy Bypass -File scripts\\enable_gpu_tts.ps1{RESET}")
     vad = SileroVAD(vad_path)
 
     if wav:
@@ -147,6 +151,8 @@ async def run(args) -> None:
         player.close()
         if ptt:
             ptt.stop()
+        if getattr(mic, "aec", None) is not None:
+            mic.aec.close()
     if args.wav and args.out:
         player.save(args.out)
         print(f"Saved reply audio to {args.out}")

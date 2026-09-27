@@ -21,10 +21,18 @@ def secrets(monkeypatch):
     return store
 
 
+@pytest.fixture(autouse=True)
+def fast_verify(monkeypatch):
+    monkeypatch.setattr(sp.Spotify, "verify_delay", 0)
+
+
 class FakeSpotify:
-    def __init__(self, devices=None, premium=True, playing=None):
+    def __init__(self, devices=None, premium=True, playing=None, starts=True, starts_after_transfer=False):
         self.devices = devices if devices is not None else [{"id": "pc1", "is_active": False, "type": "Computer", "name": "PC"}]
         self.premium, self.playing, self.calls = premium, playing, []
+        self.starts, self.starts_after_transfer = starts, starts_after_transfer
+        self.state = None
+        self.transferred = False
 
     def handler(self, req: httpx.Request):
         path, q = req.url.path, dict(req.url.params)
@@ -46,7 +54,16 @@ class FakeSpotify:
         if path == "/v1/me/player/play":
             if not self.premium:
                 return httpx.Response(403, json={"error": {"reason": "PREMIUM_REQUIRED"}})
+            if self.starts or (self.starts_after_transfer and self.transferred):
+                uri = (body or {}).get("uris", [None])[0] or "spotify:track:ctx"
+                self.state = {"is_playing": True, "item": {"uri": uri, "name": "x"},
+                              "context": {"uri": (body or {}).get("context_uri")}, "device": {"name": "PC"}}
             return httpx.Response(204)
+        if path == "/v1/me/player" and req.method == "PUT":
+            self.transferred = True
+            return httpx.Response(204)
+        if path == "/v1/me/player" and req.method == "GET":
+            return httpx.Response(200, json=self.state) if self.state else httpx.Response(204)
         if path == "/v1/me/player/recently-played":
             return httpx.Response(200, json={"items": [{"track": {"uri": "spotify:track:7", "name": "Hotline Bling", "artists": [{"name": "Drake"}]}}]})
         if path == "/v1/me/player/currently-playing":
@@ -75,7 +92,7 @@ def test_pkce_and_authorize_url():
 async def test_play_track_and_token_rotation(secrets):
     fake = FakeSpotify()
     out = await fake.client().play("gods plan", "auto")
-    assert out == "Playing God's Plan by Drake."
+    assert out == "Playing God's Plan by Drake on PC."
     play = [c for c in fake.calls if c[1] == "/v1/me/player/play"][0]
     assert play[2]["device_id"] == "pc1" and play[3] == {"uris": ["spotify:track:1"]}
     assert secrets["SPOTIFY_REFRESH_TOKEN"] == "rt2"          # rotated token saved
@@ -84,12 +101,12 @@ async def test_play_track_and_token_rotation(secrets):
 async def test_playlist_skips_null_items(secrets):
     fake = FakeSpotify()
     out = await fake.client().play("chill", "playlist")
-    assert out == "Playing Chill (playlist)."
+    assert out == "Playing Chill (playlist) on PC."
 
 
 async def test_recently_played(secrets):
     fake = FakeSpotify()
-    assert await fake.client().play(None, "recently_played") == "Playing Hotline Bling by Drake."
+    assert await fake.client().play(None, "recently_played") == "Playing Hotline Bling by Drake on PC."
 
 
 async def test_opens_app_when_no_device(secrets, monkeypatch):
@@ -223,13 +240,38 @@ class SearchFake(FakeSpotify):
 async def test_ranking_prefers_matching_artist(secrets):
     fake = SearchFake()
     out = await fake.client().play("my way by kanye west")
-    assert out == "Playing My Way by Kanye West."
+    assert out == "Playing My Way by Kanye West on PC."
     queries = [c[2]["q"] for c in fake.calls if c[1] == "/v1/search"]
     assert 'track:"my way" artist:"kanye west"' in queries      # tried the precise search first
 
 
 async def test_bare_artist_plays_artist(secrets):
     fake = SearchFake()
-    assert await fake.client().play("Drake") == "Playing Drake."
+    assert await fake.client().play("Drake") == "Playing Drake on PC."
     play = [c for c in fake.calls if c[1] == "/v1/me/player/play"][0]
     assert play[3] == {"context_uri": "spotify:artist:drake"}
+
+
+
+def test_pick_device_prefers_this_pc():
+    devs = [{"id": "web", "type": "Computer", "name": "Web Player (Chrome)", "is_active": True},
+            {"id": "phone", "type": "Smartphone", "name": "iPhone"},
+            {"id": "me", "type": "Computer", "name": "PATTO-LAPTOP"}]
+    assert sp.Spotify.pick_device(devs, "patto-laptop")["id"] == "me"
+    assert sp.Spotify.pick_device(devs, "other")["id"] == "web"          # nothing named: active one
+    devs2 = [{"id": "web", "type": "Computer", "name": "Web Player (Chrome)"},
+             {"id": "app", "type": "Computer", "name": "GAMING-PC"}]
+    assert sp.Spotify.pick_device(devs2, "x")["id"] == "app"             # desktop app over web tab
+    assert sp.Spotify.pick_device([{"id": "r", "type": "Computer", "name": "PC", "is_restricted": True}], "x") is None
+
+
+async def test_not_actually_playing_is_reported(secrets):
+    fake = FakeSpotify(starts=False)
+    with pytest.raises(sp.SpotifyError, match="nothing is playing on PC"):
+        await fake.client().play("gods plan")
+
+
+async def test_transfer_then_retry_recovers(secrets):
+    fake = FakeSpotify(starts=False, starts_after_transfer=True)
+    assert (await fake.client().play("gods plan")) == "Playing God's Plan by Drake on PC."
+    assert fake.transferred

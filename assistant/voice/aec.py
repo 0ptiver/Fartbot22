@@ -81,6 +81,16 @@ class EchoCanceller:
         return out
 
 
+    def close(self) -> None:
+        """Release the native module now, while its runtime is still alive (avoids a noisy
+        but harmless error from livekit when Python exits)."""
+        import gc
+
+        with self._lock:
+            self.apm = None
+        gc.collect()
+
+
 def create_echo_canceller(cfg) -> EchoCanceller | None:
     if not cfg.enabled:
         return None

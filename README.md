@@ -20,6 +20,14 @@ How the hand-off works: Nova runs the real, unmodified `claude` program, signed 
 Hard tasks count against your Pro plan's usage limits, so keep them for things that need it.
 Claude Code is locked down for this: it gets web search and web fetch only, no shell, no file edits, no MCP servers, and it runs in an empty folder of its own.
 
+## Updating
+
+Always update with the script. **Don't run `pip install` yourself**: pip puts the CPU version of the voice engine back over the GPU one.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\update.ps1
+```
+
 ## Setup (Windows)
 
 You need:
@@ -101,6 +109,8 @@ For full Spotify control ("play some Drake", "play my liked songs", "play the la
 1. Go to https://developer.spotify.com/dashboard, log in, and click **Create app**. Use any name and description, set the **Redirect URI** to `http://127.0.0.1:8888/callback`, and tick **Web API**.
 2. Open the app's **Settings**, copy the **Client ID**, and paste it into the prompt.
 3. Your browser opens Spotify's own approval page. Click **Agree**.
+
+If it says Spotify accepted but nothing is playing, run `python -m assistant spotify devices` to see which players Spotify knows about and which one Nova picks. It prefers the Spotify app on this PC.
 
 Nova never sees your Spotify password. It uses PKCE, so there's no client secret either, and only a revocable token is stored, in Windows Credential Manager. To unlink: `python -m assistant spotify logout`, and remove the app at spotify.com/account/apps. Playback control needs Spotify Premium.
 

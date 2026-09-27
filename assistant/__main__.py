@@ -77,6 +77,27 @@ def main(argv: list[str] | None = None) -> None:
             print("Opening your browser to approve access...")
             asyncio.run(spotify.login(client_id))
             print("Linked: " + asyncio.run(spotify.Spotify().me()))
+        elif sub == "devices":
+            async def show():
+                import socket
+                c = spotify.Spotify()
+                devs = await c.devices()
+                pick = c.pick_device(devs)
+                print(f"This PC is called: {socket.gethostname()}")
+                if not devs:
+                    print("Spotify reports no devices. Open the Spotify app and sign in.")
+                for d in devs:
+                    flags = [f for f, on in (("active", d.get("is_active")), ("restricted", d.get("is_restricted"))) if on]
+                    mark = "  <- Nova uses this" if pick and d["id"] == pick["id"] else ""
+                    print(f"  {d.get('name')} [{d.get('type')}] {' '.join(flags)}{mark}")
+                state = await c._call("GET", "/me/player")
+                if state:
+                    item = state.get("item") or {}
+                    print(f"Player: {'playing' if state.get('is_playing') else 'paused'} "
+                          f"{item.get('name', '-')} on {(state.get('device') or {}).get('name', '-')}")
+                else:
+                    print("Player: nothing active")
+            asyncio.run(show())
         elif sub == "logout":
             spotify.logout()
             print("Unlinked. (Also remove the app at spotify.com/account/apps to revoke it fully.)")
@@ -128,7 +149,7 @@ def main(argv: list[str] | None = None) -> None:
         print("  mictest [--input N] record 4 s, show the level, and transcribe it")
         print("  models              download speech models (VAD, TTS, Whisper)")
         print("  doctor [--full]     check setup (Ollama, Claude Code, models, audio)")
-        print("  spotify login|logout|status   link Nova to your Spotify account")
+        print("  spotify login|logout|status|devices   link Nova to Spotify / see its devices")
         print("  tools               list tools and risk levels")
         print("  audit [N]           show the last N audit log entries")
         print("  secrets set NAME    store an API key in Windows Credential Manager")
