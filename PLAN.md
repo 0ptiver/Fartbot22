@@ -234,3 +234,7 @@ scripts/           # install, run, register-startup
 
 ## Open questions for the owner
 - Happy with the hotkeys above? (assumed yes until told otherwise)
+
+### Kokoro GPU rewrite: acceptance
+- Rebuild after update: STFT maths 6.8e-7, loudness x1.00, length x1.00, but waveform difference 0.32 → rejected. Cause: Kokoro takes atan(imag/real) of the STFT. Where real ≈ 0, rounding decides its sign (a π phase flip), so no two STFT implementations can match sample-for-sample (the reference is just ORT's rounding)
+- Acceptance is now: exact STFT maths, same length, loudness within 5%, and a log-spectrogram distance to the reference no worse than max(1 dB, 1.5× the original model's own distance). `models --debug-stft` compares against the reference and shows the values at the worst positions

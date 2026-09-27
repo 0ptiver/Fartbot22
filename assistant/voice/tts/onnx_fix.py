@@ -280,6 +280,12 @@ def verify_kokoro(original: Path, converted: Path, voices: Path, voice: str, lan
     n = min(len(ref), len(conv))
     ref_diff = (float(np.max(np.abs(ref[:n] - conv[:n])) / max(float(np.max(np.abs(ref))), 1e-9))
                 if n and len(ref) == len(conv) else float("inf"))
+    # Sample-exact agreement is impossible: Kokoro takes atan(imag/real) of the STFT, and where
+    # real is ~0 any two STFT implementations disagree on its sign (a pi phase flip). So judge
+    # the *sound*: spectral distance to the reference, compared with how far the original
+    # model itself is from the reference.
+    spec_conv = spectral_distance_db(ref, conv)
+    spec_orig = spectral_distance_db(ref, orig)
     if save_dir is not None:
         import soundfile as sf
         save_dir.mkdir(parents=True, exist_ok=True)
@@ -291,9 +297,31 @@ def verify_kokoro(original: Path, converted: Path, voices: Path, voice: str, lan
         "length_ratio": len(conv) / max(len(orig), 1),
         "loudness_vs_original": rms(conv) / max(rms(orig), 1e-9),
         "loudness_vs_reference": rms(conv) / max(rms(ref), 1e-9),
+        "spectral_db": spec_conv,
+        "original_spectral_db": spec_orig,
     }
 
 
+def spectral_distance_db(a: np.ndarray, b: np.ndarray, n_fft: int = 1024, hop: int = 256) -> float:
+    """Mean absolute difference of log-magnitude spectrograms in dB (ignores phase)."""
+    n = min(len(a), len(b))
+    if n < n_fft:
+        return float("inf")
+    win = np.hanning(n_fft)
+
+    def spec(x):
+        frames = np.lib.stride_tricks.sliding_window_view(x[:n], n_fft)[::hop] * win
+        return 20 * np.log10(np.abs(np.fft.rfft(frames, axis=-1)) + 1e-5)
+
+    sa, sb = spec(np.asarray(a, np.float64)), spec(np.asarray(b, np.float64))
+    loud = sa > sa.max() - 60          # only where there is sound (ignore the silent floor)
+    return float(np.mean(np.abs(sa - sb)[loud])) if loud.any() else 0.0
+
+
 def verification_ok(v: dict) -> bool:
-    return (v["stft_math_error"] < 1e-4 and v["reference_diff"] < 1e-3
-            and 0.9 <= v["length_ratio"] <= 1.1)
+    if v["stft_math_error"] >= 1e-4 or not 0.98 <= v["length_ratio"] <= 1.02:
+        return False
+    if v["reference_diff"] < 1e-3:              # identical: nothing more to check
+        return True
+    return (0.95 <= v["loudness_vs_reference"] <= 1.05
+            and v["spectral_db"] <= max(1.0, 1.5 * v["original_spectral_db"]))

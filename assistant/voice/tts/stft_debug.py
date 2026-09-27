@@ -126,58 +126,71 @@ def _run(path: Path, feeds: dict, optimize: bool, taps: list[str] | None = None,
 
 
 def debug_downstream(original: Path, voices: Path, voice: str = "bm_george", lang: str = "en-gb") -> None:
-    """Is it the optimizer? And which node in the whole graph first diverges?"""
+    """Compare the GPU rewrite with the *reference* (original STFT + PyTorch-style edge bins),
+    which it is meant to match exactly: find the first diverging node and show the values
+    going into it at the positions that differ most."""
     import onnx
 
-    from assistant.voice.tts.onnx_fix import replace_stft
+    from assistant.voice.tts.onnx_fix import make_reference, replace_stft
 
-    # Clean up a stray file an earlier version of this tool left next to the model.
-    (original.parent / (original.stem + "_tapped.onnx")).unlink(missing_ok=True)
-
+    (original.parent / (original.stem + "_tapped.onnx")).unlink(missing_ok=True)   # old stray file
     text = "Good evening, sir. The time is a quarter past eleven."
     feeds = _capture_inputs(original, voices, voice, lang, text)
-    orig_model = onnx.load(str(original))
-    model = onnx.load(str(original))
     with tempfile.TemporaryDirectory() as d:
         work = Path(d)
-        conv_path = work / "conv.onnx"
+        conv_path, ref_path = work / "conv.onnx", work / "ref.onnx"
+        model = onnx.load(str(original))
         replace_stft(model)
         onnx.save(model, str(conv_path))
+        make_reference(original, ref_path)
+        ref_model = onnx.load(str(ref_path))
 
-        print("\n1) Final audio difference with the runtime's graph optimizer ON vs OFF:")
-        for optimize in (True, False):
-            _, a = _run(original, feeds, optimize)
-            _, b = _run(conv_path, feeds, optimize)
-            n = min(len(a), len(b))
-            print(f"   optimizer {'ON ' if optimize else 'OFF'}: {np.max(np.abs(a[:n] - b[:n])):.3g}  "
-                  f"(loudness x{np.sqrt(np.mean(b ** 2)) / max(np.sqrt(np.mean(a ** 2)), 1e-9):.2f})")
+        _, a = _run(ref_path, feeds, True)
+        _, b = _run(conv_path, feeds, True)
+        n = min(len(a), len(b))
+        print(f"\n1) Final audio, rewrite vs reference: max difference {np.max(np.abs(a[:n] - b[:n])):.3g}")
 
-        # Whole-graph search, in order, in batches (keeps memory reasonable).
-        conv_names = {o for n in model.graph.node for o in n.output}
-        names = [t for t in _float_tensors(orig_model) if t in conv_names]
-        node_of = {o: n for n in orig_model.graph.node for o in n.output}
-        print(f"\n2) First steps in the whole model whose output differs (optimizer OFF, "
-              f"{len(names)} tensors checked in order):")
-        shown = 0
+        conv_names = {o for nd in model.graph.node for o in nd.output}
+        names = [t for t in _float_tensors(ref_model) if t in conv_names]
+        node_of = {o: nd for nd in ref_model.graph.node for o in nd.output}
+        print(f"\n2) First differing step ({len(names)} tensors checked in order, optimizer off):")
+        first = None
         for i in range(0, len(names), 150):
             batch = names[i:i + 150]
-            got_o, _ = _run(original, feeds, False, batch, work)
+            got_r, _ = _run(ref_path, feeds, False, batch, work)
             got_c, _ = _run(conv_path, feeds, False, batch, work)
             for t in batch:
-                x, y = np.asarray(got_o.get(t)), np.asarray(got_c.get(t))
-                if x.shape != y.shape:
-                    detail = f"shape {x.shape} vs {y.shape}"
-                elif x.size and float(np.max(np.abs(x - y))) / max(float(np.max(np.abs(x))), 1e-9) > 1e-3:
-                    detail = f"rel diff {float(np.max(np.abs(x - y))) / max(float(np.max(np.abs(x))), 1e-9):.2e}"
-                else:
-                    continue
-                node = node_of[t]
-                ins = ", ".join(n.split("/")[-1] or n for n in node.input)
-                print(f"   #{names.index(t)} {node.op_type:<14} {t.split('/')[-1]}: {detail}")
-                print(f"        node {node.name}; inputs: {ins}")
-                shown += 1
-                if shown >= 5:
-                    return
-            del got_o, got_c
-        if not shown:
-            print("   no tensor differs. The difference must be in the final output step itself.")
+                x, y = np.asarray(got_r.get(t)), np.asarray(got_c.get(t))
+                if x.shape != y.shape or (x.size and float(np.max(np.abs(x - y))) > 1e-3 * max(float(np.max(np.abs(x))), 1e-9)):
+                    first = t
+                    break
+            if first:
+                break
+        if not first:
+            print("   none: the rewrite matches the reference everywhere.")
+            return
+        node = node_of[first]
+        print(f"   {node.op_type} {node.name}")
+        print(f"   inputs: {[i.split('/')[-1] for i in node.input]}")
+
+        # Values at the worst positions: this node's output, its inputs, and their inputs.
+        parents = [node_of.get(i) for i in node.input]
+        taps = [first] + [i for i in node.input if i in node_of] + [
+            j for p_ in parents if p_ is not None for j in p_.input if j in node_of]
+        got_r, _ = _run(ref_path, feeds, False, taps, work)
+        got_c, _ = _run(conv_path, feeds, False, taps, work)
+        x, y = np.asarray(got_r[first]), np.asarray(got_c[first])
+        if x.shape != y.shape:
+            print(f"   shape {x.shape} vs {y.shape}")
+            return
+        diff = np.abs(x - y).ravel()
+        worst = np.argsort(diff)[-5:][::-1]
+        print(f"   {int((diff > 1e-3).sum())} of {diff.size} values differ; worst 5 positions:")
+        for flat in worst:
+            idx = np.unravel_index(flat, x.shape)
+            row = [f"out ref={x[idx]:.4g} new={y[idx]:.4g}"]
+            for t in taps[1:]:
+                xr, yr = np.asarray(got_r.get(t)), np.asarray(got_c.get(t))
+                if xr.shape == x.shape:
+                    row.append(f"{t.split('/')[-1]}: ref={xr[idx]:.4g} new={yr[idx]:.4g}")
+            print(f"   at {tuple(int(v) for v in idx)}: " + "; ".join(row))

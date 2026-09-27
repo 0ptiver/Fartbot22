@@ -117,8 +117,9 @@ def _compare_dir() -> Path:
 
 def _print_verification(v: dict) -> None:
     print(f"  STFT maths error {v['stft_math_error']:.1e} (must be < 1e-4)")
-    print(f"  vs reference (original STFT + PyTorch-style edge-bin phase): "
-          f"difference {v['reference_diff']:.1e} (must be < 1e-3)")
+    print(f"  sound vs reference: spectral difference {v.get('spectral_db', float('nan')):.2f} dB "
+          f"(original model itself: {v.get('original_spectral_db', float('nan')):.2f} dB; "
+          f"must be <= max(1.0, 1.5x that))")
     print(f"  loudness vs original x{v['loudness_vs_original']:.2f}, vs reference "
           f"x{v['loudness_vs_reference']:.2f}; length x{v['length_ratio']:.2f}")
     print(f"  listen: {_compare_dir() / '1_original.wav'}  vs  {_compare_dir() / '2_fast_gpu.wav'}")

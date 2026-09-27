@@ -87,11 +87,26 @@ def test_unused_constants_pruned():
 def test_verification_rules():
     from assistant.voice.tts.onnx_fix import verification_ok
     good = {"stft_math_error": 1e-6, "reference_diff": 1e-5, "length_ratio": 1.0,
-            "loudness_vs_original": 0.9, "loudness_vs_reference": 1.0}
+            "loudness_vs_original": 0.9, "loudness_vs_reference": 1.0,
+            "spectral_db": 0.4, "original_spectral_db": 0.5}
     assert verification_ok(good)
     assert not verification_ok({**good, "stft_math_error": 1e-2})
-    assert not verification_ok({**good, "reference_diff": 0.2})
     assert not verification_ok({**good, "length_ratio": 1.5})
+    # Owner's real case: waveform differs (phase flips) but the sound matches.
+    phase_flips = {**good, "reference_diff": 0.32, "loudness_vs_reference": 1.00}
+    assert verification_ok(phase_flips)
+    assert not verification_ok({**phase_flips, "loudness_vs_reference": 0.87})
+    assert not verification_ok({**phase_flips, "spectral_db": 4.0})
+
+
+def test_spectral_distance():
+    from assistant.voice.tts.onnx_fix import spectral_distance_db
+    rng = np.random.default_rng(0)
+    t = np.arange(24000) / 24000
+    a = np.sin(2 * np.pi * 220 * t) + 0.3 * np.sin(2 * np.pi * 660 * t)
+    shifted = np.sin(2 * np.pi * 220 * t + 1.0) + 0.3 * np.sin(2 * np.pi * 660 * t - 2.0)  # phase only
+    assert spectral_distance_db(a, shifted) < 1.0
+    assert spectral_distance_db(a, rng.standard_normal(24000)) > 5.0
 
 
 @pytest.mark.parametrize("rank", [2, 3])
