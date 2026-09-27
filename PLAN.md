@@ -177,7 +177,8 @@ scripts/           # install, run, register-startup
 - [x] Fix: follow-up windows chained, so it answered side conversations. Only a named request opens one (6 s)
 - [x] `ttsbench` + `voice.tts.kokoro.threads` to tune Kokoro on the hybrid i9. Owner result: CPU is 586–753 ms at every setting (8 threads best)
 - [x] Kokoro on the GPU: `device: auto` uses onnxruntime-gpu when present (`scripts/enable_gpu_tts.ps1`, run by the installer on NVIDIA PCs). The int8 model is a CPU fallback. doctor and ttsbench report which is in use
-- [ ] Owner: GPU voice benchmark (Blackwell support in onnxruntime-gpu not yet confirmed)
+- [x] Owner: onnxruntime-gpu 1.30 (CUDA 13) works on the RTX 5070. Kokoro GPU 210 ms vs CPU 545 ms (int8 on CPU was 2337 ms, so it's dropped from the benchmark)
+- [x] cuDNN algorithm search set to HEURISTIC (the default EXHAUSTIVE re-benchmarks every new sentence length). ttsbench compares heuristic, default and exhaustive on fresh sentences
 
 ### Phase 3 — Real-time feel
 - [ ] Train + ship "hey nova" openWakeWord model

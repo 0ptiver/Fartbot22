@@ -105,6 +105,7 @@ class KokoroConfig(BaseModel):
     device: str = "auto"          # auto (GPU if onnxruntime-gpu works, else CPU) | cuda | cpu
     threads: int | None = None    # CPU threads; None = onnxruntime default. See: assistant ttsbench
     model_file: str = "kokoro-v1.0.onnx"   # or kokoro-v1.0.int8.onnx (faster on CPU)
+    cuda_conv_search: str = "heuristic"    # heuristic | default | exhaustive (see ttsbench)
 
 
 class TTSConfig(BaseModel):

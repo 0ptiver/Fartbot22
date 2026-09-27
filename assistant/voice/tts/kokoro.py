@@ -34,7 +34,7 @@ class KokoroTTS(TTSProvider):
         model, voices = kokoro_paths(self.cfg.model_file)
         if not model.exists() or not voices.exists():
             raise RuntimeError("Kokoro model files missing. Run: python -m assistant models")
-        session = make_session(model, self.cfg.device, self.cfg.threads)
+        session = make_session(model, self.cfg.device, self.cfg.threads, self.cfg.cuda_conv_search)
         self.kokoro = Kokoro.from_session(session, str(voices))
         for _ in range(2):  # warm-up: the first runs are slower
             self.kokoro.create("Ready, sir.", voice=self.cfg.voice, speed=self.cfg.speed, lang=self.cfg.lang)
@@ -70,11 +70,16 @@ def cuda_available() -> bool:
     return True
 
 
-def make_session(model_path, device: str = "auto", threads: int | None = None):
+def make_session(model_path, device: str = "auto", threads: int | None = None,
+                 conv_search: str = "HEURISTIC"):
     """ONNX session for Kokoro. GPU when available (much faster); on CPU, limiting threads
-    to the performance cores is often faster on Intel hybrid chips than using every core."""
+    to the performance cores is often faster on Intel hybrid chips than using every core.
+
+    conv_search: onnxruntime's default (EXHAUSTIVE) benchmarks cuDNN algorithms for every
+    new input shape. Every sentence has a new length, so HEURISTIC is far faster for speech."""
     import onnxruntime as ort
 
+    ort.set_default_logger_severity(3)  # hide harmless kernel warnings (e.g. ScatterND)
     opts = ort.SessionOptions()
     opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     opts.log_severity_level = 3
@@ -82,7 +87,8 @@ def make_session(model_path, device: str = "auto", threads: int | None = None):
         opts.intra_op_num_threads = threads
     providers = ["CPUExecutionProvider"]
     if device in ("auto", "cuda") and cuda_available():
-        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        providers = [("CUDAExecutionProvider", {"cudnn_conv_algo_search": conv_search.upper()}),
+                     "CPUExecutionProvider"]
     elif device == "cuda":
         log.warning("Kokoro: CUDA requested but not available; using CPU")
     return ort.InferenceSession(str(model_path), sess_options=opts, providers=providers)

@@ -210,7 +210,7 @@ def ttsbench() -> None:
     from kokoro_onnx import Kokoro
 
     from assistant.core.config import load_settings
-    from assistant.voice.models import KOKORO_INT8, kokoro_paths
+    from assistant.voice.models import kokoro_paths
     from assistant.voice.tts.kokoro import cuda_available, make_session
 
     logging.getLogger("phonemizer").setLevel(logging.ERROR)
@@ -221,20 +221,20 @@ def ttsbench() -> None:
     gpu = cuda_available()
     print(f"Voice {k.voice}. GPU (onnxruntime CUDA): {'yes' if gpu else 'no'}. Lower is better.\n")
 
-    runs = []
+    runs = []  # (label, model file, device, threads, cuDNN search)
     if gpu:
-        runs.append(("GPU", "kokoro-v1.0.onnx", "cuda", None))
-    runs += [("CPU default", "kokoro-v1.0.onnx", "cpu", None),
-             ("CPU 8 threads", "kokoro-v1.0.onnx", "cpu", 8)]
-    if kokoro_paths(KOKORO_INT8)[0].exists():
-        runs += [("CPU int8, 8 threads", KOKORO_INT8, "cpu", 8)]
+        runs += [("GPU heuristic", "kokoro-v1.0.onnx", "cuda", None, "heuristic"),
+                 ("GPU default", "kokoro-v1.0.onnx", "cuda", None, "default"),
+                 ("GPU exhaustive", "kokoro-v1.0.onnx", "cuda", None, "exhaustive")]
+    runs += [("CPU default", "kokoro-v1.0.onnx", "cpu", None, None),
+             ("CPU 8 threads", "kokoro-v1.0.onnx", "cpu", 8, None)]
     best = None
-    for label, model_file, device, threads in runs:
+    for label, model_file, device, threads, search in runs:
         if threads and threads > cores:
             continue
         model, voices = kokoro_paths(model_file)
         try:
-            session = make_session(model, device, threads)
+            session = make_session(model, device, threads, search or "heuristic")
             if device == "cuda" and session.get_providers()[0] != "CUDAExecutionProvider":
                 print(f"  {label:<22} failed to start on the GPU")
                 continue
@@ -244,19 +244,21 @@ def ttsbench() -> None:
         except Exception as e:
             print(f"  {label:<22} error: {e}")
             continue
-        times = []
-        for p in phrases * 3:
+        # Unseen sentences (new lengths) are what matters in conversation, so time
+        # fresh phrases separately from repeats.
+        fresh, repeat = [], []
+        for i, p in enumerate(phrases * 2 + [f"Your next meeting is in {n} minutes, sir." for n in range(5, 50, 7)]):
             t = time.perf_counter()
             kokoro.create(p, voice=k.voice, speed=k.speed, lang=k.lang)
-            times.append((time.perf_counter() - t) * 1000)
-        ms = statistics.median(times)
-        print(f"  {label:<22} {ms:6.0f} ms")
+            (repeat if 3 <= i < 6 else fresh).append((time.perf_counter() - t) * 1000)
+        ms = statistics.median(fresh)
+        print(f"  {label:<22} {ms:6.0f} ms   (repeated sentence: {statistics.median(repeat):.0f} ms)")
         if best is None or ms < best[0]:
-            best = (ms, label, model_file, device, threads)
+            best = (ms, label, model_file, device, threads, search)
 
     if not best:
         return
-    ms, label, model_file, device, threads = best
+    ms, label, model_file, device, threads, search = best
     print(f"\nFastest: {label} ({ms:.0f} ms). Put this in config/local.yaml under voice: -> tts:\n")
     print("    kokoro:")
     print(f"      device: {'auto' if device == 'cuda' else 'cpu'}")
@@ -264,6 +266,8 @@ def ttsbench() -> None:
         print(f"      threads: {threads}")
     if model_file != "kokoro-v1.0.onnx":
         print(f"      model_file: {model_file}")
+    if search and search != "heuristic":
+        print(f"      cuda_conv_search: {search}")
     if not gpu:
         print("\nThe GPU wasn't used. To enable it:  "
               "powershell -ExecutionPolicy Bypass -File scripts\\enable_gpu_tts.ps1")
