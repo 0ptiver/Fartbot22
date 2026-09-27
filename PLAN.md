@@ -208,6 +208,8 @@ scripts/           # install, run, register-startup
 - [x] Echo cancellation works on speakers: a whole story with no self-interruption, and "Oh, actually, no" interrupted correctly
 
 ### Phase 4 — Full tool layer + safety
+- [x] Spoken confirmations for `confirm` tools: "Shall I <action>, sir?", then yes/no (any "no" wins). Unclear → asked again. Silence → cancelled after 12 s. Echo of the question is ignored. Barge-in is paused while waiting. Tools can supply `describe(args)`
+- [x] Kill switch: "Nova, stand down" / "stop everything" cancels speech, thinking, running tools (kills a Claude Code subprocess) and pending confirmations, then standby. Only "Nova, wake up" / "Nova, I need you" resumes
 - [x] Spotify: PKCE login (no secret, loopback callback with state check), refresh-token rotation, search + play (track/artist/album/playlist/liked/recent), control, now playing, queue. Starts the Spotify app when no device is found. Premium/rate-limit errors are spoken plainly
 - [x] Media keys for any app (fallback when Spotify isn't linked)
 - [x] Speech cleanup: maths symbols, markdown and URLs are spoken as words

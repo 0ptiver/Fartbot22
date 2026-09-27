@@ -54,6 +54,8 @@ class Tool:
     handler: Handler
     # Sync handlers run in a worker thread so they never block the event loop.
     category: str = "general"
+    # For confirmations: args -> what will happen, e.g. "put the PC to sleep".
+    describe: Callable[[dict[str, Any]], str] | None = None
 
     def definition(self) -> dict[str, Any]:
         return {
@@ -124,14 +126,26 @@ class ToolRegistry:
         input_schema: dict[str, Any] | None = None,
         risk: Risk = Risk.SAFE,
         category: str = "general",
+        describe: Callable[[dict[str, Any]], str] | None = None,
     ) -> Callable[[Handler], Handler]:
         schema = input_schema or {"type": "object", "properties": {}}
 
         def deco(fn: Handler) -> Handler:
-            self.register(Tool(name, description, schema, risk, fn, category))
+            self.register(Tool(name, description, schema, risk, fn, category, describe))
             return fn
 
         return deco
+
+    def describe(self, name: str, args: dict[str, Any]) -> str:
+        """Plain-words description of a pending action, for confirmation prompts."""
+        tool = self._tools.get(name)
+        if tool is not None and tool.describe is not None:
+            try:
+                return tool.describe(args)
+            except Exception:
+                pass
+        detail = ", ".join(f"{k} {v}" for k, v in args.items() if isinstance(v, (str, int, float)))
+        return name.replace("_", " ") + (f" ({detail})" if detail else "")
 
     def get(self, name: str) -> Tool | None:
         return self._tools.get(name)

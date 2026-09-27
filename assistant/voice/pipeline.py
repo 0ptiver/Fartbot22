@@ -19,6 +19,7 @@ from assistant.core.config import Settings
 from assistant.core.conversation import Conversation
 from assistant.tools.registry import ToolContext
 from assistant.voice.chunker import SentenceChunker
+from assistant.voice.commands import classify_yes_no, is_resume, is_stand_down
 from assistant.voice.latency import LatencyTracker
 from assistant.voice.stt.base import STTProvider, STTSession
 from assistant.voice.tts.base import TTSProvider
@@ -71,6 +72,10 @@ class VoiceLoop:
         self._barged = False
         self._utt_kind = "normal"                     # how the current utterance started
         self._last_request = ("", 0.0)                # (text, time its speech ended)
+        # Safety: spoken confirmations and the "stand down" kill switch
+        self._confirm: asyncio.Future | None = None   # waiting for a yes/no
+        self.standby = False                          # after "stand down": only "wake up" works
+        self.ctx.confirm = self._voice_confirm
 
     @property
     def busy(self) -> bool:
@@ -110,7 +115,7 @@ class VoiceLoop:
             self._utt_kind = ("overlap" if self.speaking else "thinking" if self.busy else "normal")
             self._barged, self._barge_checked = False, 0
             self._cancel_spec()
-            if self._utt_kind == "normal":
+            if self._utt_kind == "normal" and not self.standby:
                 self.on_event({"type": "listening"})
             self._stt_session = self.stt.session()
             for f in self.endpointer._buf:   # pre-roll + frames so far
@@ -135,6 +140,8 @@ class VoiceLoop:
     async def _maybe_barge(self) -> None:
         """You're talking while Nova speaks. Interrupt? (fast: on any speech; verified: only
         for words that aren't Nova's own voice coming back through the speakers)."""
+        if self._confirm is not None or self.standby:
+            return   # the answer / wake-up phrase is handled when you finish speaking
         b = self.cfg.barge_in
         if b.mode == "fast":
             if self.endpointer.speech_seconds * 1000 >= b.fast_min_ms:
@@ -261,6 +268,8 @@ class VoiceLoop:
                     self.on_event({"type": "idle", "reason": "heard nothing",
                                    "hint": diagnose_silence(audio)})
                 return
+            if await self._control_words(text):
+                return
 
             if kind == "overlap":
                 heard, text = text, self._strip_echo_prefix(text)
@@ -313,6 +322,60 @@ class VoiceLoop:
         finally:
             if not started_reply:
                 self.turns_done += 1
+
+    async def _control_words(self, text: str) -> bool:
+        """Kill switch, standby and yes/no answers. True if the utterance was used up here."""
+        if is_stand_down(text):
+            if self._confirm is not None and not self._confirm.done():
+                self._confirm.set_result(False)
+            await self.interrupt(reason="stand down")
+            self.standby = True
+            self._follow_up_until = 0.0
+            self.on_event({"type": "standby", "on": True})
+            await self.say("Standing down, sir.")
+            return True
+        if self.standby:
+            if is_resume(text) and match_wake(text, self.cfg.wake.variants, 99)[0]:
+                self.standby = False
+                self.on_event({"type": "standby", "on": False})
+                await self.say("At your service, sir.")
+            else:
+                self.on_event({"type": "ignored", "text": text, "reason": "standing down (say \"Nova, wake up\")"})
+            return True
+        if self._confirm is not None and not self._confirm.done():
+            answer = classify_yes_no(text)
+            if answer is None and self._sounds_like_echo(text):
+                self.on_event({"type": "ignored", "text": text, "reason": "sounded like my own voice"})
+                return True
+            if answer is None:
+                self.on_event({"type": "ignored", "text": text, "reason": "waiting for yes or no"})
+                await self.say(f"Sorry{self._sir(',')}, was that a yes or a no?")
+            else:
+                self._confirm.set_result(answer)
+            return True
+        return False
+
+    def _sir(self, sep: str = "") -> str:
+        who = self.settings.assistant.address_user_as
+        return f"{sep} {who}" if who else ""
+
+    async def _voice_confirm(self, tool: str, args: dict) -> bool:
+        """Ask out loud before a risky action and wait for a spoken yes/no.
+        Silence or anything unclear until the timeout counts as no."""
+        action = self.brain.registry.describe(tool, args) if hasattr(self.brain, "registry") else tool
+        loop = asyncio.get_running_loop()
+        self._confirm = loop.create_future()
+        self.on_event({"type": "confirm_request", "tool": tool, "input": args, "text": action})
+        try:
+            await self.say(f"Shall I {action}{self._sir(',')}?")
+            ok = await asyncio.wait_for(asyncio.shield(self._confirm), self.cfg.confirm_timeout_s)
+        except asyncio.TimeoutError:
+            ok = False
+            await self.say(f"I'll leave it{self._sir(',')}.")
+        finally:
+            self._confirm = None
+        self.on_event({"type": "confirm_result", "tool": tool, "approved": ok})
+        return ok
 
     async def _reply(self, text: str, lat: LatencyTracker) -> None:
         self._reply_started = False

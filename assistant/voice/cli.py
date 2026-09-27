@@ -51,6 +51,12 @@ def make_printer(name: str, show_latency: bool):
             why = f": {ev['reason']}" if ev.get("reason") else ""
             print(f"\n{DIM}  (interrupted{why}){RESET}", flush=True)
             state["speaking"] = False
+        elif t == "confirm_request":
+            print(f"\n{GREEN}? Nova wants to {ev['text']}. Say yes or no.{RESET}", flush=True)
+        elif t == "confirm_result":
+            print(f"{DIM}  ({'approved' if ev['approved'] else 'cancelled'}){RESET}", flush=True)
+        elif t == "standby":
+            print(f"\n{DIM}  ({'standing down: say \"Nova, wake up\" to resume' if ev['on'] else 'awake'}){RESET}", flush=True)
         elif t == "stopped":
             print(f"{DIM}  (stopped){RESET}", flush=True)
         elif t == "merged":

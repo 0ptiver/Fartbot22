@@ -160,6 +160,7 @@ class VoiceConfig(BaseModel):
     vad: VADConfig = Field(default_factory=VADConfig)
     stt: STTConfig = Field(default_factory=STTConfig)
     tts: TTSConfig = Field(default_factory=TTSConfig)
+    confirm_timeout_s: float = 12.0   # how long Nova waits for "yes"/"no" before cancelling
     first_chunk_min_chars: int = 12
     latency_report: bool = True
     # Said when a slow tool starts and nothing has been said yet this turn.
