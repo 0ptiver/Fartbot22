@@ -31,7 +31,7 @@ class KokoroTTS(TTSProvider):
         from kokoro_onnx import Kokoro
 
         logging.getLogger("phonemizer").setLevel(logging.ERROR)  # harmless "words count mismatch"
-        model, voices = kokoro_paths(self.cfg.model_file)
+        model, voices = kokoro_paths(resolve_model_file(self.cfg))
         if not model.exists() or not voices.exists():
             raise RuntimeError("Kokoro model files missing. Run: python -m assistant models")
         session = make_session(model, self.cfg.device, self.cfg.threads, self.cfg.cuda_conv_search)
@@ -53,6 +53,16 @@ class KokoroTTS(TTSProvider):
         if sr != self.sample_rate:
             raise RuntimeError(f"unexpected Kokoro sample rate {sr}")
         yield audio.astype(np.float32)
+
+
+def resolve_model_file(cfg: KokoroConfig) -> str:
+    from assistant.voice.models import KOKORO_FILES, KOKORO_GPU, MODELS_DIR
+
+    if cfg.model_file != "auto":
+        return cfg.model_file
+    if cfg.device != "cpu" and (MODELS_DIR / KOKORO_GPU).exists() and cuda_available():
+        return KOKORO_GPU
+    return KOKORO_FILES[0]
 
 
 def cuda_available() -> bool:

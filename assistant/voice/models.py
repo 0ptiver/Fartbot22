@@ -13,7 +13,8 @@ from assistant.core.config import MODELS_DIR
 KOKORO_BASE = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
 KOKORO_FILES = ("kokoro-v1.0.onnx", "voices-v1.0.bin")
 KOKORO_INT8 = "kokoro-v1.0.int8.onnx"   # ~90 MB, smaller; was slower on the owner's CPU
-KOKORO_FP16 = "kokoro-v1.0.fp16.onnx"   # ~170 MB, half precision; can be faster on GPUs
+KOKORO_FP16 = "kokoro-v1.0.fp16.onnx"   # ~170 MB, half precision (was slower on the owner's GPU)
+KOKORO_GPU = "kokoro-v1.0.gpu.onnx"     # made locally: STFT rewritten so it runs on the GPU
 
 
 def silero_path() -> Path:
@@ -59,12 +60,40 @@ def fetch_all(include_whisper_model: str | None = None) -> None:
     print("Silero VAD:")
     print("  ok:", fetch_silero())
     print("Kokoro TTS:")
-    for name in (*KOKORO_FILES, KOKORO_FP16):
+    for name in KOKORO_FILES:
         dest = MODELS_DIR / name
         if not dest.exists():
             _download(KOKORO_BASE + name, dest)
         print("  ok:", dest)
+    make_gpu_kokoro()
     if include_whisper_model:
         print(f"Whisper {include_whisper_model} (from Hugging Face, cached by faster-whisper):")
         from faster_whisper.utils import download_model
         print("  ok:", download_model(include_whisper_model))
+
+
+def make_gpu_kokoro(voice: str = "bm_george", lang: str = "en-gb") -> Path | None:
+    """Create kokoro-v1.0.gpu.onnx (STFT -> Conv) and keep it only if the audio matches."""
+    from assistant.voice.tts.onnx_fix import convert, verify_kokoro
+
+    src, voices = kokoro_paths()
+    dst = MODELS_DIR / KOKORO_GPU
+    if dst.exists() or not src.exists():
+        return dst if dst.exists() else None
+    print("Kokoro GPU version (moves the STFT step from CPU to GPU):")
+    tmp = dst.with_suffix(".tmp.onnx")
+    try:
+        for line in convert(src, tmp):
+            print("  " + line)
+        diff = verify_kokoro(src, tmp, voices, voice, lang)
+    except Exception as e:
+        print(f"  skipped: {type(e).__name__}: {e}")
+        tmp.unlink(missing_ok=True)
+        return None
+    if diff > 1e-3:
+        print(f"  audio differs by {diff:.2g}; not using it")
+        tmp.unlink(missing_ok=True)
+        return None
+    tmp.replace(dst)
+    print(f"  ok (audio identical within {diff:.1g}): {dst}")
+    return dst

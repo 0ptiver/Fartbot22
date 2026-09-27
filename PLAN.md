@@ -181,7 +181,9 @@ scripts/           # install, run, register-startup
 - [x] Owner test: tools now act (open_app, look_at_screen read an error correctly). Plain reply total 1.07 s. Heuristic cuDNN search was fastest (248 ms)
 - [x] Fix: latency report went negative when the filler line was spoken before the model's first word. Tool calls now count as the first model response. The voice CLI shows how long each tool took
 - [x] Screen reading: local vision was 8.4 s (4.5 s load) and evicted the chat model (next reply 3.9 s). Default is now `vision: claude_code` (subscription, no VRAM). The screenshot goes in the locked workspace and is deleted after
-- [ ] Kokoro ~210 ms on the GPU, all of it model time (phonemes ~0 ms). `ttsbench --profile` shows time per provider/op, and fp16 is added to the benchmark
+- [x] Kokoro ~210 ms on the GPU. Profile: STFT runs on the CPU (84.6 ms, no CUDA kernel) plus GPU<->CPU copies; Conv 74 ms on CUDA. fp16 was slower (304 ms). Screen reading via Claude: 6.7 s, and the chat model stays loaded
+- [x] `assistant models` rewrites STFT into an equivalent Conv (windowed DFT kernels) → `kokoro-v1.0.gpu.onnx`, kept only if the audio matches the original. Used automatically on the GPU. Rewrite tested against onnxruntime's STFT (all window kinds, one- and two-sided)
+- [ ] Owner: benchmark the GPU-only Kokoro
 - [x] cuDNN algorithm search set to HEURISTIC (the default EXHAUSTIVE re-benchmarks every new sentence length). ttsbench compares heuristic, default and exhaustive on fresh sentences
 
 ### Phase 3 — Real-time feel

@@ -216,7 +216,7 @@ def ttsbench(profile: bool = False) -> None:
     from kokoro_onnx import Kokoro
 
     from assistant.core.config import load_settings
-    from assistant.voice.models import KOKORO_FP16, kokoro_paths
+    from assistant.voice.models import KOKORO_GPU, kokoro_paths
     from assistant.voice.tts.kokoro import cuda_available, make_session
 
     logging.getLogger("phonemizer").setLevel(logging.ERROR)
@@ -232,8 +232,8 @@ def ttsbench(profile: bool = False) -> None:
         runs += [("GPU heuristic", "kokoro-v1.0.onnx", "cuda", None, "heuristic"),
                  ("GPU default", "kokoro-v1.0.onnx", "cuda", None, "default"),
                  ("GPU exhaustive", "kokoro-v1.0.onnx", "cuda", None, "exhaustive")]
-        if kokoro_paths(KOKORO_FP16)[0].exists():
-            runs += [("GPU fp16 heuristic", KOKORO_FP16, "cuda", None, "heuristic")]
+        if kokoro_paths(KOKORO_GPU)[0].exists():
+            runs.insert(0, ("GPU + STFT on GPU", KOKORO_GPU, "cuda", None, "heuristic"))
     runs += [("CPU default", "kokoro-v1.0.onnx", "cpu", None, None),
              ("CPU 8 threads", "kokoro-v1.0.onnx", "cpu", 8, None)]
     best = None
@@ -277,14 +277,16 @@ def ttsbench(profile: bool = False) -> None:
     if not best:
         return
     if profile and gpu:
-        _profile_kokoro(kokoro_paths()[0], kokoro_paths()[1], k, phrases)
+        prof_model = kokoro_paths(KOKORO_GPU)[0]
+        _profile_kokoro(prof_model if prof_model.exists() else kokoro_paths()[0],
+                        kokoro_paths()[1], k, phrases)
     ms, label, model_file, device, threads, search = best
     print(f"\nFastest: {label} ({ms:.0f} ms). Put this in config/local.yaml under voice: -> tts:\n")
     print("    kokoro:")
     print(f"      device: {'auto' if device == 'cuda' else 'cpu'}")
     if threads:
         print(f"      threads: {threads}")
-    if model_file != "kokoro-v1.0.onnx":
+    if model_file not in ("kokoro-v1.0.onnx", KOKORO_GPU):
         print(f"      model_file: {model_file}")
     if search and search != "heuristic":
         print(f"      cuda_conv_search: {search}")
