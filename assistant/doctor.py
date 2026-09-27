@@ -123,6 +123,15 @@ async def check(full: bool) -> int:
     ok = m.exists() and v.exists()
     line(OK if ok else FAIL, "Kokoro TTS model", "" if ok else "run: python -m assistant models")
     problems += (not silero_path().exists()) + (not ok)
+    try:
+        from assistant.voice.tts.kokoro import cuda_available
+        if cuda_available():
+            line(OK, "voice (Kokoro) can run on the GPU")
+        elif shutil.which("nvidia-smi"):
+            line(WARN, "voice (Kokoro) runs on the CPU (~600 ms per sentence)",
+                 "for the GPU: powershell -ExecutionPolicy Bypass -File scripts\\enable_gpu_tts.ps1")
+    except Exception as e:
+        line(WARN, "couldn't check onnxruntime", str(e)[:80])
     if shutil.which("nvidia-smi"):
         try:
             gpu = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.used,memory.total",

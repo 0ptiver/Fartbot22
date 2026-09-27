@@ -78,8 +78,9 @@ voice:
       voice: bm_george           # British male. Others: bm_lewis, bm_daniel, bf_emma, af_heart
       lang: en-gb
       speed: 1.05
-      device: cpu                # cpu | cuda (needs onnxruntime-gpu)
+      device: auto               # auto = GPU if available (scripts\enable_gpu_tts.ps1), else CPU
       threads: null              # CPU threads; run `python -m assistant ttsbench` to find the fastest
+      model_file: kokoro-v1.0.onnx   # kokoro-v1.0.int8.onnx is faster on CPU, slightly lower quality
   first_chunk_min_chars: 12      # speak the first clause early; later chunks wait for full sentences
   latency_report: true           # print per-stage timings after each spoken reply
   filler_phrases: ["One moment, sir.", "On it, sir.", "Right away, sir. Give me a moment."]

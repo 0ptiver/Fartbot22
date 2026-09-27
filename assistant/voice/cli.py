@@ -79,8 +79,10 @@ async def build(settings, wav: str | None, out: str | None):
     await asyncio.gather(stt.load(), tts.load(), brain.warm_up())
     if not wav:
         _print_devices(vcfg)
+    where = [f"{label} on {dev}" for label, dev in (("whisper", getattr(stt, "device", None)),
+                                                    ("voice", getattr(tts, "device", None))) if dev]
     print(f"Models ready in {time.perf_counter() - t0:.1f}s"
-          + (f" (whisper on {stt.device})" if getattr(stt, "device", None) else ""), flush=True)
+          + (f" ({', '.join(where)})" if where else ""), flush=True)
     vad = SileroVAD(vad_path)
 
     if wav:
@@ -201,41 +203,70 @@ async def mictest(seconds: float = 4.0, input_device: str | None = None) -> None
 
 
 def ttsbench() -> None:
-    """Time Kokoro's first audio for a typical first chunk at several CPU thread counts."""
+    """Time Kokoro on GPU and CPU (threads, int8 model) and recommend the fastest."""
     import os
     import statistics
 
     from kokoro_onnx import Kokoro
 
     from assistant.core.config import load_settings
-    from assistant.voice.models import kokoro_paths
-    from assistant.voice.tts.kokoro import make_session
+    from assistant.voice.models import KOKORO_INT8, kokoro_paths
+    from assistant.voice.tts.kokoro import cuda_available, make_session
 
     logging.getLogger("phonemizer").setLevel(logging.ERROR)
     k = load_settings().voice.tts.kokoro
-    model, voices = kokoro_paths()
     phrases = ["Certainly, sir.", "Something along those lines, sir.",
                "The time is a quarter past eleven."]
     cores = os.cpu_count() or 8
-    options = [None, 4, 6, 8, 12, 16]
-    print(f"Voice {k.voice}, {cores} logical CPUs. Lower is better.\n")
+    gpu = cuda_available()
+    print(f"Voice {k.voice}. GPU (onnxruntime CUDA): {'yes' if gpu else 'no'}. Lower is better.\n")
+
+    runs = []
+    if gpu:
+        runs.append(("GPU", "kokoro-v1.0.onnx", "cuda", None))
+    runs += [("CPU default", "kokoro-v1.0.onnx", "cpu", None),
+             ("CPU 8 threads", "kokoro-v1.0.onnx", "cpu", 8)]
+    if kokoro_paths(KOKORO_INT8)[0].exists():
+        runs += [("CPU int8, 8 threads", KOKORO_INT8, "cpu", 8)]
     best = None
-    for threads in [t for t in options if t is None or t <= cores]:
-        kokoro = Kokoro.from_session(make_session(model, "cpu", threads), str(voices))
-        kokoro.create("Warm up.", voice=k.voice, speed=k.speed, lang=k.lang)
+    for label, model_file, device, threads in runs:
+        if threads and threads > cores:
+            continue
+        model, voices = kokoro_paths(model_file)
+        try:
+            session = make_session(model, device, threads)
+            if device == "cuda" and session.get_providers()[0] != "CUDAExecutionProvider":
+                print(f"  {label:<22} failed to start on the GPU")
+                continue
+            kokoro = Kokoro.from_session(session, str(voices))
+            for _ in range(2):
+                kokoro.create("Warm up.", voice=k.voice, speed=k.speed, lang=k.lang)
+        except Exception as e:
+            print(f"  {label:<22} error: {e}")
+            continue
         times = []
         for p in phrases * 3:
             t = time.perf_counter()
             kokoro.create(p, voice=k.voice, speed=k.speed, lang=k.lang)
             times.append((time.perf_counter() - t) * 1000)
         ms = statistics.median(times)
-        label = "default" if threads is None else f"{threads} threads"
-        print(f"  {label:<12} {ms:6.0f} ms")
-        if best is None or ms < best[1]:
-            best = (threads, ms)
-    print(f"\nFastest: {'default' if best[0] is None else best[0]}"
-          + ("" if best[0] is None else f".  Put this in config/local.yaml:\n\n"
-             f"voice:\n  tts:\n    kokoro:\n      threads: {best[0]}"))
+        print(f"  {label:<22} {ms:6.0f} ms")
+        if best is None or ms < best[0]:
+            best = (ms, label, model_file, device, threads)
+
+    if not best:
+        return
+    ms, label, model_file, device, threads = best
+    print(f"\nFastest: {label} ({ms:.0f} ms). Put this in config/local.yaml under voice: -> tts:\n")
+    print("    kokoro:")
+    print(f"      device: {'auto' if device == 'cuda' else 'cpu'}")
+    if threads:
+        print(f"      threads: {threads}")
+    if model_file != "kokoro-v1.0.onnx":
+        print(f"      model_file: {model_file}")
+    if not gpu:
+        print("\nThe GPU wasn't used. To enable it:  "
+              "powershell -ExecutionPolicy Bypass -File scripts\\enable_gpu_tts.ps1")
 
 
 def main(argv: list[str]) -> None:

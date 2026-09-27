@@ -175,7 +175,9 @@ scripts/           # install, run, register-startup
 - [x] Owner test: wake mode works ("answered only after the wake word"). Latency 1.0–1.75 s: VAD 380 ms, STT 260–490 ms, LLM 60–80 ms, TTS 490–750 ms, speaker 1–21 ms (was 431)
 - [x] Fix: the small model said "I'll check that, sir" without calling the tool. Removed the "acknowledge first" prompt line, added a one-time nudge when it promises without acting, and "Ask Claude …" now routes straight to the expert
 - [x] Fix: follow-up windows chained, so it answered side conversations. Only a named request opens one (6 s)
-- [x] `ttsbench` + `voice.tts.kokoro.threads` to tune Kokoro on the hybrid i9
+- [x] `ttsbench` + `voice.tts.kokoro.threads` to tune Kokoro on the hybrid i9. Owner result: CPU is 586–753 ms at every setting (8 threads best)
+- [x] Kokoro on the GPU: `device: auto` uses onnxruntime-gpu when present (`scripts/enable_gpu_tts.ps1`, run by the installer on NVIDIA PCs). The int8 model is a CPU fallback. doctor and ttsbench report which is in use
+- [ ] Owner: GPU voice benchmark (Blackwell support in onnxruntime-gpu not yet confirmed)
 
 ### Phase 3 — Real-time feel
 - [ ] Train + ship "hey nova" openWakeWord model

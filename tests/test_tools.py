@@ -88,3 +88,16 @@ def test_look_at_screen_resizes(ctx):
 async def test_registry_passes_schema(registry, ctx):
     res = await registry.execute("volume", {"action": "explode"}, ctx)
     assert res.is_error and "Invalid arguments" in res.content
+
+
+def test_kokoro_session_falls_back_to_cpu():
+    import pytest
+    from assistant.voice.models import silero_path
+    from assistant.voice.tts.kokoro import cuda_available, make_session
+    if not silero_path().exists():
+        pytest.skip("no ONNX model cached")
+    # Any small ONNX model will do to check provider selection.
+    sess = make_session(silero_path(), "auto", threads=2)
+    expected = "CUDAExecutionProvider" if cuda_available() else "CPUExecutionProvider"
+    assert sess.get_providers()[0] == expected
+    assert make_session(silero_path(), "cpu").get_providers() == ["CPUExecutionProvider"]

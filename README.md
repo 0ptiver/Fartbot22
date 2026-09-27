@@ -91,7 +91,7 @@ Speech stack (all switchable in `config/config.yaml` → `voice`):
 |---|---|---|
 | Voice detection | Silero VAD | `end_silence_ms: 400` is how long a pause ends your turn |
 | Speech-to-text | faster-whisper `large-v3-turbo` on your GPU | falls back to CPU automatically if CUDA fails. `small.en` is faster but less accurate |
-| Text-to-speech | Kokoro, voice `bm_george` (British male) | also `bm_lewis`, `bm_daniel`, `bf_emma`. Runs on the CPU so the GPU stays free for Whisper |
+| Text-to-speech | Kokoro, voice `bm_george` (British male) | also `bm_lewis`, `bm_daniel`, `bf_emma`. Runs on the GPU when `onnxruntime-gpu` is installed (the installer does this on NVIDIA PCs), otherwise on the CPU |
 | Cloud option | Deepgram (`stt.provider: deepgram`) | needs `DEEPGRAM_API_KEY`, ~$0.46/hour |
 
 ### Things to try
@@ -157,7 +157,7 @@ Change `brain.local.model` in `config/config.yaml`, then run `ollama pull <model
 | It cuts you off mid-sentence (open mic) | Raise `voice.vad.end_silence_ms` to 600. |
 | "(heard nothing)" | The message says why: keys released too soon, a silent mic, or unclear audio. Run `python -m assistant mictest --input N` to see the level and what Whisper hears. Also check Settings → Privacy & security → Microphone → "Let desktop apps access your microphone". |
 | Voice sounds robotic or too fast | Change `voice.tts.kokoro.voice` / `speed`. |
-| Slow "tts first audio" in the latency report | Run `python -m assistant ttsbench` and put the fastest thread count in `config/local.yaml`. |
+| Slow "tts first audio" in the latency report | Run `powershell -ExecutionPolicy Bypass -File scripts\enable_gpu_tts.ps1` to put the voice on the GPU, then `python -m assistant ttsbench`. On CPU-only PCs, use the thread count or int8 model it recommends. |
 | It says "I'll check that" and then does nothing | Nova now nudges the model to actually do it. If it keeps happening for a request, tell me which one, or start with "Ask Claude…". |
 
 ## Development

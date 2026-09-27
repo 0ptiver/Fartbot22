@@ -37,6 +37,11 @@ Write-Host "`nDownloading speech models (Silero VAD ~2 MB, Kokoro TTS ~340 MB, W
 .\.venv\Scripts\python -m assistant models
 
 .\.venv\Scripts\python -m pytest -q
+# Voice on the GPU (re-applied every install, because the step above reinstalls the CPU build)
+if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
+    powershell -ExecutionPolicy Bypass -File scripts\enable_gpu_tts.ps1
+}
+
 .\.venv\Scripts\python -m assistant doctor
 Write-Host "`nInstalled. Try:" -ForegroundColor Green
 Write-Host "  .\.venv\Scripts\python -m assistant chat --local --debug   (text)"
