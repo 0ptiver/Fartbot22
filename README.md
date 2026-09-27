@@ -147,6 +147,8 @@ Speech stack (all switchable in `config/config.yaml` → `voice`):
 | "Copy" / "paste" / "undo" / "save" / "new tab" / "close tab" / "go back" / "refresh" / "switch windows" | shortcuts |
 | "Minimise this" / "snap this to the left" / "move this window to the other screen" | the window you're using |
 | "Start dictation" … (talk) … "new line" / "scratch that" / "stop dictation" | everything you say is typed |
+| "Remember that my sister's birthday is June 3" / "what do you remember?" / "forget that" | memory (on this PC only; never passwords) |
+| **Brain** button in the window | everything Nova remembers around a glowing brain: search, click to forget, teach it new things |
 | "Show the grid" … "click 14" / "zoom 14" / "double click 3" / "scroll down" / "hide the grid" | voice mouse (numbers work without "Nova" while the grid is showing) |
 | "Show the grid on screen 2" / "on the other monitor" … "next screen" | voice mouse on another screen (screen 1 = your main one) |
 | "Full screen the video and press play" / "pause the video" / "skip ahead" / "exit full screen" | `video`: finds the video playing in your browser by itself |

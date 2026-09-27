@@ -224,3 +224,33 @@ async def test_stand_down_button_and_typed_wake(settings, registry):
     assert not loop.standby
     assert "Standing down, sir." in loop.tts.spoken and "At your service, sir." in loop.tts.spoken
     assert loop.brain.client.messages.calls == []
+
+
+def test_memory_in_the_hud(settings, tmp_path):
+    from assistant.core.memory import MemoryStore
+    store = MemoryStore(tmp_path / "m.db")
+    store.add("My dog is called Max")
+    app = hud.create_hud_app(settings, FakeLoop(), hud.Hub(), KEY, None, trust_test_client=True, memory=store)
+    client = TestClient(app)
+    assert client.get("/brain.js", headers=HOST).status_code == 200
+    ws = connect(client)
+    assert recv(ws, "memories")["items"][0]["text"] == "My dog is called Max"
+    ws.send_json({"type": "mem_add", "text": "My wifi password is hunter2"})
+    assert "password" in recv(ws, "toast")["text"]                   # refused, and said why
+    ws.send_json({"type": "mem_add", "text": "I like pizza"})
+    ws.send_json({"type": "mem_delete", "id": 1})
+    time.sleep(0.3)
+    ws.close()
+    assert [m.text for m in store.all()] == ["I like pizza"]
+
+
+async def test_memory_changes_reach_the_window(tmp_path):
+    from assistant.core.memory import MemoryStore
+    store, hub = MemoryStore(tmp_path / "m.db"), hud.Hub()
+    q = asyncio.Queue()
+    hub.clients.add(q)
+    hud.watch_memory(store, hub, asyncio.get_running_loop())
+    await asyncio.to_thread(store.add, "My name is Ollie")              # from a tool's worker thread
+    await asyncio.sleep(0.05)
+    ev = q.get_nowait()
+    assert ev["type"] == "memories" and ev["items"][0]["text"] == "My name is Ollie"

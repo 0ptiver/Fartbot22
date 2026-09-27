@@ -39,12 +39,13 @@ URL_FILE = ROOT / "data" / "hud-url.txt"
 AUTH_TIMEOUT_S = 5
 STATUS_EVERY_S = 0.1
 # Events worth replaying to a window that (re)connects.
-_KEEP = {"transcript", "text", "speak", "tool", "tool_done", "announcement", "confirm_request",
+_KEEP = {"memory_used", "transcript", "text", "speak", "tool", "tool_done", "announcement", "confirm_request",
          "dictation", "dictated",
          "confirm_result", "standby", "error", "interrupted", "stopped", "merged", "ignored",
          "turn_complete", "latency"}
 _FILES = {"/": ("index.html", "text/html"), "/hud.js": ("hud.js", "text/javascript"),
-          "/hud.css": ("hud.css", "text/css"), "/icon.svg": ("icon.svg", "image/svg+xml")}
+          "/hud.css": ("hud.css", "text/css"), "/icon.svg": ("icon.svg", "image/svg+xml"),
+          "/brain.js": ("brain.js", "text/javascript")}
 
 
 class Hub:
@@ -78,6 +79,11 @@ def timers(scheduler, settings: Settings) -> dict[str, Any]:
     return {"type": "timers", "items": items, "now": time.time()}
 
 
+def memories(store) -> dict[str, Any]:
+    items = [] if store is None else [{"id": m.id, "text": m.text, "created": m.created} for m in store.all()]
+    return {"type": "memories", "items": items}
+
+
 def _routines(settings: Settings) -> list[dict[str, str]]:
     from assistant.tools.routines import active
     return [{"name": n, "label": n.replace("_", " ").capitalize(), "phrase": (r.phrases or [n])[0]}
@@ -85,7 +91,7 @@ def _routines(settings: Settings) -> list[dict[str, str]]:
 
 
 def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=None,
-                   trust_test_client: bool = False) -> FastAPI:
+                   trust_test_client: bool = False, memory=None) -> FastAPI:
     port = settings.hud.port
     hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
     origins = {f"http://{h}" for h in hosts}
@@ -144,6 +150,14 @@ def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=Non
             if any(r.id == msg["id"] for r in scheduler.upcoming()):
                 scheduler.cancel(msg["id"])
             await ws_send(timers(scheduler, settings))
+        elif kind == "mem_add" and memory is not None and isinstance(msg.get("text"), str):
+            from assistant.core.memory import SecretRefused
+            try:
+                await asyncio.to_thread(memory.add, msg["text"][:300])
+            except (SecretRefused, ValueError) as e:
+                await ws_send({"type": "toast", "text": str(e)})
+        elif kind == "mem_delete" and memory is not None and isinstance(msg.get("id"), int):
+            await asyncio.to_thread(memory.delete, [msg["id"]])
         elif kind == "routine":
             r = next((r for r in _routines(settings) if r["name"] == msg.get("name")), None)
             if r is not None:
@@ -178,6 +192,7 @@ def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=Non
                     "confirm_timeout_s": settings.voice.confirm_timeout_s,
                     "show_ignored": settings.hud.show_ignored, "backlog": list(hub.backlog)})
         await send(timers(scheduler, settings))
+        await send(memories(memory))
         hub.clients.add(queue)
 
         async def pump() -> None:
@@ -266,7 +281,19 @@ def _bind(port: int) -> socket.socket:
     return sock
 
 
-async def start_hud(settings: Settings, loop, hub: Hub, scheduler=None) -> HudHandle | None:
+def watch_memory(store, hub: Hub, aio_loop: asyncio.AbstractEventLoop) -> None:
+    """Memory changes (from a tool thread or the HUD) reach every window; so do 'used' pulses."""
+    def changed() -> None:
+        aio_loop.call_soon_threadsafe(hub.publish, memories(store))
+
+    def used(ids: list[int]) -> None:
+        if ids:
+            aio_loop.call_soon_threadsafe(hub.publish, {"type": "memory_used", "ids": ids})
+    store.listeners.append(changed)
+    store.used_listeners.append(used)
+
+
+async def start_hud(settings: Settings, loop, hub: Hub, scheduler=None, memory=None) -> HudHandle | None:
     """Serve the HUD on 127.0.0.1 and (optionally) open its window. None if it can't start."""
     try:
         sock = _bind(settings.hud.port)
@@ -274,7 +301,12 @@ async def start_hud(settings: Settings, loop, hub: Hub, scheduler=None) -> HudHa
         log.warning("HUD port %s busy: %s", settings.hud.port, e)
         return None
     token = secrets.token_urlsafe(32)
-    app = create_hud_app(settings, loop, hub, token, scheduler)
+    if memory is None:
+        from assistant.core.memory import get_store
+        memory = get_store(settings)
+    if memory is not None:
+        watch_memory(memory, hub, asyncio.get_running_loop())
+    app = create_hud_app(settings, loop, hub, token, scheduler, memory=memory)
     server = _QuietServer(app, sock)
     task = asyncio.create_task(server.serve())
     url = f"http://127.0.0.1:{settings.hud.port}/#k={token}"

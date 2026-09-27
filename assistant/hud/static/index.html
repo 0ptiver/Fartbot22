@@ -8,6 +8,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="hud.css">
 <script src="hud.js" defer></script>
+<script src="brain.js" defer></script>
 </head>
 <body>
 <header class="top">
@@ -16,6 +17,7 @@
     <span id="name">NOVA</span>
   </div>
   <div class="top-actions">
+    <button id="brainBtn" class="chip" type="button" aria-pressed="false" title="Nova's memory: everything it has been asked to remember">Brain</button>
     <button id="modeBtn" class="chip" type="button" title="Switch between answering only when called by name, and answering everything">Wake word</button>
     <button id="muteBtn" class="icon-btn" type="button" aria-pressed="false" title="Turn the microphone off / on">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path class="mic" d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z"/><path class="mic" d="M5 11a7 7 0 0 0 14 0M12 18v3"/><path class="slash" d="M4 4l16 16"/></svg>
@@ -40,6 +42,33 @@
     <button id="yesBtn" type="button" class="yes">Yes <kbd>Y</kbd></button>
     <button id="noBtn" type="button" class="no">No <kbd>N</kbd></button>
   </div>
+</section>
+
+<section id="brainView" class="brain-view" hidden>
+  <div class="brain-bar">
+    <input id="brainSearch" type="search" placeholder="Search memories…" aria-label="Search memories" autocomplete="off">
+    <span id="brainStats" class="brain-stats"></span>
+  </div>
+  <div class="brain-stage">
+    <canvas id="brain" aria-label="Nova's memories around its brain"></canvas>
+    <div id="brainTip" class="brain-tip" hidden></div>
+    <div id="brainCard" class="brain-card" hidden>
+      <p id="brainCardText"></p>
+      <p id="brainCardWhen" class="small"></p>
+      <div class="brain-card-actions">
+        <button id="brainForget" type="button" class="no">Forget</button>
+        <button id="brainClose" type="button" class="ctl">Close</button>
+      </div>
+    </div>
+    <p id="brainEmpty" class="brain-empty" hidden>Nothing remembered yet.<br>Say “Nova, remember that…” or teach me below.</p>
+  </div>
+  <form id="teach" class="ask" autocomplete="off">
+    <input id="teachInput" type="text" maxlength="300" placeholder="Teach Nova something… e.g. My dog is called Max" aria-label="Teach Nova something">
+    <button type="submit" title="Remember it">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      <span class="sr">Remember</span>
+    </button>
+  </form>
 </section>
 
 <nav class="tabs" role="tablist">
@@ -76,6 +105,8 @@
     <span class="sr">Send</span>
   </button>
 </form>
+
+<div id="toast" class="toast" hidden role="status"></div>
 
 <div id="offline" class="offline" hidden>
   <p id="offlineText">Nova isn't running.</p>

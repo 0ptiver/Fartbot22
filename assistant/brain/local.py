@@ -169,8 +169,8 @@ class LocalBrain:
         usage = {"input_tokens": 0, "output_tokens": 0}
         spoken: list[str] = []
         checkpoint = conv.checkpoint()
-        conv.messages.append({"role": "user",
-                              "content": turn_context(self.settings, extra_context) + "\n" + user_text})
+        conv.messages.append({"role": "user", "content": turn_context(
+            self.settings, extra_context, self._memories(user_text, ctx)) + "\n" + user_text})
         rounds = 0
         tools_used = False
         nudged = False
@@ -282,6 +282,16 @@ class LocalBrain:
         conv.trim()
         timings["total_ms"] = _ms(t0)
         yield TurnComplete("".join(spoken).strip(), timings, usage, "end_turn")
+
+    def _memories(self, user_text: str, ctx: ToolContext) -> list[str]:
+        """Remembered facts relevant to this request (all of them while there are few)."""
+        from assistant.core.memory import get_store
+        try:
+            store = ctx.services.get("memory") or get_store(self.settings)
+            return store.for_turn(user_text, self.settings.memory.per_turn) if store else []
+        except Exception:
+            log.exception("memory lookup failed")
+            return []
 
     async def _fast_command(self, conv: Conversation, intent: tuple[str, dict], ctx: ToolContext,
                             t0: float, timings: dict) -> AsyncIterator[Event]:

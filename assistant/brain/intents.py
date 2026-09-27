@@ -286,10 +286,32 @@ def keyboard_intent(raw: str, t: str) -> tuple[str, dict] | None:
     return None
 
 
+def memory_intent(raw: str, t: str) -> tuple[str, dict] | None:
+    """'remember that my sister's birthday is June 3', 'what do you remember', 'forget that'."""
+    m = re.match(r"^\s*(?:please\s+|can you\s+|could you\s+)?(?:remember|don'?t forget|note)\s*[,:]?\s+"
+                 r"(?:that\s+)?(?!to\b)(.{3,300}?)[.!]?\s*$", raw, re.I | re.S)
+    if m and not re.match(r"^(?:what|when|where|who|how|if|whether)\b", m.group(1), re.I):
+        return "remember", {"text": m.group(1)}
+    if re.fullmatch(r"what (?:do|did) you (?:remember|know)(?: about me)?|what have you remembered|"
+                    r"(?:list|show me) (?:your |my )?memor(?:y|ies)", t):
+        return "recall", {}
+    m = re.fullmatch(r"what (?:do|did) you (?:remember|know) about (.+)", t)
+    if m:
+        return "recall", {"about": m.group(1)}
+    m = re.fullmatch(r"forget (?:about )?(that|it|this|what i just said|everything(?: about me)?|(?:all|all of) "
+                     r"(?:it|that|my memories)|.+)", t)
+    if m:
+        return "forget", {"what": m.group(1)}
+    return None
+
+
 def match_intent(text: str, grid_visible: bool = False, labels: bool = False) -> tuple[str, dict] | None:
     t = _clean(text)
     if not t:
         return None
+    mem = memory_intent(text, t)
+    if mem:
+        return mem
     timer = _timer_intent(t)
     if timer:
         return timer

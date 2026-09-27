@@ -9,6 +9,7 @@ from assistant.tools.registry import AuditLog, ToolContext
 def settings(tmp_path):
     s = Settings()
     s.safety.audit_log = str(tmp_path / "audit.jsonl")
+    s.memory.path = str(tmp_path / "memory.db")
     s.tools.app_aliases = {"spotify": "spotify:"}
     return s
 

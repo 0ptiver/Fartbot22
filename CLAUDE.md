@@ -31,6 +31,7 @@ Branch: `claude/jarvis-voice-assistant-lhnfza` (commit and push there after ever
   - `llm.py` `Brain` = Claude API backend (optional, paid).
   - Vision ("what's on my screen") goes to Claude Code by default. A local VL model evicts the chat model from 8 GB VRAM.
 - `tools/video.py` browser video control: GSMTC media sessions via winrt (exact play/pause, title) + focus the browser window by title and press f/Esc/m/j/l. Fast path `intents.video_intent` splits "X and Y".
+- `core/memory.py` MemoryStore (SQLite+FTS5, secret refusal, same-subject replace, listeners) + `tools/memory.py`; LocalBrain._memories adds relevant facts to turn_context. HUD brain view = `hud/static/brain.js` (canvas), fed by "memories"/"memory_used" events (server.watch_memory).
 - `tools/keyboard.py` type_text/press_keys (SendInput; terminal/Run box asks first) + dictation tool (VoiceLoop.set_dictation/_dictate). `tools/uia.py` click_element/show_numbers via UI Automation (comtypes), labels drawn by the grid overlay (GridController.labels). Spoken shortcuts in `intents.keyboard_intent`.
 - `tools/grid.py` voice mouse grid (Tk overlay thread + ctypes mouse; fast-path phrases in intents.grid_intent; no name needed while visible via VoiceLoop._grid_command). Preview the overlay under Xvfb with /usr/bin/python3.12 (has tkinter; the project venv doesn't).
 - `tools/pc.py` system_status/lock_pc/power(confirm)/cancel_shutdown/window/open_website (Win32 in swappable backends). `tools/routines.py` config-defined routines, registered last in build_registry.

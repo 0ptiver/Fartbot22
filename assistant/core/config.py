@@ -180,6 +180,12 @@ class ServerConfig(BaseModel):
     allowed_origins: list[str] = Field(default_factory=list)
 
 
+class MemoryConfig(BaseModel):
+    enabled: bool = True
+    path: str = "data/memory.db"        # on this PC only
+    per_turn: int = 5                   # relevant memories shown to the model per request
+
+
 class HudConfig(BaseModel):
     enabled: bool = True                # the interactive window, started with `assistant voice`
     port: int = 8766                    # 127.0.0.1 only
@@ -208,7 +214,7 @@ class SafetyConfig(BaseModel):
     # Never from a phone or another PC (secure by default, even without config.yaml).
     remote_blocked_tools: list[str] = Field(default_factory=lambda: [
         "run_shell", "delete_file", "move_file", "power", "press_key", "window", "mouse", "mouse_grid",
-        "type_text", "press_keys", "click_element", "show_numbers"])
+        "type_text", "press_keys", "click_element", "show_numbers", "forget"])
     audit_log: str = "data/audit.jsonl"
 
     def audit_path(self) -> Path:
@@ -237,6 +243,7 @@ class Settings(BaseModel):
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
     hud: HudConfig = Field(default_factory=HudConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
     # Set a routine to null in local.yaml to switch a built-in one off.
     routines: dict[str, RoutineConfig | None] = Field(default_factory=dict)
 

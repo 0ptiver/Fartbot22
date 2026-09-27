@@ -88,6 +88,9 @@ function handle(ev, replay) {
   switch (ev.type) {
     case "status": return status(ev);
     case "timers": return timersIn(ev);
+    case "memories": return NovaBrain.memories(ev.items);
+    case "memory_used": if (!replay) NovaBrain.used(ev.ids); return;
+    case "toast": return toast(ev.text);
     case "transcript":
       closeLive();
       addMsg("you" + (ev.typed ? " typed" : ""), ev.text);
@@ -409,6 +412,23 @@ function empties() {
   $("timersEmpty").hidden = S.timers.length > 0;
 }
 
+let toastTimer = null;
+function toast(text) {
+  const t = $("toast");
+  t.textContent = text;
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; }, 5000);
+}
+
+function showBrain(on) {
+  document.body.classList.toggle("brain", on);
+  $("brainView").hidden = !on;
+  $("brainBtn").setAttribute("aria-pressed", String(on));
+  NovaBrain.show(on);
+  try { sessionStorage.setItem("novaView", on ? "brain" : "hud"); } catch (e) { /* ignore */ }
+}
+
 // --- UI wiring -------------------------------------------------------------------------------
 function selectTab(name) {
   S.tab = name;
@@ -431,6 +451,7 @@ function init() {
   $("yesBtn").onclick = () => answer(true);
   $("noBtn").onclick = () => answer(false);
   $("stopBtn").onclick = () => send({ type: "stop" });
+  $("brainBtn").onclick = () => showBrain($("brainView").hidden);
   $("standBtn").onclick = () => send({ type: S.standby ? "resume" : "stand_down" });
   $("muteBtn").onclick = () => send({ type: "mute", on: !S.muted });
   $("modeBtn").onclick = () => send({ type: "mode", mode: S.mode === "open_mic" ? "wake" : "open_mic" });
@@ -440,12 +461,13 @@ function init() {
     empties();
   };
   document.addEventListener("keydown", (e) => {
-    const typing = document.activeElement === $("askInput");
+    const typing = document.activeElement && document.activeElement.tagName === "INPUT";
     if (S.confirmShown && !typing && (e.key === "y" || e.key === "Y")) answer(true);
     else if (S.confirmShown && !typing && (e.key === "n" || e.key === "N")) answer(false);
     else if (e.key === "Escape") send({ type: "stop" });
   });
   setInterval(renderTimers, 1000);
+  try { if (sessionStorage.getItem("novaView") === "brain") setTimeout(() => showBrain(true), 0); } catch (e) { /* ignore */ }
   renderState();
   requestAnimationFrame(drawOrb);
   if (!key) {
