@@ -145,3 +145,19 @@ def test_new_speech_rules(settings, registry):
     assert loop._stop_phrase("okay stop now") == "okay stop"
     assert loop._stop_phrase("stop please") == "stop"
     assert loop._stop_phrase("stopwatch for ten minutes") is None
+
+
+def test_echo_with_numbers_and_symbols(settings, registry):
+    """The owner's case: Nova said "90 times 90 is 8,100." and Whisper heard "90 x 90", "8"."""
+    loop, _ = make(settings, registry, [], [])
+    loop._last_said = "90 times 90 is 8,100."
+    assert loop._sounds_like_echo("90 x 90")
+    assert loop._sounds_like_echo("ninety times ninety")
+    assert loop._sounds_like_echo("8")
+    assert not loop._is_new_speech("90 x 90")
+    assert not loop._is_new_speech("8,100")
+    assert loop._strip_echo_prefix("8") == ""
+    assert loop._strip_echo_prefix("90 times 90, what about 12 times 12") == "what about 12 times 12"
+    loop._last_said = "Once upon a time there was a fox. It lived in a wood."
+    assert loop._is_new_speech("what time is it")
+    assert loop._sounds_like_echo("once upon a time there was a fax")

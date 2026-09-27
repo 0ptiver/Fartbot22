@@ -23,6 +23,7 @@ from assistant.voice.latency import LatencyTracker
 from assistant.voice.stt.base import STTProvider, STTSession
 from assistant.voice.tts.base import TTSProvider
 from assistant.voice.vad import Endpointer, SpeechEnd, SpeechPause, SpeechStart
+from assistant.voice.textnorm import compact, normalize_words
 from assistant.voice.wake import _norm, echo_overlap, match_wake
 
 log = logging.getLogger(__name__)
@@ -155,16 +156,32 @@ class VoiceLoop:
         """Is this the user (not Nova's own voice)? Stop words, the name, or enough new words."""
         if self._stop_phrase(text) is not None or match_wake(text, self.cfg.wake.variants, 99)[0]:
             return True
-        # Echo of Nova's own voice repeats its word *pairs* ("upon a", "a time"), even when
-        # Whisper mishears a word; your speech almost never does, even with common words.
-        said = [w for w in map(_norm, self._last_said.split()) if w]
-        words = [w for w in map(_norm, text.split()) if w]
-        if len(words) < self.cfg.barge_in.min_new_words:
+        if len(normalize_words(text)) < self.cfg.barge_in.min_new_words:
             return False
+        return not self._sounds_like_echo(text)
+
+    def _sounds_like_echo(self, text: str) -> bool:
+        """Is this transcript just Nova's own voice from the speakers? Compares normalized
+        words ("90 x 90" == "ninety times ninety") as word pairs and as a letter sequence,
+        so small mishearings ("fox" -> "fax") still count as echo."""
+        from difflib import SequenceMatcher
+
+        said, heard = normalize_words(self._last_said), normalize_words(text)
+        if not heard:
+            return True
+        heard_c, said_c = compact(text), compact(self._last_said)
+        if said_c and heard_c:
+            m = SequenceMatcher(None, heard_c, said_c, autojunk=False)
+            # Only runs of 4+ characters: scattered single letters match any long reply.
+            matched = sum(b.size for b in m.get_matching_blocks() if b.size >= 4)
+            if matched >= 0.7 * len(heard_c):
+                return True
+        if len(heard) < self.cfg.barge_in.min_new_words:
+            # 1-2 words: echo if each appears in what was said ("8" from "8,100").
+            return all(w in said or w in said_c for w in heard)
         said_pairs = set(zip(said, said[1:]))
-        pairs = list(zip(words, words[1:]))
-        echoed = sum(p in said_pairs for p in pairs)
-        return echoed < 0.5 * len(pairs)
+        pairs = list(zip(heard, heard[1:]))
+        return sum(p in said_pairs for p in pairs) >= 0.5 * len(pairs)
 
     def _stop_phrase(self, text: str) -> str | None:
         norm = " ".join(w for w in map(_norm, text.split()) if w)
@@ -244,9 +261,9 @@ class VoiceLoop:
                 return
 
             if kind == "overlap":
-                text = self._strip_echo_prefix(text)
-                if not barged and not self._is_new_speech(text):
-                    self.on_event({"type": "ignored", "text": text, "reason": "sounded like my own voice"})
+                heard, text = text, self._strip_echo_prefix(text)
+                if not text or (not barged and not self._is_new_speech(text)):
+                    self.on_event({"type": "ignored", "text": heard, "reason": "sounded like my own voice"})
                     return
                 await self.interrupt(reason=f'heard "{text}"')
                 if self._stop_phrase(text) is not None:
@@ -323,13 +340,15 @@ class VoiceLoop:
             self.on_event({"type": "interrupted", "reason": reason})
 
     def _strip_echo_prefix(self, text: str) -> str:
-        """Drop leading words that were Nova's own voice coming back through the speakers."""
-        said = {w for w in map(_norm, self._last_said.split()) if w}
+        """Drop leading words that were Nova's own voice coming back through the speakers.
+        Returns "" when everything was echo."""
+        said = set(normalize_words(self._last_said))
+        said_c = compact(self._last_said)
         words = text.split()
         i = 0
-        while i < len(words) and _norm(words[i]) in said:
+        while i < len(words) and all(w in said or w in said_c for w in normalize_words(words[i])):
             i += 1
-        return " ".join(words[i:]) if i < len(words) else text
+        return " ".join(words[i:])
 
     async def _check_wake(self, text: str, lat: LatencyTracker) -> str | None:
         """Wake mode: only answer when addressed by name (or during the follow-up window)."""

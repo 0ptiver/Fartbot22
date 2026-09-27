@@ -100,8 +100,12 @@ async def build(settings, wav: str | None, out: str | None):
         settings.voice.mode = "open_mic" if settings.voice.mode == "ptt" else settings.voice.mode
         mic, player, ptt = WavMic(wav, realtime=True), RecordingPlayer(tts.sample_rate), None
     else:
-        mic = MicStream(vcfg.input_device)
-        player = AudioPlayer(tts.sample_rate, vcfg.output_device)
+        from assistant.voice.aec import create_echo_canceller
+        aec = create_echo_canceller(vcfg.aec)
+        mic = MicStream(vcfg.input_device, aec)
+        player = AudioPlayer(tts.sample_rate, vcfg.output_device,
+                             on_render=(lambda a: aec.feed_reverse(a, tts.sample_rate)) if aec else None)
+        print("Echo cancellation: " + ("on" if aec else "off" + (" (livekit not installed)" if vcfg.aec.enabled else "")))
         ptt = PushToTalk(vcfg.ptt_hotkey) if vcfg.mode == "ptt" else None
         player.start()   # open the speakers now, not on the first word (saves ~0.4 s)
     return brain, stt, tts, mic, player, vad, ptt

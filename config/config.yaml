@@ -58,6 +58,9 @@ voice:
     acknowledgement: "Yes, sir?" # said when you only say "Nova"
     window_words: 3              # "Nova" must be within the first/last 3 words
   ptt_hotkey: ctrl+alt+space     # only used in ptt mode
+  aec:
+    enabled: true                # echo cancellation: Nova doesn't hear itself through speakers
+    delay_ms: 60
   barge_in:
     mode: verified               # verified (safe with speakers) | fast (headphones only) | off
     merge_window_s: 2.5          # keep talking within this after a pause -> one request

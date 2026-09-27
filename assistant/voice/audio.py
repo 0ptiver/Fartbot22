@@ -16,8 +16,9 @@ from assistant.voice.vad import FRAME, SAMPLE_RATE
 class MicStream:
     """Default (or chosen) microphone as 512-sample float32 frames at 16 kHz, timestamped."""
 
-    def __init__(self, device: str | int | None = None):
+    def __init__(self, device: str | int | None = None, aec=None):
         self.device = device
+        self.aec = aec                      # EchoCanceller: removes Nova's voice from the mic
         self._queue: asyncio.Queue[tuple[np.ndarray, float]] = asyncio.Queue(maxsize=500)
         self._stream = None
         self.overflows = 0
@@ -46,7 +47,10 @@ class MicStream:
         if self._stream is None:
             self.start()
         while True:
-            yield await self._queue.get()
+            frame, t = await self._queue.get()
+            if self.aec is not None:
+                frame = self.aec.process(frame)
+            yield frame, t
 
     def close(self) -> None:
         if self._stream is not None:
@@ -101,9 +105,10 @@ def resample(audio: np.ndarray, src: int, dst: int) -> np.ndarray:
 class AudioPlayer:
     """Streams float32 chunks to the speakers. `stop()` cuts playback instantly (barge-in)."""
 
-    def __init__(self, sample_rate: int = 24000, device: str | int | None = None):
+    def __init__(self, sample_rate: int = 24000, device: str | int | None = None, on_render=None):
         self.sample_rate = sample_rate
         self.device = device
+        self.on_render = on_render          # gets every block actually sent to the speakers
         self._chunks: list[np.ndarray] = []
         self._offset = 0
         self._lock = threading.Lock()
@@ -137,6 +142,11 @@ class AudioPlayer:
                     self._offset = 0
             empty = not self._chunks
         out[filled:] = 0
+        if self.on_render is not None:
+            try:
+                self.on_render(out.copy())
+            except Exception:  # never break audio output
+                pass
         if filled and self.first_audio_at is None:
             self.first_audio_at = time.perf_counter()
         if empty and self._loop is not None:

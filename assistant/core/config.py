@@ -141,8 +141,15 @@ class BargeInConfig(BaseModel):
     merge_window_s: float = 2.5      # speak again this soon, before it answers -> one request
 
 
+class AECConfig(BaseModel):
+    enabled: bool = True             # remove Nova's own voice from the mic (WebRTC AEC3)
+    delay_ms: int = 60               # speaker->mic delay hint; the canceller also estimates it
+    noise_suppression: bool = False
+
+
 class VoiceConfig(BaseModel):
     mode: str = "wake"
+    aec: AECConfig = Field(default_factory=AECConfig)
     barge_in: BargeInConfig = Field(default_factory=BargeInConfig)
     wake: WakeConfig = Field(default_factory=WakeConfig)
     ptt_hotkey: str = "ctrl+alt+space"

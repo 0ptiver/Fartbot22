@@ -196,7 +196,10 @@ scripts/           # install, run, register-startup
 - [x] Stop words ("stop", "cancel", "never mind") stop without starting a new request. "Stop the music" is treated as a request
 - [x] Pause-and-continue: speech during the thinking phase within 2.5 s merges into one request
 - [x] Speculative STT: Whisper starts at 160 ms of silence, and the result is used if no speech followed
-- [ ] AEC: not needed so far (the echo check replaces it). Revisit if speaker barge-in misfires
+- [x] Owner test: barge-in works ("actually I lied…" interrupted), speculative STT works, totals 0.95–1.25 s
+- [x] Owner found: on speakers Nova heard "90 x 90" from its own "90 times 90 is 8,100" and interrupted itself
+- [x] Echo cancellation: WebRTC AEC3 (via `livekit`). Speaker output is the reference, and the mic is cleaned before VAD/Whisper. Simulated room: 33 dB of echo removed, the user talking over it stays 22 dB above the residual
+- [x] Backup echo check: normalized text ("x"="times", "8,100"="8100", number words), 4+ character runs, word pairs, short snippets. An all-echo utterance is ignored
 - [x] Filler lines for slow tools (done in 2.5)
 - [x] Speculative end-of-turn (see speculative STT)
 - [ ] Benchmark vs. realtime speech-to-speech API; report latency + cost

@@ -194,6 +194,13 @@ async def check(full: bool) -> int:
         line(FAIL, "no microphone / audio system", str(e)[:80])
         problems += 1
 
+    try:
+        from assistant.voice.aec import EchoCanceller
+        EchoCanceller()
+        line(OK, "echo cancellation (WebRTC AEC3) available")
+    except Exception:
+        line(WARN, "echo cancellation unavailable", "pip install livekit  (Nova may hear itself on speakers)")
+
     # --- Security -----------------------------------------------------------------
     from assistant.core.secrets import get_secret, local_client_token
     local_client_token()
