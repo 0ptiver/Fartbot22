@@ -22,7 +22,7 @@ powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 
 You need an Anthropic API key (https://console.anthropic.com → API keys). Use either:
 
-- **Windows Credential Manager** (recommended):
+- **Windows Credential Manager** (recommended, the key is kept by Windows rather than in a file):
   `.venv\Scripts\python -m assistant secrets set ANTHROPIC_API_KEY`
 - or `config\.env`: `ANTHROPIC_API_KEY=sk-ant-...`
 
@@ -87,12 +87,16 @@ Speech stack (all switchable in `config/config.yaml` → `voice`):
 
 Everything lives in `config/config.yaml`: name, honorific, timezone, models, tool aliases, risk overrides and audit log path. Model IDs are only set there.
 
-## Safety
+## Security
 
-- Every tool has a risk level: `safe` runs immediately, `confirm` asks you first, `blocked` never runs.
-  You can override a tool's level in `safety.risk_overrides`.
-- Every tool call is appended to `data/audit.jsonl` with the time, client, arguments, result and duration.
-- The server only listens on `127.0.0.1` and refuses non-loopback WebSocket clients until Phase 6 adds auth.
+The full plan is in [PLAN.md → Security & privacy](PLAN.md#security--privacy-applies-to-every-phase). The short version:
+
+- **Nothing is exposed to the internet.** The core server listens on `127.0.0.1` only. Remote access (Phase 6) uses Tailscale plus a password and 2FA, never port forwarding.
+- **Only your own apps can talk to it.** Clients must present a local token kept in Windows Credential Manager. Web pages are blocked by Origin and Host checks, so a site you visit can't drive Nova.
+- **Keys live in Windows Credential Manager**, not in files or code.
+- **Risky actions need your yes.** Each tool is `safe`, `confirm` or `blocked`, and you can tighten any of them in `safety.risk_overrides`. Text from web pages, emails or your screen can't approve an action. Only you can.
+- **Everything is logged.** Each tool call is appended to `data/audit.jsonl` (`python -m assistant audit`).
+- **Voice stays on your PC.** Speech recognition and synthesis run locally, and no audio is saved.
 
 ## Cost (Anthropic API)
 

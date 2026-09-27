@@ -79,7 +79,10 @@ async def run_local(debug: bool) -> None:
 async def run_remote(url: str, debug: bool) -> None:
     import websockets
 
-    async with websockets.connect(url, max_size=None) as ws:
+    from assistant.core.secrets import local_client_token
+
+    headers = {"Authorization": f"Bearer {local_client_token()}"}
+    async with websockets.connect(url, max_size=None, additional_headers=headers) as ws:
         hello = json.loads(await ws.recv())
         printer = Printer(hello.get("name", "Assistant"), debug)
         idle = asyncio.Event()

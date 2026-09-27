@@ -29,3 +29,30 @@ def set_secret(name: str, value: str) -> None:
     import keyring
 
     keyring.set_password(KEYRING_SERVICE, name, value)
+
+
+def local_client_token() -> str:
+    """Token local clients (CLI, HUD) present to the core server.
+
+    Generated once and kept in Windows Credential Manager. Falls back to a
+    user-only file when no keyring backend exists (e.g. headless Linux).
+    """
+    import secrets as _secrets
+
+    token = get_secret("LOCAL_CLIENT_TOKEN")
+    if token:
+        return token
+    path = ROOT / "data" / "local_token"
+    if path.exists():
+        return path.read_text(encoding="utf-8").strip()
+    token = _secrets.token_urlsafe(32)
+    try:
+        set_secret("LOCAL_CLIENT_TOKEN", token)
+        if get_secret("LOCAL_CLIENT_TOKEN") == token:
+            return token
+    except Exception:
+        pass
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(token, encoding="utf-8")
+    os.chmod(path, 0o600)
+    return token

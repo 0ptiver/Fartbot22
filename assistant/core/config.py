@@ -89,6 +89,10 @@ class VoiceConfig(BaseModel):
 class ServerConfig(BaseModel):
     host: str = "127.0.0.1"
     port: int = 8765
+    # Host headers the server answers to (blocks DNS-rebinding attacks from web pages).
+    allowed_hosts: list[str] = Field(default_factory=lambda: ["127.0.0.1", "localhost"])
+    # Browser origins allowed to connect (the HUD/PWA get added in later phases).
+    allowed_origins: list[str] = Field(default_factory=list)
 
 
 class ScreenshotConfig(BaseModel):

@@ -70,13 +70,42 @@ Honest note: 800 ms is tight with a cloud LLM. Tricks to hit it: speculative STT
 - **Gmail + Google Calendar** — Google OAuth "desktop app" credentials (free). Sending email is always `confirm`.
 - **Home Assistant** — deferred (not wanted for now).
 
-## Safety model
+## Security & privacy (applies to every phase)
 
-- Every tool declares a risk level: `safe` / `confirm` / `blocked`.
-- Delete, send message/email, spend money, arbitrary shell, shutdown → `confirm` minimum.
-- Remote clients: shell and file deletion **disabled** by default; stricter policy table in config.
-- Append-only JSONL audit log of every tool call (time, client, args, result).
-- Kill switch cancels all in-flight tasks and mutes the mic.
+Goal: nothing about you (keys, accounts, files, screen, voice, memories) can be reached or used by anyone but you. Nova must not be tricked into acting against you either.
+
+**Threats we design against**
+1. Someone on the internet reaching Nova → never exposed publicly.
+2. A web page you visit talking to Nova's local server → token + Origin + Host checks.
+3. Stolen API keys or account tokens → Credential Manager, never in files or code.
+4. Prompt injection: a web page, email, document or on-screen text telling Nova to "delete files" or "email this to…" → risky tools always need *your* confirmation.
+5. A lost phone or leaked device token → per-device tokens you can revoke, plus 2FA.
+6. Nova misbehaving or looping → audit log, kill switch, tool-round cap.
+
+**Controls**
+
+| Area | Control | Status |
+|---|---|---|
+| Local server | Binds 127.0.0.1 only. Refuses non-loopback peers | ✅ Phase 1 |
+| Local server | Every client needs the local token (generated once, stored in Windows Credential Manager) | ✅ Phase 2 |
+| Local server | Rejects browser Origins not on the allowlist and unexpected Host headers (DNS rebinding). No API docs exposed | ✅ Phase 2 |
+| Secrets | API keys and OAuth tokens in Windows Credential Manager (`keyring`). `.env` is optional and git-ignored | ✅ |
+| Spend | Set a monthly spend limit in the Anthropic console, so a leaked key can't run up a bill | 📝 owner action |
+| Tools | Risk levels: `safe` / `confirm` / `blocked`. Anything that deletes, sends, spends, runs shell, or shuts down is `confirm` | ✅ framework, Phase 4 tools |
+| Tools | Confirmations come from you (voice "yes" or a UI button), never from the model. The prompt shows the exact action and arguments | ✅ framework |
+| Tools | Content from web, email, files and screen is treated as untrusted data. It can't lower a tool's risk level | Phase 4 |
+| Tools | Shell: allowlisted commands only. Anything else is shown and needs confirmation. Disabled remotely | Phase 4 |
+| Tools | File access limited to folders you choose. Deletes go to the Recycle Bin, never permanent | Phase 4 |
+| Accounts | Gmail/Calendar/Spotify use OAuth with minimal scopes. Email is read-only unless you enable sending (always confirmed) | Phase 4 |
+| Audit | Append-only log of every tool call (time, client, args, result summary). Screenshots and email bodies are never written to it | ✅ |
+| Kill switch | `Ctrl+Alt+End` or "Nova, stand down" cancels everything and mutes the mic | Phase 4 |
+| Voice privacy | Wake word, VAD, STT and TTS run locally. No audio leaves the PC or is saved to disk unless you pick cloud STT | ✅ |
+| Memory | Stored locally in your user profile. Encrypted at rest with a key from Credential Manager. "Forget that" deletes for real | Phase 5 |
+| Remote | Tailscale only (private network, WireGuard encryption). **No port forwarding, ever** | Phase 6 |
+| Remote | Password (argon2 hash) + TOTP 2FA, or QR pairing. Per-device revocable tokens. Login rate limiting and lockout. HTTPS via `tailscale serve` | Phase 6 |
+| Remote | Stricter policy: shell and deletion off, more tools need confirmation | ✅ policy hook, Phase 6 |
+| Supply chain | Dependencies pinned in a lockfile. MCP servers are opt-in, one by one, and their tools default to `confirm` | Phase 4/7 |
+| Data sent to Anthropic | Your messages, tool results and (when asked) screenshots go to the Claude API. Anthropic doesn't train on API data by default | informational |
 
 ## Repository layout
 

@@ -53,6 +53,8 @@ voice:
 server:
   host: 127.0.0.1                # localhost only until Phase 6 (remote access)
   port: 8765
+  allowed_hosts: [127.0.0.1, localhost]   # blocks DNS-rebinding attacks from web pages
+  allowed_origins: []                      # no browser page may connect (HUD/PWA added later)
 
 tools:
   # Friendly names -> launch targets (a URI, an exe path, or a Start Menu shortcut name).
