@@ -828,6 +828,8 @@ class VoiceLoop:
 
         def push(chunks: list[str], counts: bool = True) -> None:
             for c in chunks:
+                if counts and _OFFER.match(c.strip()):
+                    continue                           # "Would you like me to ...?": not read out
                 if counts and budget[0] <= 0:
                     cut[0] = True                  # shown in the window, not read out
                     continue
@@ -939,6 +941,11 @@ def _brief_args(args) -> dict:
             out[k] = [x[:30] for x in v[:5]]
     return out
 
+
+# Offers at the end of a reply ("Would you like me to proceed?"): the owner wants action, not questions.
+_OFFER = re.compile(r"^(?:would you like(?: me)? to|do you want me to|shall i|should i|let me know if|is there anything "
+                    r"else|anything else(?: i can)?|can i help (?:you )?with anything|if you(?:'d like| want| need)|feel free to)"
+                    r"\b", re.I)
 
 _DETAIL = re.compile(r"\b(?:explain|in detail|tell me (?:about|more)|story|read (?:me|it|this|that|out)|"
                      r"summari[sz]e|walk me through|step by step|how do i|how to|describe|list|what are|"

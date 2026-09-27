@@ -218,6 +218,17 @@ class LocalBrain:
                 async for ev in self._say(conv, user_text, await self._note_preference(pref, ctx, sir)):
                     yield ev
                 return
+            parts = self._compound(user_text, ctx)
+            if parts:
+                async for ev in self._run_calls(conv, user_text, parts, ctx):
+                    yield ev
+                conv.last_action = {"text": user_text, "at": time.time()}
+                return
+            browse = _open_browser_followup(user_text, getattr(conv, "last_query", None))
+            if browse is not None:
+                async for ev in self._run_calls(conv, user_text, [browse], ctx):
+                    yield ev
+                return
             lesson = store.match(user_text)
             if lesson is not None:
                 store.used(lesson)
@@ -256,8 +267,42 @@ class LocalBrain:
                     yield TextDelta(note)
                     ev.text = (ev.text + note).strip()
             yield ev
+        for c in calls:                                  # what was just looked up, for "open Edge and look"
+            a = c.get("args") or {}
+            q = a.get("query") if c["tool"] == "web_search" else a.get("search") if c["tool"] == "open_website" \
+                else a.get("text") if c["tool"] == "browser" and a.get("action") == "search" else None
+            if q:
+                conv.last_query = q
         if any(c["ok"] and c["tool"] not in L.NOT_ACTIONS for c in calls):
             conv.last_action = {"text": original or user_text, "at": time.time()}
+
+    def _compound(self, text: str, ctx: ToolContext) -> list[dict] | None:
+        """'Pause the video and open Spotify' -> two direct commands, no model (owner's case: the
+        model said 'Sorry, I wasn't able to do that'). 'Open Steam and Discord' reuses the verb.
+        Only when every part is a known command; otherwise the model gets the whole thing."""
+        from assistant.brain.intents import _clean
+        t = _clean(text)
+        parts = [p.strip(" .,!?") for p in _SPLIT.split(t) if p and p.strip(" .,!?")]
+        if not 2 <= len(parts) <= 3:
+            return None
+        grid = ctx.services.get("grid")
+        flags = dict(grid_visible=bool(grid and grid.grid is not None), labels=bool(grid and grid.labels is not None),
+                     browser_active=_browser_active())
+        whole = match_intent(text, **flags)
+        if whole and whole[0] == "browser":
+            return None                                  # "open kbb.com and search for a civic" is one thing
+        calls, verb = [], ""
+        for p in parts:
+            it = match_intent(p, **flags)
+            if it is None and verb:
+                it = match_intent(f"{verb} {p}", **flags)     # "open steam and discord"
+            if it is None:
+                return None
+            verb = p.split()[0] if p.split()[0] in ("open", "close", "launch", "start", "quit", "play", "pause") else verb
+            calls.append({"tool": it[0], "args": it[1]})
+        if whole and whole[0] == "video" and all(c["tool"] in ("video", "media") for c in calls):
+            return None                                  # "full screen the video and play it": one video command
+        return calls
 
     def _fast_path(self, text: str, ctx: ToolContext) -> bool:
         grid = ctx.services.get("grid")
@@ -287,9 +332,15 @@ class LocalBrain:
 
     async def _replay(self, conv: Conversation, user_text: str, lesson, ctx: ToolContext) -> AsyncIterator[Event]:
         """Do what the user taught for this request, the way that fixed it last time."""
+        async for ev in self._run_calls(conv, user_text, lesson.calls, ctx):
+            yield ev
+        conv.last_action = {"text": user_text, "at": time.time(), "lesson": lesson.id}
+
+    async def _run_calls(self, conv: Conversation, user_text: str, calls: list[dict], ctx: ToolContext) -> AsyncIterator[Event]:
+        """Run known tool calls directly (no model) and say their results."""
         t0 = time.perf_counter()
         said: list[str] = []
-        for i, call in enumerate(lesson.calls):
+        for i, call in enumerate(calls):
             cid = f"learned_{i}"
             yield ToolStarted(cid, call["tool"], dict(call.get("args") or {}))
             started = time.perf_counter()
@@ -303,7 +354,6 @@ class LocalBrain:
         conv.messages.append({"role": "user", "content": user_text})
         conv.messages.append({"role": "assistant", "content": spoken})
         conv.trim()
-        conv.last_action = {"text": user_text, "at": time.time(), "lesson": lesson.id}
         yield TextDelta(spoken)
         yield TurnComplete(spoken, {"total_ms": _ms(t0)}, {"input_tokens": 0, "output_tokens": 0}, "learned")
 
@@ -417,6 +467,7 @@ class LocalBrain:
                             and _acts_without_tools(said_text, user_text)):
                         nudged = True
                         conv.messages.append({"role": "user", "content":
+                                              NUDGE_CAN if _REFUSES.search(said_text) else
                                               NUDGE_CLAIM if _CLAIM.search(said_text) else NUDGE})
                         continue
                     break
@@ -608,6 +659,25 @@ def _small_talk(text: str, sir: str) -> str | None:
     return None
 
 
+_SPLIT = re.compile(r"\s*,?\s*\b(?:and then|and also|and|then|also)\b\s*|\s*,\s*", re.I)
+
+_OPEN_BROWSER = re.compile(
+    r"^(?:(?:but|so|then|ok|okay|can you|could you|why don'?t you|just|please|go ahead and|nova)[, ]+)*"
+    r"(?:open|use|go (?:on|onto|to)|check|pull up|launch|bring up)(?: up)? (?:microsoft )?(?:edge|the browser|your browser|"
+    r"a browser|the internet|the web|online)(?:,? (?:and|to) (?:look|check|search|find|see)(?: (?:it|that) up| for it| there|"
+    r" it| online)?)?(?: for me| please)?[.!?]*$", re.I)
+
+
+def _open_browser_followup(text: str, last_query: str | None) -> dict | None:
+    """'Why don't you open Edge and look' -> search what was just asked about, in Nova's browser.
+    (Owner's case: the model answered "I cannot open Edge or any browser".)"""
+    if not _OPEN_BROWSER.match(text.strip()):
+        return None
+    if last_query:
+        return {"tool": "browser", "args": {"action": "search", "text": last_query, "details": False}}
+    return {"tool": "browser", "args": {"action": "open", "site": "duckduckgo.com", "details": False}}
+
+
 def _browser_active() -> bool:
     from assistant.tools.browser import BROWSER
     return BROWSER.active
@@ -645,6 +715,17 @@ _CLAIM = re.compile(
     r"|\bi(?:'?ve| have)\s+(?:now\s+|just\s+|also\s+)?(?:launched|skipped|put|made|full[- ]?screened)\b"
     r"|\b(?:is|are)\s+(?:now\s+)?playing\b|(?:^|[.!?]\s+)(?:now\s+)?playing\s+\w", re.I)
 
+# Owner's case: "I cannot open Edge or any browser directly as part of this interaction" and
+# "I cannot directly navigate to kbb.com". It can: it has a browser tool and controls the PC.
+_REFUSES = re.compile(
+    r"\bi (?:can ?not|can'?t|am unable to|'?m unable to|am not able to|'?m not able to|don'?t have the ability to|"
+    r"do not have the ability to|don'?t have access to|do not have access to|have no way to)\s+(?:directly\s+)?"
+    r"(?:open|browse|navigate|access|visit|go to|control|use|search|click|launch|look at|see|check|play|type|"
+    r"interact with)\b|\bas an ai\b|\bas part of this interaction\b", re.I)
+NUDGE_CAN = ("(Note from the system, not the user: you CAN do this. You have a browser tool that opens and "
+             "controls websites (open, search, click, read), and tools that control this PC. Call the right tool "
+             "now instead of saying you can't.)")
+
 NUDGE = ("(Note from the system, not the user: you said you would do that but did not call a "
          "tool. Call the right tool now. If no tool can do it, say so in one short sentence.)")
 NUDGE_CLAIM = ("(Note from the system, not the user: you said it was done, but you did not call any "
@@ -666,9 +747,12 @@ def _is_action_request(request: str) -> bool:
 
 
 def _acts_without_tools(text: str, request: str | None = None) -> bool:
-    """Promised an action, or claimed one was done. A claim only counts when the user asked for
-    an action ("is the shop open?" -> "it's closed on Sundays" is just an answer)."""
+    """Promised an action, claimed one was done, or wrongly said it can't (it has the tools).
+    A claim only counts when the user asked for an action ("is the shop open?" -> "it's closed
+    on Sundays" is just an answer)."""
     if _PROMISE.search(text):
+        return True
+    if _REFUSES.search(text):
         return True
     if not _CLAIM.search(text):
         return False

@@ -37,7 +37,8 @@ async def test_open_mic_turn_from_wav(settings, registry):
     heard = (stt.heard_seconds or stt.spec_seconds)[0]   # end-of-speech or speculative STT
     assert 1.5 < heard < 3.0
     # Spoken in chunks, with the pre-tool acknowledgement first.
-    assert tts.spoken == ["One moment, sir.", "It is a quarter past three.", "Anything else?"]
+    # "Anything else?" isn't read out (owner: action, not offers).
+    assert tts.spoken == ["One moment, sir.", "It is a quarter past three."]
     assert len(player.audio()) > 0
     lat = loop.last_latency
     for m in ("speech_end", "eot_detected", "stt_done", "llm_first_token", "first_chunk",

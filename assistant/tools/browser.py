@@ -27,7 +27,9 @@ PROFILE_DIR = ROOT / "data" / "nova-browser"
 ACTIVE_S = 15 * 60           # "search for X" goes to Nova's browser if it was used this recently
 MAX_ELEMENTS = 30
 
-NAMES = {"kelley blue book": "kbb.com", "kelly blue book": "kbb.com", "kbb": "kbb.com", "youtube": "youtube.com",
+NAMES = {"kelley blue book": "kbb.com", "kelly blue book": "kbb.com", "kbb": "kbb.com", "kelly bluebook": "kbb.com",
+         "kelley bluebook": "kbb.com", "blue book": "kbb.com", "edmunds": "edmunds.com", "carfax": "carfax.com",
+         "carvana": "carvana.com", "cars dot com": "cars.com", "zillow": "zillow.com", "yelp": "yelp.com", "youtube": "youtube.com",
          "google": "google.com", "amazon": "amazon.com", "ebay": "ebay.com", "reddit": "reddit.com",
          "wikipedia": "wikipedia.org", "gmail": "mail.google.com", "twitch": "twitch.tv", "netflix": "netflix.com",
          "github": "github.com", "facebook": "facebook.com", "instagram": "instagram.com", "twitter": "x.com",
@@ -433,7 +435,17 @@ async def _looks_like_results(page, query: str) -> bool:
 
 
 def _query(q: str) -> str:
-    return re.sub(r"^(?:a|an|the|some)\s+", "", q.strip())
+    """'the resale value of a 2016 honda accord' -> '2016 honda accord' (what a site's search wants)."""
+    q = q.strip().rstrip("?.")
+    q = re.sub(r"^(?:(?:the|a|an)\s+)?(?:(?:resale|trade[- ]in|market|private party|current|used|new)\s+)*"
+               r"(?:value|price|prices|cost|worth|pricing|listings?|reviews?|specs)\s+(?:of|for|on)\s+", "", q)
+    q = re.sub(r"\s+(?:is worth|costs?|goes for|sells for)$", "", q)
+    return re.sub(r"^(?:a|an|the|some|my)\s+", "", q.strip())
+
+
+def _known_site(site: str) -> bool:
+    s = site.lower().removeprefix("the ").removesuffix(" website").removesuffix(" site").strip()
+    return s in NAMES or bool(re.search(r"[\w-]\.[a-z]{2,}", s)) or bool(re.search(r"\w\.(?:com|co|org|net|io)\b", s))
 
 
 _KEYS = {"enter": "Enter", "escape": "Escape", "esc": "Escape", "tab": "Tab", "page down": "PageDown",
@@ -444,11 +456,19 @@ def browser_intent(t: str, active: bool, front: bool = False) -> tuple[str, dict
     """'open kbb.com and search for a 2019 honda civic', 'search kbb for civic', 'on amazon search
     for headphones', and (when Nova's browser is in use) 'search for X', 'click sign in',
     'scroll down', 'go back', 'read the page'."""
-    m = (re.fullmatch(r"(?:open|go to|pull up|load)(?: up)? (?P<site>.+?)(?: website| site)?,? and (?:then )?"
-                      r"(?:search|look) (?:it |the site )?(?:for|up) (?P<q>.+)", t)
+    # Owner's cases: "Go to kbb.com and look at the resale value of a 2016 Honda Accord",
+    # "what's a 2019 Honda Civic worth on Kelley Blue Book".
+    look = r"(?:search (?:it |the site |there )?for|look (?:up|at|for|into)|find(?: out)?|check(?: out)?|get(?: me)?|see|show me|pull up)"
+    m = (re.fullmatch(r"(?:open|go to|go on|go onto|use|check|pull up|load|visit)(?: up)? (?P<site>.+?)(?: website| site)?,?"
+                      r" and (?:then )?" + look + r" (?P<q>.+)", t)
          or re.fullmatch(r"(?:search|look on|look up on|check) (?P<site>[\w.' -]+?) for (?P<q>.+)", t)
-         or re.fullmatch(r"(?:on|in) (?P<site>[\w.' -]+?),? (?:search|look) (?:for|up) (?P<q>.+)", t)
-         or re.fullmatch(r"(?:search|look) (?:for|up) (?P<q>.+?) on (?P<site>[\w.' -]+?)(?: website| site)?", t))
+         or re.fullmatch(r"(?:on|in|using) (?P<site>[\w.' -]+?),? " + look + r" (?P<q>.+)", t)
+         or re.fullmatch(r"(?:search for|" + look + r") (?P<q>.+?) (?:on|in|at|using) (?P<site>[\w.' -]+?)(?: website| site)?", t)
+         or re.fullmatch(r"(?:what(?:'?s| is| are)|how much is|how much are) (?P<q>.+?) worth(?: on| at| according to) "
+                         r"(?P<site>[\w.' -]+?)(?: website| site)?", t)
+         or re.fullmatch(r"(?:what does|what do|what will) (?P<site>[\w.' -]+?) (?:say|value|price) (?P<q>.+?)(?: at| is worth)?", t))
+    if m and not _known_site(m.group("site").strip()):
+        m = None                                          # "look up the weather on my phone": not a website
     if m:
         site = m.group("site").strip()
         if site in ("youtube", "google", "the web", "the internet", "web", "internet", "spotify", "amazon music"):
