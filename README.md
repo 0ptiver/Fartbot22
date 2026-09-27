@@ -5,28 +5,44 @@ It's calm and concise and calls you "sir", in a British butler style. It runs on
 
 See [PLAN.md](PLAN.md) for the architecture, chosen stack, costs and phase checklist.
 
-**Current status: Phase 2 (voice loop).** Hold a hotkey and talk. Speech-to-text and text-to-speech run locally on your PC for free. Text chat from Phase 1 still works too.
+**Current status: Phase 2 (voice loop).** Hold a hotkey and talk. The everyday model, speech-to-text and text-to-speech all run on your PC for free. Hard tasks go to your Claude subscription.
+
+## How it thinks: free by default
+
+| Job | Who does it | Cost |
+|---|---|---|
+| Everyday chat, PC control, quick facts, web lookups | **A local model in Ollama** (`qwen3:4b`) on your GPU | free |
+| "What's on my screen?" | **A local vision model** (`qwen3-vl:4b`) | free |
+| Hard tasks: research, analysis, writing, code, "ask Claude…" | **Your Claude Pro subscription**, through the official Claude Code CLI | included in Pro |
+| Optional: the Claude API instead of either one | `brain.backend: anthropic` / `expert.backend: anthropic` | paid per token |
+
+How the hand-off works: Nova runs the real, unmodified `claude` program, signed in with your own account. Nova never sees or stores your Claude login.
+Hard tasks count against your Pro plan's usage limits, so keep them for things that need it.
+Claude Code is locked down for this: it gets web search and web fetch only, no shell, no file edits, no MCP servers, and it runs in an empty folder of its own.
 
 ## Setup (Windows)
 
-Prerequisites: Python 3.12 (`winget install Python.Python.3.12`) and Git.
+You need:
+- Python 3.12 (`winget install Python.Python.3.12`) and Git
+- **Ollama** (https://ollama.com/download)
+- **Claude Code** (PowerShell: `irm https://claude.ai/install.ps1 | iex`). Run `claude` once and log in with your Claude account
 
 ```powershell
-git clone <this repo>
+git clone https://github.com/0ptiver/Fartbot22
 cd Fartbot22
 git checkout claude/jarvis-voice-assistant-lhnfza
 powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+.venv\Scripts\python -m assistant doctor --full
 ```
 
-### API key
+The installer pulls the Ollama models and speech models (about 8 GB in total) and runs the tests.
+`doctor` checks everything and tells you exactly what to fix. `--full` also sends one tiny test request through each model.
 
-You need an Anthropic API key (https://console.anthropic.com → API keys). Use either:
+### API key (optional)
 
-- **Windows Credential Manager** (recommended, the key is kept by Windows rather than in a file):
-  `.venv\Scripts\python -m assistant secrets set ANTHROPIC_API_KEY`
-- or `config\.env`: `ANTHROPIC_API_KEY=sk-ant-...`
-
-Keys are never stored in code or committed. `config/.env` is git-ignored.
+Only needed if you switch a backend to `anthropic`. Store it in Windows Credential Manager:
+`.venv\Scripts\python -m assistant secrets set ANTHROPIC_API_KEY`.
+Keys are never stored in code or committed. When Nova calls Claude Code, it strips any API key from Claude Code's environment, so your subscription is used rather than the API.
 
 ## Run
 
@@ -39,7 +55,7 @@ Keys are never stored in code or committed. `config/.env` is git-ignored.
 .venv\Scripts\python -m assistant chat --debug   # terminal 2
 ```
 
-`--debug` prints per-turn timings (time to first token, tool time, total) and token usage, including prompt-cache reads and writes.
+`--debug` prints per-turn timings (time to first token, tool time, total) and token usage.
 
 Other commands:
 
@@ -98,19 +114,31 @@ The full plan is in [PLAN.md → Security & privacy](PLAN.md#security--privacy-a
 - **Everything is logged.** Each tool call is appended to `data/audit.jsonl` (`python -m assistant audit`).
 - **Voice stays on your PC.** Speech recognition and synthesis run locally, and no audio is saved.
 
-## Cost (Anthropic API)
+## Cost
 
-Default chat model: Claude Haiku 4.5 ($1 input / $5 output per million tokens, cached input ~10%).
-A voice-style conversation costs roughly **$0.20–0.40 per hour**. Escalations to Opus 5 ($5 / $25 per MTok) cost a few cents each.
-Speech runs locally from Phase 2, so it adds nothing. The expected total at ~2 h/day is **$15–32/month**.
-See PLAN.md for the breakdown.
+With the defaults (local model plus your Claude Pro subscription), Nova costs **nothing beyond your Pro plan**. The only other costs are your electricity and GPU.
+If you switch to the Claude API: Haiku 4.5 conversation is roughly $0.20–0.40 per hour, and Opus escalations cost a few cents each. PLAN.md has the details.
+
+### Choosing the local model (8 GB VRAM)
+
+| Model | VRAM | Notes |
+|---|---|---|
+| `qwen3:4b` (default) | ~3 GB | leaves room for Whisper and the vision model |
+| `qwen3:8b` | ~5.5 GB | smarter. Pair it with `stt.whisper.model: small.en` or `distil-large-v3` so everything fits |
+| `qwen3-vl:4b` (vision) | ~3.5 GB | loaded only when you ask about your screen. Set `local.vision: claude_code` to use your subscription instead |
+
+Change `brain.local.model` in `config/config.yaml`, then run `ollama pull <model>`.
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---|---|
-| `No ANTHROPIC_API_KEY` | Set the key (see above). Check `config\.env` has no quotes or spaces. |
-| `API key was rejected` | Regenerate the key in the Anthropic console, and check the account has credit. |
+| "Ollama isn't running" | Start the Ollama app (tray icon). Check with `ollama list`. |
+| "model … isn't downloaded" | `ollama pull qwen3:4b` (or whatever `brain.local.model` says). |
+| "Claude Code isn't signed in" | Run `claude` in a terminal, log in, then `/exit`. |
+| "usage limit has been reached" | Your Pro plan's limit for now. It resets after a few hours. Everyday chat keeps working locally. |
+| Local model picks the wrong tool, or rambles | Try `qwen3:8b` (see the table above), or say "ask Claude …" to force the hand-off. |
+| `No ANTHROPIC_API_KEY` | Only relevant with an `anthropic` backend. Set the key, or switch back to `local` / `claude_code`. |
 | Volume tool errors | `pip install pycaw comtypes` (the installer does this). It needs a default playback device. |
 | "couldn't find an app" | Add an alias in `config/config.yaml` → `tools.app_aliases` (an exe name, full path, or URI such as `spotify:`). |
 | Screenshot is black | Some games or DRM video block capture. Try windowed mode. |

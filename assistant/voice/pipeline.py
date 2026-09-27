@@ -7,6 +7,7 @@ first clause of the reply, and later sentences synthesize while earlier ones pla
 from __future__ import annotations
 
 import asyncio
+import itertools
 import logging
 from typing import Any, Callable
 
@@ -49,6 +50,7 @@ class VoiceLoop:
         self._ptt_frames: list[np.ndarray] = []
         self._ptt_t_last = 0.0
         self.last_latency: LatencyTracker | None = None
+        self._fillers = itertools.cycle(self.cfg.filler_phrases or [""])
         self.turns_done = 0
 
     @property
@@ -155,7 +157,12 @@ class VoiceLoop:
                     self.on_event({"type": "text", "text": ev.text})
                     push(chunker.feed(ev.text))
                 elif isinstance(ev, ToolStarted):
-                    push(chunker.flush())       # say "one moment" before the tool runs
+                    push(chunker.flush())       # speak what's been said so far first
+                    if chunker.emitted == 0 and ev.name in self.cfg.filler_tools:
+                        filler = next(self._fillers)
+                        if filler:
+                            push([filler])
+                            chunker.emitted += 1
                     self.on_event({"type": "tool", "name": ev.name})
                 elif isinstance(ev, BrainError):
                     push(chunker.flush())

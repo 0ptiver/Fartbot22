@@ -16,11 +16,12 @@ from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 
+from assistant.brain import create_brain
 from assistant.brain.llm import Brain
 from assistant.core.config import Settings, load_settings
 from assistant.core.secrets import local_client_token
 from assistant.core.session import Session
-from assistant.tools import build_registry
+
 
 AUTH_TIMEOUT_S = 5
 
@@ -58,7 +59,7 @@ def create_app(settings: Settings | None = None, brain: Brain | None = None,
                token: str | None = None, trust_test_client: bool = False) -> FastAPI:
     settings = settings or load_settings()
     if brain is None:
-        brain = Brain(settings, build_registry(settings))
+        brain = create_brain(settings)
     token = token or local_client_token()
     allowed_hosts = {h.lower() for h in settings.server.allowed_hosts}
     allowed_origins = set(settings.server.allowed_origins)

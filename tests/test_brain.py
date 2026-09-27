@@ -77,6 +77,7 @@ async def test_max_tokens_tool_input_not_run(settings, registry, ctx):
 
 
 async def test_expert_escalation(settings, registry, ctx):
+    settings.brain.expert.backend = "anthropic"
     client = FakeClient(
         [tool_msg("escalate", {"task": "prove it"}), text_msg("The expert agrees.")],
         expert_script=[text_msg("Short answer. Details.")],

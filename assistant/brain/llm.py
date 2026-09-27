@@ -10,7 +10,8 @@ from typing import Any, AsyncIterator
 
 import anthropic
 
-from assistant.brain.prompts import EXPERT_SYSTEM, system_prompt, turn_context
+from assistant.brain.expert import Expert, create_expert
+from assistant.brain.prompts import system_prompt, turn_context
 from assistant.core.config import Settings
 from assistant.core.conversation import Conversation
 from assistant.core.secrets import get_secret
@@ -77,25 +78,35 @@ def _dump(block: Any) -> dict[str, Any]:
     return block.model_dump(mode="json", exclude_none=True) if hasattr(block, "model_dump") else block
 
 
+def default_client() -> anthropic.AsyncAnthropic:
+    key = get_secret("ANTHROPIC_API_KEY")
+    if not key:
+        raise RuntimeError(
+            "No ANTHROPIC_API_KEY. Put it in config/.env or run "
+            "`python -m assistant secrets set ANTHROPIC_API_KEY`."
+        )
+    return anthropic.AsyncAnthropic(api_key=key)
+
+
 class Brain:
+    """Conversation on the Claude API (brain.backend: anthropic)."""
+
     def __init__(self, settings: Settings, registry: ToolRegistry,
-                 client: anthropic.AsyncAnthropic | None = None):
+                 client: anthropic.AsyncAnthropic | None = None, expert: Expert | None = None):
         self.settings = settings
         self.registry = registry
         self._client = client
         self._system = [{"type": "text", "text": system_prompt(settings), "cache_control": CACHE}]
+        self.expert = expert or create_expert(settings, lambda: self.client)
 
     @property
     def client(self) -> anthropic.AsyncAnthropic:
         if self._client is None:
-            key = get_secret("ANTHROPIC_API_KEY")
-            if not key:
-                raise RuntimeError(
-                    "No ANTHROPIC_API_KEY. Put it in config/.env or run "
-                    "`python -m assistant secrets set ANTHROPIC_API_KEY`."
-                )
-            self._client = anthropic.AsyncAnthropic(api_key=key)
+            self._client = default_client()
         return self._client
+
+    async def warm_up(self) -> None:
+        pass
 
     def tools(self) -> list[dict[str, Any]]:
         tools = self.registry.definitions()
@@ -229,22 +240,8 @@ class Brain:
         yield TurnComplete("".join(spoken).strip(), timings, usage.counts, stop_reason)
 
     # --- expert hand-off ----------------------------------------------------
-    async def ask_expert(self, task: str, context: str = "") -> str:
-        cfg = self.settings.brain
-        prompt = f"{context}\n\nTask: {task}" if context else task
-        async with self.client.beta.messages.stream(
-            model=cfg.expert_model,
-            max_tokens=cfg.expert_max_tokens,
-            system=EXPERT_SYSTEM,
-            messages=[{"role": "user", "content": prompt}],
-            thinking={"type": "adaptive"},
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-        ) as stream:
-            msg = await stream.get_final_message()
-        if msg.stop_reason == "refusal":
-            return "The expert model declined this request."
-        return "".join(b.text for b in msg.content if b.type == "text").strip() or "(no answer)"
+    async def ask_expert(self, task: str, context: str = "", image_path=None) -> str:
+        return await self.expert.ask(task, context, image_path)
 
 
 def _ms(t0: float) -> float:

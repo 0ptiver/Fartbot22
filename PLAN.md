@@ -27,8 +27,10 @@ Wake phrase: **"Hey Nova"**. The name lives only in `config/config.yaml` (`assis
 | Kill switch | `Ctrl+Alt+End` + "Nova, stand down" | | configurable |
 | VAD | Silero VAD (ONNX, CPU), 400 ms end-of-speech | ~1 ms per frame | tunable 250–700 ms |
 | STT | **faster-whisper** `large-v3-turbo` int8_float16 on GPU | Free, ~150–250 ms per utterance on this GPU | Deepgram Nova streaming ($200 free credit, then ~$0.46/h) |
-| Brain (chat) | **Claude Haiku 4.5** (`claude-haiku-4-5`), streaming + tools | Lowest time-to-first-token, $1/$5 per MTok | `claude-sonnet-5` |
-| Brain (hard tasks) | **Claude Opus 5** (`claude-opus-5`) via an `escalate` hand-off | Deep reasoning when asked | any model id in config |
+| Brain (chat) | **Local `qwen3:4b` in Ollama**, streaming + tools | Free, private, ~0.2–0.4 s to first word on the RTX 5070 | Claude API (`claude-haiku-4-5`) |
+| Brain (hard tasks) | **Claude Code CLI on the owner's Claude Pro subscription**, via the `escalate` tool | No API fees; the official, unmodified CLI signs itself in | Claude API (`claude-opus-5`) |
+| Vision | Local `qwen3-vl:4b` | Free | Claude Code (subscription) |
+| Web search | Free DuckDuckGo (`ddgs`) for the local brain | No key | Claude server tool on the API backend |
 | TTS | **Kokoro-82M** (local, GPU or CPU) | Free, good quality, ~50–100 ms first audio per sentence | Cartesia Sonic (streaming), Piper |
 | AEC | WebRTC APM (`webrtc-audio-processing`) + mic gating during playback | Headphones make this easy; speakers need AEC | gate-only fallback |
 | Memory | SQLite + `sqlite-vec`, local embeddings (`bge-small-en`) | One file, no server | Chroma |
@@ -38,7 +40,12 @@ Wake phrase: **"Hey Nova"**. The name lives only in `config/config.yaml` (`assis
 
 Model IDs, voices, thresholds, hotkeys and tool permissions all live in `config/config.yaml`. No code has hardcoded model names.
 
-### Estimated monthly cost (60 hours of conversation / month ≈ 2 h/day)
+### Estimated monthly cost
+
+**Default setup (local model + Claude Pro subscription): $0 beyond the existing Pro plan.**
+Hard tasks count against Pro usage limits. Anthropic's terms allow signing in to the unmodified Claude Code with your own subscription for ordinary individual use. They don't allow extracting subscription credentials into other apps, so Nova only ever launches the official CLI (source: code.claude.com/docs/en/legal-and-compliance).
+
+Previous API-based estimate, kept for reference (60 hours of conversation / month ≈ 2 h/day):
 
 | Item | Estimate |
 |---|---|
@@ -97,6 +104,8 @@ Goal: nothing about you (keys, accounts, files, screen, voice, memories) can be 
 | Tools | Shell: allowlisted commands only. Anything else is shown and needs confirmation. Disabled remotely | Phase 4 |
 | Tools | File access limited to folders you choose. Deletes go to the Recycle Bin, never permanent | Phase 4 |
 | Accounts | Gmail/Calendar/Spotify use OAuth with minimal scopes. Email is read-only unless you enable sending (always confirmed) | Phase 4 |
+| Claude hand-off | Launches the official Claude Code only. Your login is never read or stored by Nova. Runs in an empty folder with web search/fetch only: no shell, no edits, no MCP servers. Read is confined to that folder. Deny-by-default permissions. Task passed via stdin. API keys stripped so the subscription is used | ✅ Phase 2.5 |
+| Local model | Runs on your PC. Ollama listens on 127.0.0.1 only (its default; don't set `OLLAMA_HOST=0.0.0.0`) | ✅ |
 | Audit | Append-only log of every tool call (time, client, args, result summary). Screenshots and email bodies are never written to it | ✅ |
 | Kill switch | `Ctrl+Alt+End` or "Nova, stand down" cancels everything and mutes the mic | Phase 4 |
 | Voice privacy | Wake word, VAD, STT and TTS run locally. No audio leaves the PC or is saved to disk unless you pick cloud STT | ✅ |
@@ -146,11 +155,20 @@ scripts/           # install, run, register-startup
 - [x] Integration test: recorded WAV -> real Silero VAD -> pipeline (fake STT/TTS/Claude) — 44 tests passing
 - [ ] Verified on the Windows PC: Whisper on the RTX 5070 (Blackwell) and Kokoro timings
 
+### Phase 2.5 — Free brain (owner request)
+- [x] `LocalBrain` on Ollama (streaming, tool calls, think off, warm-up, keep-alive, think-flag fallback)
+- [x] Expert hand-off to Claude Code (subscription): stdin prompt, API keys stripped, `dontAsk`, tools limited to WebSearch/WebFetch/Read (Read confined to an empty workspace), no MCP, no session persistence, timeout + kill
+- [x] Local vision for screenshots (`qwen3-vl:4b`) or Claude Code
+- [x] Free web search tool (DuckDuckGo) with results marked as untrusted
+- [x] Filler line ("One moment, sir.") before slow tools
+- [x] `doctor` command. Flags verified against the real Claude Code 2.1.283. 67 tests passing
+- [ ] Verified on the Windows PC (`doctor --full`)
+
 ### Phase 3 — Real-time feel
 - [ ] Train + ship "hey nova" openWakeWord model
 - [ ] Barge-in (stop playback, cancel LLM/TTS)
 - [ ] AEC (WebRTC APM) + gating fallback
-- [ ] Filler lines for tools > 1 s
+- [x] Filler lines for slow tools (done in 2.5)
 - [ ] Speculative end-of-turn
 - [ ] Benchmark vs. realtime speech-to-speech API; report latency + cost
 

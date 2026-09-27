@@ -23,10 +23,43 @@ class AssistantConfig(BaseModel):
 
 class WebSearchConfig(BaseModel):
     enabled: bool = True
-    max_uses: int = 3
+    max_uses: int = 3        # Claude API server tool (anthropic backend)
+    max_results: int = 5     # free DuckDuckGo search (local backend)
+
+
+class LocalLLMConfig(BaseModel):
+    host: str = "http://127.0.0.1:11434"
+    model: str = "qwen3:4b"
+    vision_model: str = "qwen3-vl:4b"   # used for "what's on my screen" when vision: ollama
+    vision: str = "ollama"              # ollama | claude_code
+    num_ctx: int = 8192
+    keep_alive: str = "30m"             # keep the model in VRAM between turns
+    think: bool = False                 # Qwen3 "thinking" adds seconds of silence; off for voice
+    temperature: float = 0.6
+    timeout_s: float = 60
+
+
+class ClaudeCodeConfig(BaseModel):
+    command: str = "claude"             # found on PATH; or a full path to claude.exe
+    model: str | None = None            # None = your plan's default; or "sonnet" / "opus"
+    timeout_s: float = 300
+    max_turns: int = 20
+    # Built-in Claude Code tools that exist in the hand-off session. No Bash, no Edit/Write.
+    tools: list[str] = Field(default_factory=lambda: ["WebSearch", "WebFetch", "Read"])
+    # Tools pre-approved everywhere. Read is deliberately NOT here: in dontAsk mode it can
+    # only read inside its own empty working folder, never your other files.
+    allowed_tools: list[str] = Field(default_factory=lambda: ["WebSearch", "WebFetch"])
+
+
+class ExpertConfig(BaseModel):
+    backend: str = "claude_code"        # claude_code (your Claude subscription) | anthropic (API)
+    claude_code: ClaudeCodeConfig = Field(default_factory=ClaudeCodeConfig)
 
 
 class BrainConfig(BaseModel):
+    backend: str = "local"              # local (Ollama, free) | anthropic (Claude API, paid)
+    local: LocalLLMConfig = Field(default_factory=LocalLLMConfig)
+    expert: ExpertConfig = Field(default_factory=ExpertConfig)
     chat_model: str = "claude-haiku-4-5"
     expert_model: str = "claude-opus-5"
     chat_max_tokens: int = 1024
@@ -84,6 +117,11 @@ class VoiceConfig(BaseModel):
     tts: TTSConfig = Field(default_factory=TTSConfig)
     first_chunk_min_chars: int = 12
     latency_report: bool = True
+    # Said when a slow tool starts and nothing has been said yet this turn.
+    filler_phrases: list[str] = Field(default_factory=lambda: [
+        "One moment, sir.", "On it, sir.", "Right away, sir. Give me a moment."])
+    filler_tools: list[str] = Field(default_factory=lambda: [
+        "escalate", "look_at_screen", "web_search"])
 
 
 class ServerConfig(BaseModel):

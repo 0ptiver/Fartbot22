@@ -53,13 +53,13 @@ class Printer:
 
 
 async def run_local(debug: bool) -> None:
-    from assistant.brain.llm import Brain
+    from assistant.brain import create_brain
     from assistant.core.config import load_settings
     from assistant.core.session import Session
-    from assistant.tools import build_registry
+
 
     settings = load_settings()
-    brain = Brain(settings, build_registry(settings))
+    brain = create_brain(settings)
     printer = Printer(settings.assistant.name, debug)
     session: Session
 
@@ -71,7 +71,9 @@ async def run_local(debug: bool) -> None:
             printer(ev)
 
     session = Session(brain, send, client_id="cli")
-    print(f"{settings.assistant.name} (local, model {settings.brain.chat_model}). "
+    model = settings.brain.local.model if settings.brain.backend == "local" else settings.brain.chat_model
+    print(f"{settings.assistant.name} (in-process, {settings.brain.backend}: {model}, "
+          f"hard tasks: {settings.brain.expert.backend}). "
           "Type /reset, /quit. Ctrl+C interrupts a reply.")
     await _repl(session.handle, session.wait_idle, session.cancel_turn)
 

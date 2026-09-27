@@ -45,8 +45,8 @@ def make_printer(name: str, show_latency: bool):
 
 
 async def build(settings, wav: str | None, out: str | None):
-    from assistant.brain.llm import Brain
-    from assistant.tools import build_registry
+    from assistant.brain import create_brain
+
     from assistant.voice.audio import AudioPlayer, MicStream, RecordingPlayer, WavMic
     from assistant.voice.hotkey import PushToTalk
     from assistant.voice.models import fetch_silero
@@ -55,12 +55,12 @@ async def build(settings, wav: str | None, out: str | None):
     from assistant.voice.vad import SileroVAD
 
     vcfg = settings.voice
-    brain = Brain(settings, build_registry(settings))
+    brain = create_brain(settings)
     stt, tts = create_stt(settings), create_tts(settings)
     t0 = time.perf_counter()
     print(f"Loading models (STT: {vcfg.stt.provider}, TTS: {vcfg.tts.provider})…", flush=True)
     vad_path = await asyncio.to_thread(fetch_silero)
-    await asyncio.gather(stt.load(), tts.load())
+    await asyncio.gather(stt.load(), tts.load(), brain.warm_up())
     print(f"Models ready in {time.perf_counter() - t0:.1f}s"
           + (f" (whisper on {stt.device})" if getattr(stt, "device", None) else ""), flush=True)
     vad = SileroVAD(vad_path)
@@ -82,7 +82,11 @@ async def run(args) -> None:
     settings = load_settings()
     if args.mode:
         settings.voice.mode = args.mode
-    brain, stt, tts, mic, player, vad, ptt = await build(settings, args.wav, args.out)
+    try:
+        brain, stt, tts, mic, player, vad, ptt = await build(settings, args.wav, args.out)
+    except Exception as e:
+        print(f"{RED}Startup failed: {e}{RESET}\nRun `python -m assistant doctor` for a full check.")
+        return
     loop = VoiceLoop(settings, brain, stt, tts, mic, player, vad, ptt,
                      make_printer(settings.assistant.name, settings.voice.latency_report or args.debug))
     if ptt:

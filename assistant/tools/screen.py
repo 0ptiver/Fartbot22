@@ -13,7 +13,8 @@ def grab_screen(monitor: int = 1):
     import mss
     from PIL import Image
 
-    with mss.mss() as sct:
+    factory = getattr(mss, "MSS", None) or mss.mss
+    with factory() as sct:
         if monitor >= len(sct.monitors):
             raise ToolError(f"There is no monitor {monitor}; I can see {len(sct.monitors) - 1}.")
         shot = sct.grab(sct.monitors[monitor])
@@ -28,10 +29,10 @@ def encode_image(img, max_edge: int, quality: int) -> str:
     return base64.standard_b64encode(buf.getvalue()).decode("ascii")
 
 
-def look_at_screen(args: dict, ctx: ToolContext, _grab=grab_screen) -> ToolResult:
+def look_at_screen(args: dict, ctx: ToolContext, _grab=None) -> ToolResult:
     cfg = ctx.settings.tools.screenshot
     try:
-        img = _grab(args.get("monitor", 1))
+        img = (_grab or grab_screen)(args.get("monitor", 1))
     except ToolError:
         raise
     except Exception as e:

@@ -96,3 +96,20 @@ def test_latency_report():
         lat.mark(m, i * 0.1)
     assert lat.total_ms() == 600
     assert "OK" in lat.report(800) and "OVER" in lat.report(500)
+
+
+async def test_filler_before_slow_tool(settings, registry):
+    settings.voice.mode = "ptt"
+    settings.voice.filler_phrases = ["One moment, sir."]
+    ptt = FakePTT()
+    mic = ScriptedMic(ptt, press_at=2, release_at=10, total=20)
+    script = [tool_msg("escalate", {"task": "x"}), text_msg("Done.")]
+    settings.brain.expert.backend = "anthropic"
+    loop, events, stt, tts, player = make_loop(settings, registry, script, mic, lambda f: 0.0, ptt)
+    loop.brain.expert = type("E", (), {"ask": staticmethod(lambda *a, **k: _answer())})()
+    await loop.run(max_turns=1)
+    assert tts.spoken == ["One moment, sir.", "Done."]
+
+
+async def _answer():
+    return "expert answer"
