@@ -200,6 +200,44 @@ async def mictest(seconds: float = 4.0, input_device: str | None = None) -> None
     print(f"Whisper heard: {text!r}" if text else f"{RED}Whisper heard nothing.{RESET}")
 
 
+def ttsbench() -> None:
+    """Time Kokoro's first audio for a typical first chunk at several CPU thread counts."""
+    import os
+    import statistics
+
+    from kokoro_onnx import Kokoro
+
+    from assistant.core.config import load_settings
+    from assistant.voice.models import kokoro_paths
+    from assistant.voice.tts.kokoro import make_session
+
+    logging.getLogger("phonemizer").setLevel(logging.ERROR)
+    k = load_settings().voice.tts.kokoro
+    model, voices = kokoro_paths()
+    phrases = ["Certainly, sir.", "Something along those lines, sir.",
+               "The time is a quarter past eleven."]
+    cores = os.cpu_count() or 8
+    options = [None, 4, 6, 8, 12, 16]
+    print(f"Voice {k.voice}, {cores} logical CPUs. Lower is better.\n")
+    best = None
+    for threads in [t for t in options if t is None or t <= cores]:
+        kokoro = Kokoro.from_session(make_session(model, "cpu", threads), str(voices))
+        kokoro.create("Warm up.", voice=k.voice, speed=k.speed, lang=k.lang)
+        times = []
+        for p in phrases * 3:
+            t = time.perf_counter()
+            kokoro.create(p, voice=k.voice, speed=k.speed, lang=k.lang)
+            times.append((time.perf_counter() - t) * 1000)
+        ms = statistics.median(times)
+        label = "default" if threads is None else f"{threads} threads"
+        print(f"  {label:<12} {ms:6.0f} ms")
+        if best is None or ms < best[1]:
+            best = (threads, ms)
+    print(f"\nFastest: {'default' if best[0] is None else best[0]}"
+          + ("" if best[0] is None else f".  Put this in config/local.yaml:\n\n"
+             f"voice:\n  tts:\n    kokoro:\n      threads: {best[0]}"))
+
+
 def main(argv: list[str]) -> None:
     p = argparse.ArgumentParser(prog="assistant voice")
     p.add_argument("--mode", choices=["wake", "open_mic", "ptt"], help="override voice.mode from config")

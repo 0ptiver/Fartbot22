@@ -172,7 +172,10 @@ scripts/           # install, run, register-startup
 - [x] The `keyboard` hook isn't loaded unless `ptt` mode is chosen (it made keys lag)
 - [x] Speakers opened at startup (low-latency stream). Short phrases pre-synthesized and cached
 - [x] Speaker-echo guard: brief mic cooldown after speaking, and transcripts matching its own last words are ignored
-- [ ] Owner verification of the new latency
+- [x] Owner test: wake mode works ("answered only after the wake word"). Latency 1.0–1.75 s: VAD 380 ms, STT 260–490 ms, LLM 60–80 ms, TTS 490–750 ms, speaker 1–21 ms (was 431)
+- [x] Fix: the small model said "I'll check that, sir" without calling the tool. Removed the "acknowledge first" prompt line, added a one-time nudge when it promises without acting, and "Ask Claude …" now routes straight to the expert
+- [x] Fix: follow-up windows chained, so it answered side conversations. Only a named request opens one (6 s)
+- [x] `ttsbench` + `voice.tts.kokoro.threads` to tune Kokoro on the hybrid i9
 
 ### Phase 3 — Real-time feel
 - [ ] Train + ship "hey nova" openWakeWord model

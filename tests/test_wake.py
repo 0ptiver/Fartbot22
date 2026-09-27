@@ -111,3 +111,15 @@ async def test_tts_cache_reuses_short_phrases(settings, registry):
     n = len(loop.tts.spoken)
     await loop.say("One moment, sir.")
     assert len(loop.tts.spoken) == n            # served from cache, not re-synthesized
+
+
+async def test_follow_up_does_not_chain(settings, registry):
+    loop, events = make_wake_loop(settings, registry,
+        [text_msg("It is noon, sir."), text_msg("You're welcome, sir.")],
+        [("Nova, what time is it?", 1),
+         ("thanks", 1),                          # follow-up window -> answered
+         ("man what is going on here", 1)])      # window doesn't chain -> ignored
+    await loop.run()
+    got = [(e["type"], e.get("text")) for e in events if e["type"] in ("ignored", "transcript")]
+    assert got[-1] == ("ignored", "man what is going on here")
+    assert loop.tts.spoken == ["It is noon, sir.", "You're welcome, sir."]

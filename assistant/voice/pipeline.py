@@ -57,6 +57,7 @@ class VoiceLoop:
         self._follow_up_until = 0.0
         self._mute_until = 0.0
         self._last_said = ""
+        self._named = False
         self.turns_done = 0
 
     @property
@@ -165,6 +166,11 @@ class VoiceLoop:
         if not addressed and not in_follow_up:
             self.on_event({"type": "ignored", "text": text, "reason": "not addressed to me"})
             return None
+        # Only a request that used the name opens a follow-up window; follow-ups don't
+        # chain, so a conversation with someone else in the room isn't answered.
+        self._named = addressed
+        if not addressed:
+            self._follow_up_until = 0.0
         if addressed and not rest:              # just "Nova" -> "Yes, sir?"
             self.on_event({"type": "transcript", "text": text})
             await self.say(w.acknowledgement)
@@ -174,9 +180,10 @@ class VoiceLoop:
 
     def _after_reply(self) -> None:
         now = time.perf_counter()
-        self._follow_up_until = now + self.cfg.wake.follow_up_s
         self._mute_until = now + self.cfg.wake.cooldown_ms / 1000
-        self.on_event({"type": "follow_up", "seconds": self.cfg.wake.follow_up_s})
+        if self.cfg.mode == "wake" and self._named and self.cfg.wake.follow_up_s > 0:
+            self._follow_up_until = now + self.cfg.wake.follow_up_s
+            self.on_event({"type": "follow_up", "seconds": self.cfg.wake.follow_up_s})
 
     async def say(self, text: str) -> None:
         """Speak a fixed line (acknowledgements, notices)."""

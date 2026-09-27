@@ -7,7 +7,6 @@ import pytest
 from tests.fakes import FakeClient, text_msg, tool_msg
 from assistant.brain.llm import Brain, BrainError, TextDelta, ToolFinished, ToolStarted, TurnComplete
 from assistant.core.conversation import Conversation
-from assistant.tools.registry import ToolContext
 
 
 async def collect(brain, conv, text, ctx):

@@ -103,6 +103,7 @@ class KokoroConfig(BaseModel):
     lang: str = "en-gb"
     speed: float = 1.05
     device: str = "cpu"
+    threads: int | None = None    # CPU threads; None = onnxruntime default. See: assistant ttsbench
 
 
 class TTSConfig(BaseModel):
@@ -115,7 +116,7 @@ class WakeConfig(BaseModel):
     variants: list[str] = Field(default_factory=lambda: [
         "nova", "novah", "novo", "nover", "no va", "noah va", "know va"])
     window_words: int = 3
-    follow_up_s: float = 8.0          # after a reply, talk again without the name
+    follow_up_s: float = 6.0          # after a reply to "Nova, ...", one more request without the name
     acknowledgement: str = "Yes, sir?"  # said when you only say the name
     echo_overlap: float = 0.6         # ignore what sounds like its own voice from the speakers
     cooldown_ms: int = 350            # ignore the mic briefly after it finishes speaking

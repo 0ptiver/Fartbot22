@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import re
 import tempfile
 import time
 from pathlib import Path
@@ -163,37 +164,43 @@ class LocalBrain:
         conv.messages.append({"role": "user",
                               "content": turn_context(self.settings, extra_context) + "\n" + user_text})
         rounds = 0
+        tools_used = False
+        nudged = False
+        # "Ask Claude ..." goes straight to the expert; no chance for the small model to skip it.
+        forced = direct_escalation(user_text, conv)
         try:
             while True:
                 allow_tools = rounds < self.settings.brain.max_tool_rounds
-                text_parts: list[str] = []
-                calls: list[dict] = []
-                think = ThinkFilter(hold=self._hold_think)
-                try:
-                    async for chunk in self._stream(self._body(conv.messages, tools=allow_tools)):
-                        msg = chunk.get("message") or {}
-                        # msg["thinking"] (separated reasoning) is never spoken.
-                        text = think.feed(msg.get("content") or "")
-                        if chunk.get("done"):
-                            text += think.flush()
-                        if text:
-                            timings.setdefault("first_token_ms", _ms(t0))
-                            text_parts.append(text)
-                            spoken.append(text)
-                            yield TextDelta(text)
-                        calls.extend(msg.get("tool_calls") or [])
-                        if chunk.get("done"):
-                            usage["input_tokens"] += chunk.get("prompt_eval_count", 0)
-                            usage["output_tokens"] += chunk.get("eval_count", 0)
-                except _RetryWithoutThink:
-                    continue
+                if forced is not None:
+                    calls, forced = [forced], None
+                    conv.messages.append({"role": "assistant", "content": "", "tool_calls": calls})
+                    text_parts = None  # already recorded in history
+                else:
+                    out = _Round()
+                    try:
+                        async for ev in self._model_round(conv, allow_tools, out, timings, usage, t0):
+                            spoken.append(ev.text)
+                            yield ev
+                    except _RetryWithoutThink:
+                        continue
+                    text_parts, calls = out.text, out.calls
 
-                assistant_msg: dict[str, Any] = {"role": "assistant", "content": "".join(text_parts)}
-                if calls:
-                    assistant_msg["tool_calls"] = calls
-                conv.messages.append(assistant_msg)
+                if text_parts is not None:
+                    assistant_msg: dict[str, Any] = {"role": "assistant", "content": "".join(text_parts)}
+                    if calls:
+                        assistant_msg["tool_calls"] = calls
+                    conv.messages.append(assistant_msg)
                 if not calls:
+                    # Small models sometimes *say* they'll do something and stop. Nudge once.
+                    if (not tools_used and not nudged and allow_tools
+                            and _PROMISE.search("".join(text_parts or []))):
+                        nudged = True
+                        conv.messages.append({"role": "user", "content": NUDGE})
+                        if spoken and not spoken[-1].endswith((" ", "\n")):
+                            spoken.append(" ")
+                        continue
                     break
+                tools_used = True
 
                 rounds += 1
                 named = [(f"local_{rounds}_{i}", c.get("function", {})) for i, c in enumerate(calls)]
@@ -239,6 +246,25 @@ class LocalBrain:
         conv.trim()
         timings["total_ms"] = _ms(t0)
         yield TurnComplete("".join(spoken).strip(), timings, usage, "end_turn")
+
+    async def _model_round(self, conv: Conversation, allow_tools: bool, out: "_Round",
+                           timings: dict, usage: dict, t0: float) -> AsyncIterator[TextDelta]:
+        """One streamed model response: yields speakable text, collects tool calls in `out`."""
+        think = ThinkFilter(hold=self._hold_think)
+        async for chunk in self._stream(self._body(conv.messages, tools=allow_tools)):
+            msg = chunk.get("message") or {}
+            # msg["thinking"] (separated reasoning) is never spoken.
+            text = think.feed(msg.get("content") or "")
+            if chunk.get("done"):
+                text += think.flush()
+            if text:
+                timings.setdefault("first_token_ms", _ms(t0))
+                out.text.append(text)
+                yield TextDelta(text)
+            out.calls.extend(msg.get("tool_calls") or [])
+            if chunk.get("done"):
+                usage["input_tokens"] += chunk.get("prompt_eval_count", 0)
+                usage["output_tokens"] += chunk.get("eval_count", 0)
 
     async def _result_text(self, res: ToolResult, args: Any) -> str:
         """Ollama tool messages are text-only; describe images (screenshots) first."""
@@ -287,6 +313,40 @@ class LocalBrain:
 
 class _RetryWithoutThink(Exception):
     pass
+
+
+class _Round:
+    def __init__(self) -> None:
+        self.text: list[str] = []
+        self.calls: list[dict] = []
+
+
+_PROMISE = re.compile(
+    r"\b(i'?ll|i will|let me|on it|one moment|give me a moment|checking|i'?m going to|"
+    r"right away|looking (?:into|at)|i'?ll (?:check|look|ask|find|open))\b", re.I)
+
+NUDGE = ("(Note from the system, not the user: you said you would do that but did not call a "
+         "tool. Call the right tool now. If no tool can do it, say so in one short sentence.)")
+
+_ASK_CLAUDE = re.compile(
+    r"^\s*(?:please\s+)?(?:can you\s+|could you\s+)?(?:ask|have|get|tell)\s+claude\s*"
+    r"(?:to\s+|about\s+|,|:)?\s*(?P<task>.+)$", re.I | re.S)
+
+
+def direct_escalation(user_text: str, conv: Conversation) -> dict | None:
+    """'Ask Claude ...' -> an escalate call, with recent conversation as context."""
+    m = _ASK_CLAUDE.match(user_text)
+    if not m or len(m.group("task").strip()) < 3:
+        return None
+    recent = []
+    for msg in conv.messages[-7:-1]:  # skip the message we just added
+        if msg["role"] in ("user", "assistant") and isinstance(msg.get("content"), str) and msg["content"]:
+            text = msg["content"].split("</context>")[-1].strip()
+            recent.append(f"{msg['role']}: {text}")
+    args = {"task": m.group("task").strip()}
+    if recent:
+        args["context"] = "Recent conversation with the user:\n" + "\n".join(recent)
+    return {"function": {"name": "escalate", "arguments": args}}
 
 
 def _workspace(expert: Expert) -> str | None:

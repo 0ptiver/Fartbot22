@@ -72,7 +72,8 @@ Other commands:
 
 **Just talk and say "Nova".** For example: "Nova, what time is it?", "Hey Nova, open Spotify", or "What's the weather tomorrow, Nova?"
 - It ignores speech that isn't addressed to it. The name has to be near the start or the end of the sentence.
-- After it answers, you have **8 seconds to reply without saying "Nova"**, e.g. "thanks" or "and tomorrow?".
+- After it answers a "Nova, …" request, you have **6 seconds for one more request without the name**, e.g. "thanks" or "and tomorrow?". That doesn't chain, so a conversation with someone else in the room isn't answered.
+- **"Ask Claude …"** always goes straight to your Claude subscription.
 - Say just "Nova" and it answers "Yes, sir?", then waits for your request.
 - There are no hotkeys or keyboard hooks. Everything runs locally, and no audio is saved.
 - While it's talking it doesn't listen, so it won't answer its own voice through your speakers. Interrupting it by talking comes in Phase 3.
@@ -156,6 +157,8 @@ Change `brain.local.model` in `config/config.yaml`, then run `ollama pull <model
 | It cuts you off mid-sentence (open mic) | Raise `voice.vad.end_silence_ms` to 600. |
 | "(heard nothing)" | The message says why: keys released too soon, a silent mic, or unclear audio. Run `python -m assistant mictest --input N` to see the level and what Whisper hears. Also check Settings → Privacy & security → Microphone → "Let desktop apps access your microphone". |
 | Voice sounds robotic or too fast | Change `voice.tts.kokoro.voice` / `speed`. |
+| Slow "tts first audio" in the latency report | Run `python -m assistant ttsbench` and put the fastest thread count in `config/local.yaml`. |
+| It says "I'll check that" and then does nothing | Nova now nudges the model to actually do it. If it keeps happening for a request, tell me which one, or start with "Ask Claude…". |
 
 ## Development
 

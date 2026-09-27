@@ -252,3 +252,46 @@ async def test_warm_up_errors(local_settings):
     brain, _ = make(local_settings, [httpx.Response(404, text='{"error":"model not found"}')])
     with pytest.raises(Exception, match="ollama pull"):
         await brain.warm_up()
+
+
+async def test_promise_without_action_is_nudged(local_settings, ctx):
+    brain, fake = make(local_settings, [
+        text_reply("I'll check that for you, sir."),        # says it, doesn't do it
+        tool_reply("get_time", {}),                          # nudged -> calls the tool
+        text_reply("It is noon."),
+    ])
+    conv = Conversation()
+    events = await collect(brain, conv, "what time is it", ctx)
+    assert any(isinstance(e, ToolFinished) and e.name == "get_time" for e in events)
+    assert "did not call a tool" in fake.requests[1][1]["messages"][-1]["content"]
+    assert events[-1].text == "I'll check that for you, sir. It is noon."
+
+
+async def test_no_nudge_for_plain_answers(local_settings, ctx):
+    brain, fake = make(local_settings, [text_reply("Good evening, sir.")])
+    await collect(brain, Conversation(), "hello", ctx)
+    assert len(fake.requests) == 1
+
+
+async def test_ask_claude_goes_straight_to_expert(local_settings, ctx):
+    expert = FakeExpert("The Dell S2721DGF.")
+    brain, fake = make(local_settings, [text_reply("Claude suggests the Dell S2721DGF, sir.")], expert)
+    conv = Conversation()
+    conv.messages += [{"role": "user", "content": "<context>t</context>\nI play shooters"},
+                      {"role": "assistant", "content": "Noted, sir."}]
+    events = await collect(brain, conv, "Ask Claude what the best 1440p monitor under $400 is.", ctx)
+    task, context, _ = expert.calls[0]
+    assert task == "what the best 1440p monitor under $400 is."
+    assert "I play shooters" in context
+    assert isinstance(events[0], ToolStarted) and events[0].name == "escalate"
+    assert len(fake.requests) == 1                 # only the relay round used the local model
+    assert fake.requests[0][1]["messages"][-1]["role"] == "tool"
+
+
+def test_ask_claude_pattern():
+    from assistant.brain.local import direct_escalation
+    c = Conversation()
+    assert direct_escalation("Can you ask Claude to plan my week", c)["function"]["arguments"]["task"] == "plan my week"
+    assert direct_escalation("have claude, summarize this", c) is not None
+    assert direct_escalation("I asked Claude yesterday", c) is None
+    assert direct_escalation("what time is it", c) is None
