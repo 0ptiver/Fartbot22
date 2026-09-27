@@ -72,3 +72,31 @@ def test_the_real_budget_leaves_room_for_turns(settings):
     assert fit.is_request(out[0])
     requests = [m for m in out if fit.is_request(m)]
     assert requests[-1]["content"].endswith("request 39") and len(requests) >= 5    # a few turns of memory
+
+
+async def test_a_long_session_never_loses_the_request(local_settings, ctx):
+    """40 turns: big browser pages, fast commands and questions mixed. Every request the model
+    gets fits the window, starts on a request, and ends with what was just asked."""
+    from assistant.core.conversation import Conversation
+    from tests.test_local_brain import collect, make, text_reply, tool_reply
+    replies = []
+    for n in range(40):
+        if n % 2 == 0:
+            replies += [tool_reply("browser", {"action": "look"}), text_reply(f"Page {n} has lots of links, sir.")]
+        else:
+            replies += [text_reply(f"Answer {n}, sir.")]
+    brain, fake = make(local_settings, replies)
+    brain.registry._tools["browser"].handler = lambda a, c: "Now on a page. " + " ".join(f'[{i}] link "item {i}"' for i in range(300))
+    brain.registry._tools["volume"].handler = lambda a, c: "Volume 40."
+    conv = Conversation(max_turns=local_settings.brain.history_turns)
+    fixed = fit.tokens(brain._system) + fit.tokens(brain.tools())
+    for n in range(40):
+        await collect(brain, conv, f"tell me about the thing number {n} on this page", ctx)
+        await collect(brain, conv, "volume up", ctx)                           # fast path in between
+    assert not fake.replies                                                    # every model reply was used
+    for _, body in fake.requests:
+        msgs = body["messages"][1:]
+        asked = [m for m in msgs if m["role"] == "user" and m["content"].startswith("<context>")]
+        assert len(asked) == 1 and "tell me about the thing number" in asked[0]["content"]   # the current request
+        assert msgs[0]["role"] == "user"
+        assert fixed + sum(fit.tokens(m) for m in msgs) <= local_settings.brain.local.num_ctx
