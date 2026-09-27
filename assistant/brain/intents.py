@@ -473,6 +473,12 @@ def everyday_intent(t: str) -> tuple[str, dict] | None:
     if m := re.fullmatch(r"(?:open|go to|launch|pull up|load)(?: up)? (?:the )?(?:website |site |page )?"
                          r"((?:https?://)?(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?:/\S*)?)", t):
         return "open_website", {"site": m.group(1)}               # "open bbc.co.uk": an address, not an app
+    if m := re.fullmatch(r"(?:go |switch |take me |get me )?back to (?:the |my )?(game|gta|what i was doing|where i was|"
+                         r"(?:the )?(?:last|previous) (?:window|app))|switch back|go back to it|alt tab back", n):
+        what = m.group(1) or "back"
+        return "window", {"action": "focus", "app": "the game" if what in ("game", "gta") else "back"}
+    if re.fullmatch(r"(?:switch|go|take me) to (?:the |my )game|open (?:the |my )game back up", n):
+        return "window", {"action": "focus", "app": "the game"}
     if re.fullmatch(r"(?:close|quit|exit) " + _THIS, n):
         return "window", {"action": "close", "app": "this"}
     if m := (re.fullmatch(r"(?:fully close|completely close|force close|kill|shut down) (?:the |my )?(.+?)(?: app)?", n)

@@ -134,3 +134,28 @@ def test_quit_never_kills_an_app_with_work_in_it(settings, monkeypatch):
 def test_quit_phrases(said, action):
     from assistant.brain.intents import match_intent
     assert match_intent(said)[1]["action"] == action
+
+
+class FocusWins(Wins):
+    def __init__(self, wins):
+        super().__init__(wins)
+        self.focused = []
+
+    def focus(self, hwnd):
+        self.focused.append(hwnd)
+        return True
+
+
+def test_back_to_the_game(settings, monkeypatch):
+    """Tabbed out of GTA RP to ask something: 'go back to the game'."""
+    wins = FocusWins([pc.Win(1, "Nova", "msedge.exe"), pc.Win(2, "YouTube - Mozilla Firefox", "firefox.exe"),
+                      pc.Win(3, "Discord", "Discord.exe"), pc.Win(4, "FiveM® by Cfx.re", "FiveM_b2944_GTAProcess.exe")])
+    monkeypatch.setattr(pc, "WINDOWS", wins)
+    monkeypatch.setattr(pc, "game_processes", lambda: {"fivem_b2944_gtaprocess.exe"})
+    out = pc.window_control({"action": "focus", "app": "the game"}, ToolContext(settings))
+    assert out == "Switched to FiveM." and wins.focused == [4]
+    out = pc.window_control({"action": "focus", "app": "back"}, ToolContext(settings))
+    assert out == "Switched to Discord." and wins.focused[-1] == 3        # the window before Firefox
+    monkeypatch.setattr(pc, "game_processes", lambda: set())
+    with pytest.raises(ToolError, match="can't see a game"):
+        pc.window_control({"action": "focus", "app": "the game"}, ToolContext(settings))

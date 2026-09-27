@@ -342,11 +342,49 @@ def user_window_forward() -> Win | None:
     return w
 
 
+GAME_NAMES = ("the game", "game", "my game", "gta", "the gta")
+BACK_NAMES = ("back", "previous", "the previous window", "the last window", "last window", "the last app",
+              "what i was doing", "where i was")
+_GAME_PLACES = ("steamapps\\common", "epic games", "rockstar games", "fivem", "riot games", "battle.net",
+                "ubisoft game launcher\\games", "ea games", "xboxgames", "gog galaxy\\games")
+
+
+def game_processes() -> set[str]:
+    """Names of running programs that are games: installed where game stores put them
+    (Steam, Epic, Rockstar, FiveM, Riot...)."""
+    import psutil
+    names = set()
+    for p in psutil.process_iter(["name", "exe"]):
+        try:
+            exe = (p.info["exe"] or "").lower()
+            name = (p.info["name"] or "").lower()
+        except Exception:
+            continue
+        if name.startswith("fivem") or any(place in exe for place in _GAME_PLACES):
+            names.add(name)
+    return names
+
+
+def _game_window(wins: list[Win]) -> Win:
+    games = game_processes()
+    for w in wins:                                   # top-most first: the game played last
+        if w.process.lower() in games and not w.process.lower().endswith(("launcher.exe", "helper.exe")):
+            return w
+    raise ToolError("I can't see a game running.")
+
+
 def _find_window(app: str) -> Win:
     want = app.lower().strip()
     if want in THIS:
         return active_window()
     wins = WINDOWS.list()
+    if want in GAME_NAMES and not any(want in w.process.lower() for w in wins):
+        return _game_window([w for w in wins if not is_nova_window(w)])
+    if want in BACK_NAMES:
+        others = [w for w in wins if not is_nova_window(w)]
+        if len(others) < 2:
+            raise ToolError("There's no other window to go back to.")
+        return others[1]
     def score(w: Win) -> int:
         proc = w.process.lower().removesuffix(".exe")
         title = w.title.lower()
@@ -405,7 +443,7 @@ def window_control(args: dict, ctx: ToolContext) -> str:
         raise ToolError("Which app?")
     w = _find_window(args["app"])
     exe = w.process.lower().removesuffix(".exe")
-    label = TRAY_APPS.get(exe) or w.process.removesuffix(".exe") or w.title
+    label = TRAY_APPS.get(exe) or ("FiveM" if exe.startswith("fivem") else "") or w.process.removesuffix(".exe") or w.title
     if action == "focus":
         if not WINDOWS.focus(w.hwnd):
             raise ToolError(f"Windows wouldn't let me switch to {label}. Click on it once, then ask again.")
