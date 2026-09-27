@@ -71,6 +71,13 @@ async def run_local(debug: bool) -> None:
             printer(ev)
 
     session = Session(brain, send, client_id="cli")
+    from assistant.core.config import ROOT
+    from assistant.core.scheduler import Scheduler
+    tz = settings.assistant.timezone
+    scheduler = Scheduler(ROOT / "data" / "reminders.json", tz,
+                          notify=lambda r, missed: print(f"\n{YELLOW}⏰ {r.spoken(tz, missed)}{RESET}"))
+    session.ctx.services["scheduler"] = scheduler
+    asyncio.get_running_loop().create_task(scheduler.run())
     model = settings.brain.local.model if settings.brain.backend == "local" else settings.brain.chat_model
     print(f"{settings.assistant.name} (in-process, {settings.brain.backend}: {model}, "
           f"hard tasks: {settings.brain.expert.backend}). "

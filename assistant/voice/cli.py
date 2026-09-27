@@ -51,6 +51,8 @@ def make_printer(name: str, show_latency: bool):
             why = f": {ev['reason']}" if ev.get("reason") else ""
             print(f"\n{DIM}  (interrupted{why}){RESET}", flush=True)
             state["speaking"] = False
+        elif t == "announcement":
+            print(f"\n{CYAN}⏰ {ev['text']}{RESET}", flush=True)
         elif t == "confirm_request":
             print(f"\n{GREEN}? Nova wants to {ev['text']}. Say yes or no.{RESET}", flush=True)
         elif t == "confirm_result":
@@ -139,6 +141,13 @@ async def run(args) -> None:
         return
     loop = VoiceLoop(settings, brain, stt, tts, mic, player, vad, ptt,
                      make_printer(settings.assistant.name, settings.voice.latency_report or args.debug))
+    from assistant.core.config import ROOT
+    from assistant.core.scheduler import Scheduler
+    tz = settings.assistant.timezone
+    scheduler = Scheduler(ROOT / "data" / "reminders.json", tz,
+                          notify=lambda r, missed: loop.announce(r.spoken(tz, missed)))
+    loop.ctx.services["scheduler"] = scheduler
+    scheduler_task = asyncio.create_task(scheduler.run())
     await loop.prewarm()
     name = settings.assistant.name
     if ptt:
@@ -153,6 +162,7 @@ async def run(args) -> None:
     try:
         await loop.run(max_turns=1 if args.wav else None)
     finally:
+        scheduler_task.cancel()
         mic.close()
         player.close()
         if ptt:

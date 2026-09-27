@@ -28,7 +28,23 @@ from assistant.brain.intents import match_intent
     ("What's on my screen?", None),
     ("Open Spotify", None),
     ("What time is it", None),
-    ("Stop the timer", None),
+    ("Stop the timer", ("cancel_timer", {"which": "timer"})),
 ])
 def test_match_intent(text, expected):
+    assert match_intent(text) == expected
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("Set a timer for 5 minutes.", ("set_timer", {"minutes": 5.0})),
+    ("Set a timer for ten minutes for the pasta", ("set_timer", {"minutes": 10.0, "label": "pasta"})),
+    ("Twenty minute timer", ("set_timer", {"minutes": 20.0})),
+    ("timer for 30 seconds", ("set_timer", {"seconds": 30.0})),
+    ("Start a 2 hour timer", ("set_timer", {"hours": 2.0})),
+    ("Cancel the timer", ("cancel_timer", {"which": "timer"})),
+    ("Stop the alarm", ("cancel_timer", {"which": "alarm"})),
+    ("How much time is left?", ("list_timers", {})),
+    ("How long left on the timer", ("list_timers", {})),
+    ("Remind me in an hour to call mum", None),        # the model handles reminders
+])
+def test_timer_intents(text, expected):
     assert match_intent(text) == expected

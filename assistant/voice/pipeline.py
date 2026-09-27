@@ -75,6 +75,7 @@ class VoiceLoop:
         # Safety: spoken confirmations and the "stand down" kill switch
         self._confirm: asyncio.Future | None = None   # waiting for a yes/no
         self.standby = False                          # after "stand down": only "wake up" works
+        self._announcements: list[str] = []           # reminders waiting for a quiet moment
         self.ctx.confirm = self._voice_confirm
 
     @property
@@ -338,7 +339,10 @@ class VoiceLoop:
             if is_resume(text) and match_wake(text, self.cfg.wake.variants, 99)[0]:
                 self.standby = False
                 self.on_event({"type": "standby", "on": False})
-                await self.say("At your service, sir.")
+                await self.say(f"At your service{self._sir(',')}.")
+                if self._announcements:
+                    await self.say("While you were away:")
+                    await self._flush_announcements(force=True)
             else:
                 self.on_event({"type": "ignored", "text": text, "reason": "standing down (say \"Nova, wake up\")"})
             return True
@@ -443,7 +447,27 @@ class VoiceLoop:
             return None
         return rest if addressed else text
 
+    async def announce(self, text: str) -> None:
+        """Say something Nova starts itself (a reminder going off). Waits for a quiet moment:
+        never talks over its own reply, and holds everything while standing down."""
+        self._announcements.append(text)
+        self.on_event({"type": "announcement", "text": text})
+        await self._flush_announcements()
+
+    async def _flush_announcements(self, force: bool = False) -> None:
+        if not force and (self.standby or self.busy or self._confirm is not None
+                          or self.endpointer.in_speech):
+            return            # retried after the current reply, or on "Nova, wake up"
+        who = self.settings.assistant.address_user_as
+        while self._announcements:
+            text = self._announcements.pop(0)
+            self.player.play(chime())
+            await self.say(f"{who.capitalize()}, {text[0].lower()}{text[1:]}" if who else text)
+            self._spoke_at = time.perf_counter()
+
     def _after_reply(self) -> None:
+        if self._announcements:
+            asyncio.get_running_loop().call_soon(lambda: asyncio.ensure_future(self._flush_announcements()))
         now = time.perf_counter()
         self._spoke_at = now
         self._mute_until = now + self.cfg.wake.cooldown_ms / 1000
@@ -545,6 +569,17 @@ class VoiceLoop:
             said.append(chunk)
             self._last_said = " ".join(said)
             await self._synth_and_play(chunk, lat)
+
+
+def chime(sample_rate: int = 24000) -> np.ndarray:
+    """A soft two-note chime played before Nova speaks up on its own."""
+    out = []
+    for freq, dur in ((880.0, 0.12), (1318.5, 0.18)):
+        t = np.arange(int(sample_rate * dur)) / sample_rate
+        env = np.minimum(1, t / 0.01) * np.exp(-t * 9)
+        out.append(0.25 * np.sin(2 * np.pi * freq * t) * env)
+    out.append(np.zeros(int(sample_rate * 0.08)))
+    return np.concatenate(out).astype(np.float32)
 
 
 _STOP_FILLER = {"please", "now", "thanks", "thank", "you", "nova", "sir", "for", "a", "sec",

@@ -39,10 +39,41 @@ def _clean(text: str) -> str:
     return t.replace("’", "'").strip()
 
 
+_UNIT = {"second": "seconds", "sec": "seconds", "minute": "minutes", "min": "minutes", "hour": "hours"}
+
+
+def _timer_intent(t: str) -> tuple[str, dict] | None:
+    """'set a timer for 5 minutes', 'ten minute timer for the pasta', 'cancel the timer'."""
+    from assistant.voice.textnorm import normalize_words
+
+    n = " ".join(normalize_words(t))
+    m = (re.match(r"^(?:set |start |put on )?(?:a |an |me a )?timer (?:for|of) (\d+(?:\.\d+)?) "
+                  r"(second|sec|minute|min|hour)s?(?: (?:for|called) (?:the )?(.+))?$", n)
+         or re.match(r"^(?:set |start )?(?:a |an )?(\d+(?:\.\d+)?) (second|sec|minute|min|hour)s? timer"
+                     r"(?: (?:for|called) (?:the )?(.+))?$", n))
+    if m:
+        args = {_UNIT[m.group(2)]: float(m.group(1))}
+        if m.group(3):
+            args["label"] = m.group(3)
+        return "set_timer", args
+    if re.match(r"^(?:cancel|stop|kill|delete|clear|turn off) (?:the |my |that )?(?:timer|alarm)s?$", n):
+        return "cancel_timer", {"which": "timer" if "timer" in n else "alarm"}
+    if re.match(r"^(?:cancel|clear|delete) (?:all|all of) (?:my |the )?(?:timers|reminders|alarms)"
+                r"(?: and (?:reminders|alarms|timers))*$", n):
+        return "cancel_timer", {"which": "all"}
+    if re.search(r"\bhow (?:much time|long) (?:is )?left\b|\bwhat timers\b|\bany timers\b"
+                 r"|\b(?:list|show) (?:my )?(?:timers|reminders|alarms)\b", n):
+        return "list_timers", {}
+    return None
+
+
 def match_intent(text: str) -> tuple[str, dict] | None:
     t = _clean(text)
     if not t:
         return None
+    timer = _timer_intent(t)
+    if timer:
+        return timer
     for pattern, tool, args in _RULES:
         if pattern.match(t):
             return tool, dict(args)
