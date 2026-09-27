@@ -241,11 +241,12 @@ scripts/           # install, run, register-startup
 - [x] Brain view in the HUD (owner asked for "a centre like a brain that shows everything in the database"): canvas with a procedural glowing brain (colour follows Nova's state, pulses faster while thinking), every memory as a node grouped by topic (shared keywords), synapse curves, faint links between memories sharing words, a pulse to each memory used for a reply, flash on new memories, hover tooltip, click card with Forget, search highlight, "teach Nova" box. Labels beside nodes when wide; hover-only in the narrow window; overlapping labels skipped
 - [ ] Short-term: summarize old turns instead of dropping them
 
-### Phase 6 — Remote access
-- [ ] PWA (voice + text + confirmations + quick actions)
-- [ ] Tailscale guide (+ Cloudflare Tunnel option)
-- [ ] Password + TOTP, QR device pairing, revocable tokens, rate limiting
-- [ ] Push notifications
+### Phase 6 — Remote access (owner: "let's add remote access from my phone")
+- [x] Phone page (assistant/remote/): its own server, started by `assistant voice` only when set up and switched on. It binds only to the PC's Tailscale IPv4 (never 0.0.0.0, never the LAN) and re-checks every 10 s, since Tailscale is often not up yet at sign-in. Peers must be on the tailnet (100.64/10, fd7a:115c:a1e0::/48). Host must be this PC's Tailscale IP, MagicDNS name or hostname (DNS rebinding). Origin checked on login and the websocket; strict CSP; textContent only. Plain HTTP inside WireGuard: no `tailscale serve`, so no admin-console steps for the owner
+- [x] Sign-in: password (scrypt, ≥10 chars) + TOTP (RFC 6238, own implementation, ±30 s, no replays), secrets in Credential Manager. Per-device random session token in an HttpOnly SameSite=Strict cookie, only its SHA-256 on disk (data/phone.json), 30 days. 5 wrong tries in 15 min lock sign-in for 15 min and Nova says so out loud; a new phone signing in is announced too; both are logged to nova.log. A new password signs every phone out
+- [x] Phone chat = core Session with remote=True, sharing scheduler/watchers/memory/subtitles/voice/spotify (not grid/teacher/voicelock); remote_blocked_tools (+ dictation) refuse typing, clicking, files, power, routines, lessons. Confirmations as a Yes/No card on the phone with registry.describe text. Conversation per device survives reconnects (last 100 events replayed). Quick buttons are fixed tool calls (media, volume, lock_pc, stand down/wake, stop). Timers + watches with cancel, PC vitals, reminders forwarded (with vibration). Optional "read replies aloud" via the phone's own speech. Web app manifest for Add to Home Screen
+- [x] Window: Phone page (set-up steps with Tailscale detection, QR as a data: URI from segno, first code confirms; addresses; on/off; new password; forget all; signed-in devices with Sign out). Phone requests show in Activity. `doctor` line
+- [ ] Not yet tried on the PC or a real phone (checked with Playwright here at 390 px and 1180 px). No push notifications (needs HTTPS + a service worker); phone voice uses the keyboard's mic
 
 ### Phase 7 — Proactive + polish
 - [ ] Morning briefing, hardware/disk/download alerts, background research tasks

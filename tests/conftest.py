@@ -36,3 +36,12 @@ def _no_real_lessons(tmp_path, monkeypatch):
     """Nor the lessons taught by showing (data/learned.json)."""
     from assistant.tools import teach
     monkeypatch.setattr(teach, "LEARNED_FILE", tmp_path / "learned.json")
+
+
+@pytest.fixture(autouse=True)
+def _no_real_phone_auth(tmp_path, monkeypatch):
+    """Nor phone sign-in (Credential Manager + data/phone.json)."""
+    from assistant.remote import auth
+    monkeypatch.setattr(auth, "USE_KEYRING", False)
+    monkeypatch.setattr(auth, "CRED_FILE", tmp_path / "phone_auth.json")
+    monkeypatch.setattr(auth, "STATE_FILE", tmp_path / "phone.json")

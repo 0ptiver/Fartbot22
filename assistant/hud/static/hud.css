@@ -288,6 +288,29 @@ input[type="range"] { accent-color: var(--accent); width: 100%; }
 .voice-actions .btn { flex: 1; }
 .card .hint { margin: 14px 0 0; }
 
+/* --- phone page ----------------------------------------------------------------------------- */
+.steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 16px; font-size: 13.5px; }
+.steps li { padding-left: 4px; }
+.steps li::marker { color: var(--accent); font-weight: 700; }
+.steps .field { margin: 10px 0 0; }
+.steps .btn { margin-top: 10px; }
+.ts-state { display: block; margin-top: 6px; font-size: 12.5px; color: var(--muted); }
+.ts-state.ok { color: var(--green); }
+.ts-state.bad { color: var(--amber); }
+.qr-row { display: flex; gap: 16px; align-items: center; margin: 12px 0 4px; flex-wrap: wrap; }
+.qr-row img { border-radius: 12px; background: #fff; }
+.secret { display: inline-block; font-size: 13px; letter-spacing: .06em; word-break: break-all; padding: 6px 8px; user-select: all; }
+.field.code { font: 600 20px var(--mono); letter-spacing: .3em; text-align: center; max-width: 220px; }
+.addrs { list-style: none; margin: 4px 0 14px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.addrs li { font: 600 15px var(--mono); color: var(--accent); padding: 10px 12px; border-radius: 11px; background: rgba(90,216,255,.07); border: 1px solid rgba(90,216,255,.25); user-select: all; overflow-wrap: anywhere; }
+.warn-text { color: var(--amber) !important; }
+.devices { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.devices li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,.03); border: 1px solid var(--line); }
+.devices b { display: block; font-weight: 600; font-size: 13.5px; }
+.devices span { font-size: 12px; color: var(--muted); }
+.devices .btn { padding: 6px 10px; font-size: 12px; white-space: nowrap; }
+.lock-state.warn { color: var(--amber); border-color: rgba(255,181,71,.5); background: rgba(255,181,71,.08); }
+
 /* --- core (right) ---------------------------------------------------------------------------- */
 .core {
   display: flex; flex-direction: column; align-items: stretch; gap: 14px; padding: 18px 20px; overflow-y: auto;

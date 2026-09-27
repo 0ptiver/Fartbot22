@@ -63,7 +63,9 @@ class Session:
         cid = f"c{next(self._ids)}"
         fut: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
         self._pending[cid] = fut
-        await self.send({"type": "confirm_request", "id": cid, "tool": tool, "input": args})
+        registry = getattr(self.brain, "registry", None)
+        text = registry.describe(tool, args) if registry is not None else tool
+        await self.send({"type": "confirm_request", "id": cid, "tool": tool, "input": args, "text": text})
         try:
             return await asyncio.wait_for(fut, self.CONFIRM_TIMEOUT_S)
         except asyncio.TimeoutError:

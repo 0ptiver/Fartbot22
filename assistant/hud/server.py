@@ -42,10 +42,11 @@ STATUS_EVERY_S = 0.1
 _KEEP = {"memory_used", "transcript", "text", "speak", "tool", "tool_done", "announcement", "confirm_request",
          "dictation", "dictated",
          "confirm_result", "standby", "error", "interrupted", "stopped", "merged", "ignored",
-         "turn_complete", "latency"}
+         "turn_complete", "latency", "remote"}
 _FILES = {"/": ("index.html", "text/html"), "/hud.js": ("hud.js", "text/javascript"),
           "/hud.css": ("hud.css", "text/css"), "/icon.svg": ("icon.svg", "image/svg+xml"),
-          "/brain.js": ("brain.js", "text/javascript"), "/voice.js": ("voice.js", "text/javascript")}
+          "/brain.js": ("brain.js", "text/javascript"), "/voice.js": ("voice.js", "text/javascript"),
+          "/phonesetup.js": ("phonesetup.js", "text/javascript")}
 
 
 class Hub:
@@ -148,7 +149,7 @@ def _routines(settings: Settings) -> list[dict[str, str]]:
 
 
 def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=None,
-                   trust_test_client: bool = False, memory=None, watchers=None) -> FastAPI:
+                   trust_test_client: bool = False, memory=None, watchers=None, phone=None) -> FastAPI:
     port = settings.hud.port
     hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
     origins = {f"http://{h}" for h in hosts}
@@ -250,6 +251,8 @@ def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=Non
                 lock.set(threshold=float(msg["value"]))
         elif kind == "voice_get":
             await ws_send(voice_info(loop))
+        elif isinstance(kind, str) and kind.startswith("phone_") and phone is not None:
+            await phone_message(kind, msg, ws_send)
         elif kind == "mem_add" and memory is not None and isinstance(msg.get("text"), str):
             from assistant.core.memory import SecretRefused
             try:
@@ -267,6 +270,49 @@ def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=Non
             r = next((r for r in _routines(settings) if r["name"] == msg.get("name")), None)
             if r is not None:
                 spawn(loop.submit_text(r["phrase"]))
+
+    async def phone_message(kind: str, msg: dict[str, Any], ws_send) -> None:
+        """The Phone page. Set-up secrets go in (password, first code); they never come back out."""
+        auth = phone.auth
+        if kind == "phone_setup" and isinstance(msg.get("password"), str):
+            try:
+                shown = await asyncio.to_thread(auth.begin_setup, msg["password"][:200],
+                                                f"{settings.assistant.name} on {socket.gethostname()}")
+            except ValueError as e:
+                await ws_send({"type": "toast", "text": str(e)})
+                return
+            await ws_send({"type": "phone_setup", **shown})
+        elif kind == "phone_confirm" and isinstance(msg.get("code"), str):
+            if await asyncio.to_thread(auth.finish_setup, msg["code"]):
+                phone.chats.clear()
+                phone.poke()
+                await ws_send({"type": "phone_done"})
+                await ws_send({"type": "toast", "text": "Phone access is set up and switched on."})
+            else:
+                await ws_send({"type": "toast", "text": "That code didn't match. Type the code your app shows now "
+                                                        "(it changes every 30 seconds)."})
+        elif kind == "phone_cancel":
+            auth.cancel_setup()
+        elif kind == "phone_enable":
+            auth.set_enabled(msg.get("on") is True)
+            phone.poke()
+            await asyncio.sleep(0.3)
+        elif kind == "phone_revoke":
+            device = msg.get("id") if isinstance(msg.get("id"), str) else None
+            auth.revoke(device)
+            for d in ([device] if device else list(phone.chats)):
+                chat = phone.chats.pop(d, None)
+                if chat is not None:
+                    chat.session.cancel_turn()
+            await ws_send({"type": "toast", "text": "Signed out." if device else "Every phone is signed out."})
+        elif kind == "phone_get":
+            await phone.refresh_tailscale()
+        elif kind == "phone_reset":
+            auth.reset()
+            phone.poke()
+            await ws_send({"type": "phone_done"})
+            await ws_send({"type": "toast", "text": "Phone access is off and forgotten."})
+        await ws_send(phone.info())
 
     @app.websocket("/ws")
     async def ws(websocket: WebSocket) -> None:
@@ -320,6 +366,8 @@ def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=Non
                 if now - last_vitals >= VITALS_EVERY_S:
                     last_vitals = now
                     await send(await asyncio.to_thread(vitals))
+                    if phone is not None:
+                        await send(phone.info())
 
         pumper = asyncio.create_task(pump())
         try:
@@ -403,7 +451,7 @@ def watch_memory(store, hub: Hub, aio_loop: asyncio.AbstractEventLoop) -> None:
 
 
 async def start_hud(settings: Settings, loop, hub: Hub, scheduler=None, memory=None,
-                    watchers=None) -> HudHandle | None:
+                    watchers=None, phone=None) -> HudHandle | None:
     """Serve the HUD on 127.0.0.1 and (optionally) open its window. None if it can't start."""
     try:
         sock = _bind(settings.hud.port)
@@ -416,7 +464,7 @@ async def start_hud(settings: Settings, loop, hub: Hub, scheduler=None, memory=N
         memory = get_store(settings)
     if memory is not None:
         watch_memory(memory, hub, asyncio.get_running_loop())
-    app = create_hud_app(settings, loop, hub, token, scheduler, memory=memory, watchers=watchers)
+    app = create_hud_app(settings, loop, hub, token, scheduler, memory=memory, watchers=watchers, phone=phone)
     server = _QuietServer(app, sock)
     task = asyncio.create_task(server.serve())
     url = f"http://127.0.0.1:{settings.hud.port}/#k={token}"

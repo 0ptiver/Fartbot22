@@ -33,6 +33,7 @@ dependencies = [
     "onnx>=1.16",
     "livekit>=1.0",
     "send2trash>=1.8",
+    "segno>=1.6",                                  # QR code for setting up phone sign-in
     "pystray>=0.19; sys_platform == 'win32'",   # the tray icon
     "soundcard>=0.4.6; sys_platform == 'win32'",   # live subtitles: record what the PC plays
     # Which video/music is playing (the list Windows' volume pop-up shows), for exact play/pause.
@@ -60,6 +61,7 @@ include = ["assistant*"]
 
 [tool.setuptools.package-data]
 "assistant.hud" = ["static/*"]
+"assistant.remote" = ["static/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

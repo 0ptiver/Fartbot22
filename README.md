@@ -224,6 +224,27 @@ and so are their "yes" answers. Only a voiceprint (256 numbers, no audio) is kep
   (Turn the tick off with `voice: {ack_sound: false}` in `config/local.yaml`.)
 - Plain **"pause"** / **"resume"** / **"skip"** work on whatever is playing: Spotify, YouTube, anything.
 
+## Nova on your phone
+
+Chat with Nova from anywhere: questions, reminders, timers, "tell me when my download finishes",
+pause the music, turn the volume down, lock the PC, or make Nova stand down. Replies show on the
+phone (optionally read aloud by the phone). Nothing is said out loud at home, except a warning
+when a new phone signs in.
+
+1. Install **Tailscale** (free) on the PC and on the phone, and sign in to both with the same
+   account. Tailscale is a private network between your own devices, so nothing is opened to the
+   internet and your router isn't touched.
+2. In Nova's window, open **Phone**: choose a phone password, scan the QR code with an
+   authenticator app (Microsoft Authenticator, Google Authenticator, Authy…) and type its code.
+3. On the phone, with Tailscale connected, open the address the Phone page shows (like
+   `http://laptop-name.tailxxxx.ts.net:8767`), sign in with the password and a code, and tap
+   "Add to Home Screen".
+
+From a phone, Nova never types, clicks, presses keys, moves or deletes files, runs programs or
+routines, shuts down or restarts, or changes the voice lock. Five wrong sign-ins lock it for 15
+minutes, and Nova tells you. The Phone page lists every signed-in phone, with a Sign out button
+for each. It also has **Turn off** and **Forget all**.
+
 ## Configuration
 
 Defaults live in `config/config.yaml`. **Put your own changes in `config/local.yaml`** (copy `config/local.example.yaml`). It overrides the defaults, and `git pull` never touches it. You only need to list what you change.

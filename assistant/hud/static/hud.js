@@ -32,6 +32,7 @@ const PAGES = {
   routines: ["Routines", "One phrase, several actions. Click one to run it."],
   brain: ["Brain", "Everything Nova has been asked to remember."],
   voice: ["Voice", "How Nova sounds, and who it listens to."],
+  phone: ["Phone", "Reach Nova from your phone, privately, over Tailscale."],
 };
 
 // --- connection ------------------------------------------------------------------------------
@@ -104,6 +105,10 @@ function handle(ev, replay) {
     case "toast": return toast(ev.text);
     case "vitals": return vitals(ev);
     case "voice": return NovaVoice.info(ev);
+    case "phone": case "phone_setup": case "phone_done": return NovaPhone.handle(ev);
+    case "remote":
+      activity("ok", "Phone", ev.text, ev.ts);
+      break;
     case "transcript":
       closeLive();
       addMsg("you" + (ev.typed ? " typed" : ""), ev.text);
@@ -570,6 +575,7 @@ function selectTab(name) {
   NovaBrain.show(name === "brain");
   if (name === "activity") { S.unseenAct = 0; badge(); }
   if (name === "voice") send({ type: "voice_get" });
+  if (name === "phone") send({ type: "phone_get" });
   if (name === "chat") { scrollChat(); if (!S.confirmShown) $("askInput").focus({ preventScroll: true }); }
   try { sessionStorage.setItem("novaTab", name); } catch (e) { /* ignore */ }
 }

@@ -174,10 +174,13 @@ async def run(args) -> int:
     if subtitles is not None:
         loop.ctx.services["subtitles"] = subtitles
     await loop.prewarm()
+    from assistant.remote.server import PhoneService
+    phone = PhoneService(settings, loop, hub, scheduler, watchers)
+    phone_task = asyncio.create_task(phone.run())             # only listens once set up and switched on
     hud = None
     if settings.hud.enabled and not args.wav and not args.no_hud:
         from assistant.hud.server import start_hud
-        hud = await start_hud(settings, loop, hub, scheduler, watchers=watchers)
+        hud = await start_hud(settings, loop, hub, scheduler, watchers=watchers, phone=phone)
         if hud is None:
             print(f"{RED}The window (HUD) couldn't start: port {settings.hud.port} is in use. "
                   f"Is Nova already running?{RESET}")
@@ -226,6 +229,8 @@ async def run(args) -> int:
     finally:
         scheduler_task.cancel()
         watchers_task.cancel()
+        phone_task.cancel()
+        await phone.stop()
         if subtitles is not None and subtitles.on:
             await subtitles.stop()
         if tray_task is not None:

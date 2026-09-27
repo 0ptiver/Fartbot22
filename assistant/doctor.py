@@ -230,6 +230,18 @@ async def check(full: bool) -> int:
     from assistant.core.secrets import get_secret, local_client_token
     local_client_token()
     line(OK, "local client token stored")
+    from assistant.remote.auth import PhoneAuth
+    from assistant.remote.server import tailscale_info
+    phone = PhoneAuth(s.phone.session_days)
+    if not phone.configured:
+        line(OK, "phone access not set up (the window's Phone page sets it up)")
+    elif not phone.enabled:
+        line(OK, "phone access set up, switched off")
+    else:
+        ts = tailscale_info()
+        line(OK if ts["ip"] else WARN, f"phone access on ({len(phone.devices())} signed in)" +
+             (f": http://{ts['dns'] or ts['ip']}:{s.phone.port}" if ts["ip"] else ""),
+             "" if ts["ip"] else "Tailscale isn't connected on this PC: open Tailscale and sign in")
     if s.brain.backend == "anthropic" or s.brain.expert.backend == "anthropic":
         line(OK if get_secret("ANTHROPIC_API_KEY") else FAIL, "ANTHROPIC_API_KEY (needed for the API backend)")
     elif get_secret("ANTHROPIC_API_KEY"):

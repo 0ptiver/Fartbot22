@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#05070d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Nova">
+<title>Nova</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="phone.css">
+<script src="phone.js" defer></script>
+</head>
+<body>
+<svg class="sprite" aria-hidden="true">
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5l12 7-12 7z"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M5 5l10 7-10 7zM19 5v14"/></symbol>
+  <symbol id="i-voldown" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4zM17 12h4"/></symbol>
+  <symbol id="i-volup" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4zM17 12h4M19 10v4"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v8M6.4 6.6a8 8 0 1 0 11.2 0"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M4 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/></symbol>
+</svg>
+
+<!-- sign in ------------------------------------------------------------------------------ -->
+<main id="login" class="login" hidden>
+  <div class="login-card">
+    <div class="logo"></div>
+    <h1>Nova</h1>
+    <p class="muted">Sign in to reach Nova at home.</p>
+    <form id="loginForm" autocomplete="on">
+      <label>Password
+        <input id="password" type="password" autocomplete="current-password" maxlength="200" required></label>
+      <label>6-digit code from your authenticator app
+        <input id="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]*" maxlength="7" required></label>
+      <button type="submit" class="btn primary" id="loginBtn">Sign in</button>
+      <p id="loginError" class="error" role="alert"></p>
+    </form>
+    <p class="small"><svg><use href="#i-shield"/></svg>Only reachable over your private Tailscale network.</p>
+  </div>
+</main>
+
+<!-- signed in ---------------------------------------------------------------------------- -->
+<div id="app" class="app" hidden>
+  <header class="top">
+    <div class="who">
+      <span id="dot" class="dot"></span>
+      <div>
+        <p class="name" id="name">Nova</p>
+        <p class="state" id="stateText">Connecting…</p>
+      </div>
+    </div>
+    <button id="menuBtn" type="button" class="icon-btn" aria-haspopup="true" aria-expanded="false" title="Menu"><svg><use href="#i-more"/></svg></button>
+    <div id="menu" class="menu" hidden>
+      <label class="menu-row"><input type="checkbox" id="speakToggle"> Read replies aloud on this phone</label>
+      <p class="menu-row small" id="deviceName"></p>
+      <button type="button" id="logoutBtn" class="menu-row danger">Sign out of this phone</button>
+    </div>
+  </header>
+
+  <nav class="actions" aria-label="Quick controls">
+    <button type="button" data-action="pause"><svg><use href="#i-pause"/></svg>Pause</button>
+    <button type="button" data-action="play"><svg><use href="#i-play"/></svg>Play</button>
+    <button type="button" data-action="next"><svg><use href="#i-next"/></svg>Next</button>
+    <button type="button" data-action="vol_down"><svg><use href="#i-voldown"/></svg>Vol −</button>
+    <button type="button" data-action="vol_up"><svg><use href="#i-volup"/></svg>Vol +</button>
+    <button type="button" data-action="lock"><svg><use href="#i-lock"/></svg>Lock PC</button>
+    <button type="button" id="standBtn" data-action="stand_down"><svg><use href="#i-power"/></svg><span id="standLabel">Stand down</span></button>
+  </nav>
+
+  <section class="glance">
+    <div id="nextBox" class="glance-card" hidden>
+      <p class="sub">Up next</p>
+      <ol id="nextList" class="next-list"></ol>
+    </div>
+    <div class="glance-card vitals" id="vitals">
+      <p class="sub">PC</p>
+      <div class="vital" data-k="cpu"><span>CPU</span><b>–</b></div>
+      <div class="vital" data-k="ram"><span>RAM</span><b>–</b></div>
+      <div class="vital" data-k="gpu_temp"><span>GPU</span><b>–</b></div>
+    </div>
+  </section>
+
+  <section class="chat-wrap" id="chatScroll">
+    <div id="empty" class="empty">
+      <h2 id="greeting">Hello, sir.</h2>
+      <p class="muted">Ask anything, set reminders, check on the PC, pause the music…<br>
+        To talk instead of typing, tap the mic on your keyboard.</p>
+      <div class="suggest">
+        <button type="button" data-say="How's my PC doing?">How's my PC doing?</button>
+        <button type="button" data-say="Remind me in 30 minutes to check the oven">Remind me in 30 minutes…</button>
+        <button type="button" data-say="Tell me when my download finishes">Tell me when my download finishes</button>
+      </div>
+    </div>
+    <ol id="chat" class="chat"></ol>
+  </section>
+
+  <section id="confirm" class="confirm" hidden aria-live="assertive">
+    <p><span id="confirmWho">Nova</span> wants to <strong id="confirmText"></strong></p>
+    <div class="yn">
+      <button id="yesBtn" type="button" class="btn yes">Yes</button>
+      <button id="noBtn" type="button" class="btn no">No</button>
+    </div>
+  </section>
+
+  <form id="ask" class="composer" autocomplete="off">
+    <input id="askInput" type="text" maxlength="2000" enterkeyhint="send" placeholder="Message Nova…" aria-label="Message Nova">
+    <button type="button" id="stopBtn" class="stop" hidden title="Stop"><svg><use href="#i-stop"/></svg></button>
+    <button type="submit" title="Send"><svg><use href="#i-send"/></svg><span class="sr">Send</span></button>
+  </form>
+</div>
+
+<div id="banner" class="banner" hidden role="status"></div>
+</body>
+</html>
