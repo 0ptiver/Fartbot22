@@ -1,0 +1,123 @@
+"""Keyboard by voice: typing, keys, shortcuts, 'this window', and the terminal safety check."""
+
+import pytest
+
+from assistant.brain.intents import match_intent
+from assistant.tools import keyboard as K, pc
+from assistant.tools.registry import ToolContext, ToolError
+
+
+class FakeKeyboard:
+    def __init__(self):
+        self.typed, self.combos = [], []
+
+    def type(self, text):
+        self.typed.append(text)
+
+    def combo(self, vks):
+        self.combos.append(vks)
+
+
+class FakeWindows:
+    def __init__(self, active):
+        self._active, self.calls = active, []
+
+    def active(self):
+        return self._active
+
+    def list(self):
+        return [self._active]
+
+    def show(self, hwnd, how):
+        self.calls.append((hwnd, how))
+
+
+NOTEPAD = pc.Win(5, "notes.txt - Notepad", "notepad.exe")
+TERMINAL = pc.Win(6, "Windows PowerShell", "WindowsTerminal.exe")
+
+
+@pytest.fixture
+def kb(monkeypatch):
+    fake = FakeKeyboard()
+    monkeypatch.setattr(K, "KEYBOARD", fake)
+    return fake
+
+
+def use(monkeypatch, win):
+    fake = FakeWindows(win)
+    monkeypatch.setattr(pc, "WINDOWS", fake)
+    return fake
+
+
+def test_parse_keys():
+    assert K.parse_keys("ctrl+shift+t") == [0x11, 0x10, ord("T")]
+    assert K.parse_keys("control c") == [0x11, ord("C")]
+    assert K.parse_keys("alt f 4") == [0x12, 0x73]
+    assert K.parse_keys("page down") == [0x22] and K.parse_keys("windows key") == [0x5B]
+    with pytest.raises(ToolError, match="don't know"):
+        K.parse_keys("hyper q")
+    with pytest.raises(ToolError, match="One key"):
+        K.parse_keys("a b")
+
+
+async def test_typing_and_keys(settings, registry, kb, monkeypatch):
+    use(monkeypatch, NOTEPAD)
+    res = await registry.execute("type_text", {"text": "Dear John,\nhello"}, ToolContext(settings))
+    assert not res.is_error and kb.typed == ["Dear John,\nhello"]
+    res = await registry.execute("press_keys", {"keys": "tab", "times": 3}, ToolContext(settings))
+    assert res.content == "Pressed tab 3 times." and kb.combos == [[0x09]] * 3
+
+
+async def test_terminal_asks_first(settings, registry, kb, monkeypatch):
+    use(monkeypatch, TERMINAL)
+    asked = []
+
+    async def no(tool, args):
+        asked.append(registry.describe(tool, args))
+        return False
+    res = await registry.execute("type_text", {"text": "del *"}, ToolContext(settings, confirm=no))
+    assert res.is_error and kb.typed == [] and "Windows PowerShell" in asked[0]
+    res = await registry.execute("press_keys", {"keys": "enter"}, ToolContext(settings, confirm=no))
+    assert res.is_error and kb.combos == []
+    res = await registry.execute("press_keys", {"keys": "ctrl+c"}, ToolContext(settings, confirm=no))
+    assert not res.is_error and len(asked) == 2                     # copy is harmless: no question
+    remote = await registry.execute("type_text", {"text": "x"}, ToolContext(settings, remote=True))
+    assert remote.is_error and "blocked" in remote.content
+
+
+def test_this_window(monkeypatch, settings):
+    fake = use(monkeypatch, NOTEPAD)
+    assert pc.window_control({"action": "minimize", "app": "this"}, ToolContext(settings)) == "Minimized notepad."
+    assert fake.calls == [(5, "minimize")]
+
+
+def test_nova_hud_is_never_the_active_window():
+    assert pc.is_nova_window(pc.Win(1, "Nova", "msedge.exe"))
+    assert not pc.is_nova_window(pc.Win(2, "Nova Scotia - Google Search - Chrome", "chrome.exe"))
+
+
+@pytest.mark.parametrize("text,grid,expected", [
+    ("Type hello there.", False, ("type_text", {"text": "hello there"})),
+    ("type: Dear John, how are you?", False, ("type_text", {"text": "Dear John, how are you?"})),
+    ("press enter", False, ("press_keys", {"keys": "enter"})),
+    ("Press alt F4", False, ("press_keys", {"keys": "alt f4"})),
+    ("press tab three times", False, ("press_keys", {"keys": "tab", "times": 3})),
+    ("press 3", False, ("press_keys", {"keys": "3"})),
+    ("press 3", True, ("mouse", {"action": "click", "cell": 3})),
+    ("copy that", False, ("press_keys", {"keys": "ctrl+c"})),
+    ("new tab", False, ("press_keys", {"keys": "ctrl+t"})),
+    ("close this tab", False, ("press_keys", {"keys": "ctrl+w"})),
+    ("go back", False, ("press_keys", {"keys": "alt+left"})),
+    ("go back", True, ("mouse_grid", {"action": "back"})),
+    ("refresh the page", False, ("press_keys", {"keys": "f5"})),
+    ("minimize this", False, ("window", {"action": "minimize", "app": "this"})),
+    ("close this window", False, ("window", {"action": "close", "app": "this"})),
+    ("snap this to the left", False, ("press_keys", {"keys": "win+left"})),
+    ("move this window to the other screen", False, ("press_keys", {"keys": "win+shift+right"})),
+    ("zoom in", False, ("press_keys", {"keys": "ctrl+plus"})),
+    ("zoom in on 14", False, ("mouse_grid", {"action": "zoom", "cell": 14})),
+    ("press play", False, ("video", {"actions": ["play"]})),
+    ("Pause", False, ("music_control", {"action": "pause"})),
+])
+def test_phrases(text, grid, expected):
+    assert match_intent(text, grid_visible=grid) == expected

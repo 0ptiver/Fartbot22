@@ -121,6 +121,8 @@ def grid_intent(t: str, visible: bool = False) -> tuple[str, dict] | None:
         return "mouse_grid", {"action": "zoom", "cell": int(m.group(1))}
     m = re.match(r"^(" + "|".join(sorted(_CLICKS, key=len, reverse=True)) + r")(?: " + _N + r")?"
                  r"(?: (?:it|that|there|here))?$", n)
+    if m and m.group(1) in ("press", "tap") and not visible:
+        m = None                        # "press 3" without the grid is the 3 key
     if m and (m.group(2) or visible or m.group(1) in ("click", "double click", "right click")):
         args = {"action": _CLICKS[m.group(1)]}
         if m.group(2):
@@ -186,6 +188,78 @@ def video_intent(t: str) -> tuple[str, dict] | None:
     return ("video", {"actions": actions}) if actions else None
 
 
+# Named shortcuts: phrase -> keys. Checked after video phrases ("go back in the video").
+_SHORTCUTS = [
+    (r"copy(?: (?:that|it|this))?", "ctrl+c"), (r"paste(?: (?:that|it|this))?", "ctrl+v"),
+    (r"cut(?: (?:that|it|this))?", "ctrl+x"), (r"undo(?: (?:that|it|this))?", "ctrl+z"),
+    (r"redo(?: (?:that|it|this))?", "ctrl+y"), (r"select (?:all|everything)", "ctrl+a"),
+    (r"save(?: (?:it|this|that|the file|the document))?", "ctrl+s"),
+    (r"(?:open )?(?:a )?new tab", "ctrl+t"), (r"close (?:the |this |that )?tab", "ctrl+w"),
+    (r"(?:reopen|bring back|restore) (?:the |that |my )?(?:last |closed )*tab", "ctrl+shift+t"),
+    (r"(?:go to (?:the )?)?next tab|tab right", "ctrl+tab"),
+    (r"(?:go to (?:the )?)?(?:previous|last) tab|tab left", "ctrl+shift+tab"),
+    (r"(?:refresh|reload)(?: (?:the|this) page| it)?", "f5"),
+    (r"go back(?: a page)?|(?:previous|last) page|back a page", "alt+left"),
+    (r"go forward(?: a page)?|next page|forward a page", "alt+right"),
+    (r"(?:switch|change) (?:windows|apps|app|window)|alt tab", "alt+tab"),
+    (r"(?:find|search) (?:on|in) (?:this |the )?page", "ctrl+f"),
+    (r"(?:go to |click )?(?:the )?address bar", "ctrl+l"),
+    (r"zoom in(?: (?:the|this) page)?", "ctrl+plus"), (r"zoom out(?: (?:the|this) page)?", "ctrl+minus"),
+    (r"(?:reset zoom|actual size)", "ctrl+0"),
+    (r"(?:scroll to (?:the )?top|go to (?:the )?top)(?: of (?:the|this) page)?", "ctrl+home"),
+    (r"(?:scroll to (?:the )?bottom|go to (?:the )?bottom)(?: of (?:the|this) page)?", "ctrl+end"),
+    (r"page down", "pagedown"), (r"page up", "pageup"),
+    (r"snap (?:it |this |the window |this window )?(?:to the )?left", "win+left"),
+    (r"snap (?:it |this |the window |this window )?(?:to the )?right", "win+right"),
+    (r"move (?:it|this|this window|the window) to the (?:other|next) (?:screen|monitor|display)", "win+shift+right"),
+    (r"open (?:the )?start(?: menu)?|start menu", "win"),
+    (r"(?:open )?task manager", "ctrl+shift+escape"),
+    (r"(?:take a )?screenshot|snip(?: the screen)?", "win+shift+s"),
+    (r"(?:open )?(?:the )?emoji(?: picker| keyboard)?", "win+period"),
+]
+_THIS_WINDOW = r"(?:this|it|that|the window|this window|the app|this app|current window)"
+_KEY_WORDS = r"(?:[a-z0-9]+(?:[ +][a-z0-9]+){0,3}?)"
+
+
+def keyboard_intent(raw: str, t: str) -> tuple[str, dict] | None:
+    """'type hello there', 'press control c', 'press tab 3 times', 'copy', 'new tab'."""
+    from assistant.tools.keyboard import parse_keys
+    from assistant.tools.registry import ToolError
+
+    m = re.match(r"^\s*(?:please\s+|can you\s+|could you\s+)?(?:type|write|type out|enter the text)"
+                 r"\s*[:,]?\s+(.+?)\s*$", raw, re.I | re.S)
+    if m:
+        text = m.group(1)
+        if re.fullmatch(r"[^.!?]+\.", text):                  # Whisper's full stop on a phrase
+            text = text[:-1]
+        return "type_text", {"text": text}
+    for pattern, keys in _SHORTCUTS:
+        if re.fullmatch(pattern, t):
+            return "press_keys", {"keys": keys}
+    m = re.fullmatch(r"(?:minimi[sz]e|hide) " + _THIS_WINDOW, t)
+    if m:
+        return "window", {"action": "minimize", "app": "this"}
+    if re.fullmatch(r"(?:maximi[sz]e|make (?:it|this) (?:full|bigger)) ?" + _THIS_WINDOW + "?", t) and "full screen" not in t:
+        return "window", {"action": "maximize", "app": "this"}
+    if re.fullmatch(r"close " + _THIS_WINDOW, t) and t != "close it":
+        return "window", {"action": "close", "app": "this"}
+    m = re.fullmatch(r"(?:press|hit|push|tap) (?:the )?(" + _KEY_WORDS + r")(?: key| button)?"
+                     r"(?: (\d{1,2}|two|three|four|five|ten) times)?", t)
+    if m:
+        keys = m.group(1).replace(" and ", " ")
+        try:
+            parse_keys(keys)
+        except ToolError:
+            return None
+        times = m.group(2)
+        args = {"keys": keys}
+        if times:
+            args["times"] = int(times) if times.isdigit() else {"two": 2, "three": 3, "four": 4,
+                                                                 "five": 5, "ten": 10}[times]
+        return "press_keys", args
+    return None
+
+
 def match_intent(text: str, grid_visible: bool = False) -> tuple[str, dict] | None:
     t = _clean(text)
     if not t:
@@ -199,6 +273,9 @@ def match_intent(text: str, grid_visible: bool = False) -> tuple[str, dict] | No
     video = video_intent(t)
     if video:
         return video
+    keys = keyboard_intent(text, t)
+    if keys:
+        return keys
     for pattern, tool, args in _PC_RULES:
         if pattern.match(t):
             return tool, dict(args)

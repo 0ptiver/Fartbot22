@@ -195,6 +195,22 @@ class WindowBackend:
             return
         user32.ShowWindow(hwnd, codes[how])
 
+    def active(self) -> Win | None:
+        """The window the user is working in: the foreground one, unless that's Nova's own
+        window, then the next normal window down (skipping always-on-top overlays)."""
+        _need_windows()
+        import ctypes
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+        fg = int(user32.GetForegroundWindow() or 0)
+        wins = self.list()
+        for w in wins:
+            if w.hwnd == fg and not is_nova_window(w):
+                return w
+        for w in wins:
+            if not is_nova_window(w) and not user32.GetWindowLongW(w.hwnd, -20) & 0x8:   # WS_EX_TOPMOST
+                return w
+        return None
+
     def press(self, vk: int) -> None:
         _need_windows()
         import ctypes
@@ -213,10 +229,25 @@ class WindowBackend:
 
 
 WINDOWS = WindowBackend()
+THIS = ("this", "it", "that", "current", "active", "this window", "the window", "that window",
+        "current window", "active window", "this app", "the app")
+
+
+def is_nova_window(w: Win) -> bool:
+    return w.title.strip().lower() == "nova"        # the HUD
+
+
+def active_window() -> Win:
+    w = WINDOWS.active()
+    if w is None:
+        raise ToolError("I can't tell which window you're using.")
+    return w
 
 
 def _find_window(app: str) -> Win:
     want = app.lower().strip()
+    if want in THIS:
+        return active_window()
     wins = WINDOWS.list()
     def score(w: Win) -> int:
         proc = w.process.lower().removesuffix(".exe")
@@ -319,7 +350,7 @@ def register(reg: ToolRegistry) -> None:
     reg.tool("cancel_shutdown", "Cancel a pending restart or shutdown.",
              risk=Risk.SAFE, category="system")(cancel_shutdown)
     reg.tool("window", "Manage app windows: focus (switch to), minimize, maximize, restore, close "
-             "(the app may ask to save), list open apps, or show_desktop.",
+             "(the app may ask to save), list open apps, or show_desktop. app='this' = the window in use.",
              {"type": "object", "properties": {
                  "action": {"type": "string", "enum": ["focus", "minimize", "maximize", "restore",
                                                        "close", "list", "show_desktop"]},

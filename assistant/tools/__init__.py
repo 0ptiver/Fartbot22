@@ -5,10 +5,11 @@ from __future__ import annotations
 import logging
 
 from assistant.core.config import Settings
-from assistant.tools import expert, files, grid, music, pc, routines, screen, system, timers, video, web
+from assistant.tools import (expert, files, grid, keyboard, music, pc, routines, screen, system, timers,
+                             video, web)
 from assistant.tools.registry import AuditLog, ToolRegistry
 
-TOOL_MODULES = [system, screen, expert, music, files, timers, pc, grid, video]
+TOOL_MODULES = [system, screen, expert, music, files, timers, pc, grid, video, keyboard]
 
 
 def build_registry(settings: Settings, audit: AuditLog | None = None) -> ToolRegistry:

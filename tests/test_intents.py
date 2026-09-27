@@ -17,7 +17,8 @@ from assistant.brain.intents import match_intent
     ("Next song.", ("music_control", {"action": "next"})),
     ("Skip", ("music_control", {"action": "next"})),
     ("Play the next song", ("music_control", {"action": "next"})),
-    ("Go back", ("music_control", {"action": "previous"})),
+    ("Go back a song", ("music_control", {"action": "previous"})),
+    ("Go back", ("press_keys", {"keys": "alt+left"})),              # browser back now; songs: "go back a song"
     ("Resume the music", ("music_control", {"action": "resume"})),
     ("Play music", ("music_control", {"action": "resume"})),
     ("Play My Way by Kanye West.", ("play_music", {"query": "my way by kanye west", "kind": "auto"})),
