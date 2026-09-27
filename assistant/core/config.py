@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG_PATH = ROOT / "config" / "config.yaml"
+# Your personal overrides (git-ignored, so updates never clash with your settings).
+LOCAL_CONFIG_PATH = ROOT / "config" / "local.yaml"
 MODELS_DIR = ROOT / "models"
 
 
@@ -162,9 +164,20 @@ class Settings(BaseModel):
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
 
 
-def load_settings(path: str | Path | None = None) -> Settings:
-    p = Path(path) if path else DEFAULT_CONFIG_PATH
-    data: dict[str, Any] = {}
-    if p.exists():
-        data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+def _deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
+    out = dict(base)
+    for k, v in over.items():
+        out[k] = _deep_merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
+    return out
+
+
+def _read_yaml(p: Path) -> dict[str, Any]:
+    return (yaml.safe_load(p.read_text(encoding="utf-8")) or {}) if p.exists() else {}
+
+
+def load_settings(path: str | Path | None = None, local_path: str | Path | None = None) -> Settings:
+    """config/config.yaml (defaults, updated with the code) + config/local.yaml (yours)."""
+    data = _read_yaml(Path(path) if path else DEFAULT_CONFIG_PATH)
+    if path is None or local_path is not None:
+        data = _deep_merge(data, _read_yaml(Path(local_path) if local_path else LOCAL_CONFIG_PATH))
     return Settings.model_validate(data)

@@ -1,3 +1,4 @@
+# Defaults. Put your own changes in config/local.yaml (see local.example.yaml) so updates never clash.
 # Nova configuration. Every value here can be changed without touching code.
 
 assistant:

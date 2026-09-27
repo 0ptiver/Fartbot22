@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 config/.env
+config/local.yaml
 .env
 /data/
 *.log

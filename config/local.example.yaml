@@ -1,0 +1,11 @@
+# Copy to config/local.yaml and put YOUR settings here. It overrides config/config.yaml,
+# is git-ignored, and `git pull` never touches it. Only list what you want to change.
+
+voice:
+  input_device: 3            # from: python -m assistant devices
+  # output_device: null
+  # ptt_hotkey: ctrl+alt+space
+
+# brain:
+#   local:
+#     model: qwen3:8b

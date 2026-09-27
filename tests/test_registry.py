@@ -100,3 +100,13 @@ def test_duplicate_rejected(settings):
     except ValueError:
         return
     raise AssertionError("duplicate accepted")
+
+
+def test_local_config_overrides(tmp_path):
+    from assistant.core.config import load_settings
+    base = tmp_path / "config.yaml"
+    local = tmp_path / "local.yaml"
+    base.write_text("voice:\n  mode: ptt\n  input_device: null\n")
+    local.write_text("voice:\n  input_device: 3\n")
+    s = load_settings(base, local)
+    assert s.voice.input_device == 3 and s.voice.mode == "ptt"

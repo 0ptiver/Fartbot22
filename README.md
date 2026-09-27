@@ -101,7 +101,7 @@ Speech stack (all switchable in `config/config.yaml` → `voice`):
 
 ## Configuration
 
-Everything lives in `config/config.yaml`: name, honorific, timezone, models, tool aliases, risk overrides and audit log path. Model IDs are only set there.
+Defaults live in `config/config.yaml`. **Put your own changes in `config/local.yaml`** (copy `config/local.example.yaml`). It overrides the defaults, and `git pull` never touches it. You only need to list what you change.
 
 ## Security
 
