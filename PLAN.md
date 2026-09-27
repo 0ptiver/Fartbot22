@@ -212,6 +212,7 @@ scripts/           # install, run, register-startup
 - [x] Folder allowlist (`safety.allowed_folders`, OneDrive copies included): resolved paths only (no `..`/symlink escape). Hidden folders, AppData and secret-looking files (passwords, keys, wallets, .env) are always refused
 - [x] File tools: find_files, open_file (programs/scripts ask first, never remotely), read_file (labelled "not instructions"), create_note (Documents/Nova Notes), move_file (confirm, never overwrites), delete_file (confirm, Recycle Bin via send2trash). Remote-blocked defaults are now in code, not only in config.yaml
 - [x] Timers, reminders, alarms: core/scheduler.py persists to data/reminders.json. Items that came due while Nova was off are announced ("while I was off"). Announced with a chime, never over Nova's own reply, held during standby and delivered on wake-up. Tools set_timer/set_reminder (at a clock time or after a duration)/set_alarm/list_timers/cancel_timer. Fast path for "set a timer for 5 minutes", "cancel the timer", "how long is left"
+- [x] PC control (tools/pc.py): system_status (CPU, memory, GPU temp/usage via nvidia-smi, battery, disk, uptime), lock_pc, power (sleep/restart/shutdown: confirm, remote-blocked, restart/shutdown wait 60 s), cancel_shutdown, window (focus/minimize/maximize/restore/close via WM_CLOSE so apps can ask to save, list, show desktop), open_website (known sites, YouTube/Amazon/Maps/Google search, http/https only). Fast path for "lock my PC", "cancel the shutdown", "show the desktop". Not yet tried on the PC
 - [x] Kill switch: "Nova, stand down" / "stop everything" cancels speech, thinking, running tools (kills a Claude Code subprocess) and pending confirmations, then standby. Only "Nova, wake up" / "Nova, I need you" resumes
 - [x] Spotify: PKCE login (no secret, loopback callback with state check), refresh-token rotation, search + play (track/artist/album/playlist/liked/recent), control, now playing, queue. Starts the Spotify app when no device is found. Premium/rate-limit errors are spoken plainly
 - [x] Media keys for any app (fallback when Spotify isn't linked)
@@ -222,9 +223,9 @@ scripts/           # install, run, register-startup
 - [x] Owner: after a failed play, the 4B model kept answering "Spotify isn't open" from history and never called now_playing. Fix: fast path for common commands (what's playing / pause / resume / next / previous / shuffle / play X / liked songs / last song). Recognised by regex, run directly, the tool's result spoken, no model call
 - [x] Playback check accepts Spotify's relinked copies (different URI, same song) and reports what's actually playing. This PC's name isn't spoken
 - [x] Owner: "Playing My Way by Kanye West" was reported but nothing played. Now it prefers this PC's Spotify app (by computer name; avoids web-player tabs and stale devices), verifies playback via /me/player, transfers and retries once, reports honestly if still silent, and names the device. `spotify devices` shows what Spotify reports
-- [ ] Apps/windows, system, files, browser (Playwright), keyboard/mouse, clipboard, screen, shell, productivity, Spotify, Discord, Gmail/Calendar
-- [ ] Confirmation flow (voice "yes" / UI button)
-- [ ] Kill switch, remote policy, routines (YAML), MCP servers as a tool source
+- [ ] Browser (Playwright), keyboard/mouse, clipboard, shell, Discord, Gmail/Calendar
+- [ ] Confirmation buttons in the HUD (voice yes/no is done)
+- [ ] Routines (YAML, e.g. "gaming mode"), MCP servers as a tool source
 
 ### Phase 5 — Desktop HUD + memory
 - [ ] Tauri HUD: orb, transcript, tool feed, confirmations, stats, latency overlay, audit log, tray

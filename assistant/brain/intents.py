@@ -67,6 +67,14 @@ def _timer_intent(t: str) -> tuple[str, dict] | None:
     return None
 
 
+_PC_RULES = [
+    (re.compile(r"^(?:please )?lock (?:my |the )?(?:pc|computer|laptop|screen)(?: please)?$"), "lock_pc", {}),
+    (re.compile(r"^(?:cancel|stop|abort) (?:the )?(?:shutdown|shut down|restart|reboot)$"), "cancel_shutdown", {}),
+    (re.compile(r"^(?:show|go to) (?:me )?(?:the |my )?desktop$|^minimi[sz]e everything$"),
+     "window", {"action": "show_desktop"}),
+]
+
+
 def match_intent(text: str) -> tuple[str, dict] | None:
     t = _clean(text)
     if not t:
@@ -74,6 +82,9 @@ def match_intent(text: str) -> tuple[str, dict] | None:
     timer = _timer_intent(t)
     if timer:
         return timer
+    for pattern, tool, args in _PC_RULES:
+        if pattern.match(t):
+            return tool, dict(args)
     for pattern, tool, args in _RULES:
         if pattern.match(t):
             return tool, dict(args)

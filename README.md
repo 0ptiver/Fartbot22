@@ -132,6 +132,15 @@ Speech stack (all switchable in `config/config.yaml` → `voice`):
 | "Open Spotify" / "open Steam" / "open notepad" | `open_app` (aliases in `config/config.yaml`, then Start Menu) |
 | "What's on my screen?" / "read the error on my screen" | `look_at_screen` (screenshot → Claude vision) |
 | "Who won the game last night?" / "weather in Chicago tomorrow" | `web_search` (Claude server tool) |
+| "How's my PC doing?" / "how hot is my GPU?" / "how much disk space?" | `system_status` |
+| "Lock my PC" | `lock_pc` (straight away) |
+| "Put the PC to sleep" / "restart" / "shut down" | `power` (asks first; restart/shutdown wait 60 s) |
+| "Cancel the shutdown" | `cancel_shutdown` |
+| "Switch to Chrome" / "minimise Discord" / "show the desktop" | `window` |
+| "Open YouTube" / "search YouTube for lofi" / "Google the weather" | `open_website` (http/https only) |
+| "Set a timer for 10 minutes for the pasta" / "remind me at 7 pm to call mum" | timers (announced with a chime) |
+| "Find my tax return" / "read my shopping list" | `find_files`, `read_file` (your own folders only) |
+| "Nova, stand down" … "Nova, wake up" | kill switch / standby |
 | "Work out the monthly payment on a $20k loan at 6% over 5 years" | `escalate` → Claude Opus 5 |
 
 `/reset` clears the conversation. `/quit` exits. `Ctrl+C` interrupts a reply.

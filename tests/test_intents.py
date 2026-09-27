@@ -27,6 +27,8 @@ from assistant.brain.intents import match_intent
     ("Play my chill playlist", ("play_music", {"query": "chill", "kind": "playlist"})),
     ("What's on my screen?", None),
     ("Open Spotify", None),
+    ("How do I lock my PC", None),
+    ("Shut down the PC", None),                      # power always goes via the model + a yes/no
     ("What time is it", None),
     ("Stop the timer", ("cancel_timer", {"which": "timer"})),
 ])
@@ -42,6 +44,10 @@ def test_match_intent(text, expected):
     ("Start a 2 hour timer", ("set_timer", {"hours": 2.0})),
     ("Cancel the timer", ("cancel_timer", {"which": "timer"})),
     ("Stop the alarm", ("cancel_timer", {"which": "alarm"})),
+    ("Lock my PC.", ("lock_pc", {})),
+    ("Lock the computer please", ("lock_pc", {})),
+    ("Cancel the shutdown!", ("cancel_shutdown", {})),
+    ("Show the desktop", ("window", {"action": "show_desktop"})),
     ("How much time is left?", ("list_timers", {})),
     ("How long left on the timer", ("list_timers", {})),
     ("Remind me in an hour to call mum", None),        # the model handles reminders
