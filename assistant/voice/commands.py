@@ -31,6 +31,18 @@ def classify_yes_no(text: str) -> bool | None:
     return None
 
 
+_CANCEL = re.compile(
+    r"^(?:(?:hey |ok |okay |no |wait |actually |oh |sorry |um |uh |nova )*)"
+    r"(?:cancel|cancel (?:that|it|this|the last (?:one|thing)|what you just did)|never ?mind|forget (?:it|that)|abort|"
+    r"scrap that|undo that|undo|stop that|don'?t do (?:that|it)|call it off|take that back)"
+    r"(?: please| nova| sir| thanks| then| now)*$")
+
+
+def is_cancel(text: str) -> bool:
+    """'Cancel', 'never mind', 'cancel that', 'Nova, forget it', 'undo that'."""
+    return bool(_CANCEL.match(" ".join(_norm(text).split())))
+
+
 def is_stand_down(text: str) -> bool:
     return bool(_STAND_DOWN.search(_norm(text)))
 

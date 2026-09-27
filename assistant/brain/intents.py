@@ -20,12 +20,13 @@ _RULES: list[tuple[re.Pattern, str, dict]] = [
     (re.compile(r"^(?:what(?:'?s| is)(?: currently)? playing|what(?:'?s| is) this song|what song is (?:this|playing|on)"
                 r"|what am i listening to|(?:tell me )?what(?:'?s| is) (?:the )?(?:song|track)(?: playing)?"
                 r"|what(?:'?s| is) (?:on|playing on) spotify|(?:tell me )?what song this is)$"), "now_playing", {}),
-    (re.compile(r"^(?:pause|stop)" + _THING + "$"), "music_control", {"action": "pause"}),
-    (re.compile(r"^(?:resume|unpause|continue|keep playing)" + _THING + "$"), "music_control", {"action": "resume"}),
-    (re.compile(r"^(?:play )?(?:the )?(?:next|skip)" + _THING + "$"), "music_control", {"action": "next"}),
-    (re.compile(r"^skip(?: (?:this|it|the song|this song))?$"), "music_control", {"action": "next"}),
+    # Whatever is actually playing (Spotify, a video, any player): see tools/video.media.
+    (re.compile(r"^(?:pause|stop)" + _THING + "$"), "media", {"action": "pause"}),
+    (re.compile(r"^(?:resume|unpause|continue|keep playing)" + _THING + "$"), "media", {"action": "play"}),
+    (re.compile(r"^(?:play )?(?:the )?(?:next|skip)" + _THING + "$"), "media", {"action": "next"}),
+    (re.compile(r"^skip(?: (?:this|it|the song|this song))?$"), "media", {"action": "next"}),
     (re.compile(r"^(?:play )?(?:the )?(?:previous|last)(?: (?:song|track))$|^go back(?: a song| to the last song)?$"),
-     "music_control", {"action": "previous"}),
+     "media", {"action": "previous"}),
     (re.compile(r"^shuffle(?: (?:on|my music))?$|^turn (?:on )?shuffle(?: on)?$"), "music_control", {"action": "shuffle_on"}),
     (re.compile(r"^(?:turn )?shuffle off$|^turn off shuffle$"), "music_control", {"action": "shuffle_off"}),
 ]
@@ -348,7 +349,7 @@ def match_intent(text: str, grid_visible: bool = False, labels: bool = False) ->
     if m:
         q = m.group(1).strip()
         if q in ("music", "some music", "spotify", "my music", "something"):
-            return "music_control", {"action": "resume"}
+            return "media", {"action": "play"}
         if re.fullmatch(r"(?:some of )?(?:my )?(?:liked songs|likes|favou?rites|favou?rite songs)", q):
             return "play_music", {"kind": "liked_songs"}
         if re.search(r"(?:last|recent|previous) (?:song|track|thing) i (?:listened to|played|heard)"

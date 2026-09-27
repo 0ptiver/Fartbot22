@@ -378,6 +378,7 @@ class GridController:
     history: list[Grid] = field(default_factory=list)
     screen: Region | None = None
     labels: dict[int, Region] | None = None      # "show numbers": clickable things, numbered
+    explained: set = field(default_factory=set)  # instructions are spoken once per session
 
     @property
     def visible(self) -> bool:
@@ -396,6 +397,9 @@ class GridController:
         self.history, self.labels = [], None
         self.overlay.show(self.grid, self.screen)
         where = f" on screen {screens.index(self.screen) + 1}" if len(screens) > 1 else " on"
+        if "grid" in self.explained:
+            return f"Grid{where}."
+        self.explained.add("grid")
         return (f"Grid{where}. Say 'click' and a number from 1 to {self.grid.count}, "
                 "or 'zoom' and a number to get closer.")
 

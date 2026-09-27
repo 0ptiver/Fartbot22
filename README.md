@@ -197,6 +197,16 @@ Closed it? `.venv\Scripts\python -m assistant hud` reopens it. Don't want it?
 It only works on this PC: it listens on 127.0.0.1, needs a new secret key each time Nova starts,
 refuses other websites, and runs in its own browser profile with no extensions.
 
+### Cancel, correct, and knowing it heard you
+
+- **"Nova, cancel"** (or "never mind", "cancel that", "undo that") stops whatever Nova is doing, or
+  undoes what it just did: the timer it just set, the restart countdown, the grid, dictation, a lesson.
+  Right after Nova replies you don't need the name.
+- **"No, I meant Steam"** is treated as the corrected request.
+- A soft **tick** means Nova heard you; if something takes a moment it says "One moment, sir."
+  (Turn the tick off with `voice: {ack_sound: false}` in `config/local.yaml`.)
+- Plain **"pause"** / **"resume"** / **"skip"** work on whatever is playing: Spotify, YouTube, anything.
+
 ## Configuration
 
 Defaults live in `config/config.yaml`. **Put your own changes in `config/local.yaml`** (copy `config/local.example.yaml`). It overrides the defaults, and `git pull` never touches it. You only need to list what you change.

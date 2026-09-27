@@ -117,7 +117,7 @@ def test_nova_hud_is_never_the_active_window():
     ("zoom in", False, ("press_keys", {"keys": "ctrl+plus"})),
     ("zoom in on 14", False, ("mouse_grid", {"action": "zoom", "cell": 14})),
     ("press play", False, ("video", {"actions": ["play"]})),
-    ("Pause", False, ("music_control", {"action": "pause"})),
+    ("Pause", False, ("media", {"action": "pause"})),
 ])
 def test_phrases(text, grid, expected):
     assert match_intent(text, grid_visible=grid) == expected

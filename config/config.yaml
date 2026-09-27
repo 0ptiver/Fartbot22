@@ -24,7 +24,7 @@ brain:
     keep_alive: 30m
     think: false                 # model "thinking" adds seconds of silence; keep off for voice
     temperature: 0.6
-    timeout_s: 60
+    timeout_s: 30                 # a stalled Ollama gives up instead of freezing Nova
 
   # Hard tasks (research, analysis, writing, code). claude_code = your Claude Pro subscription
   # via the official Claude Code CLI; anthropic = Claude API (paid per token).

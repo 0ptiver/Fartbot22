@@ -197,6 +197,9 @@ def show_numbers(args: dict, ctx: ToolContext) -> str:
         raise ToolError(f"{label} doesn't tell Windows what's clickable (games usually don't). "
                         "Say 'show the grid' instead.")
     g.show_labels([e.rect for e in elements])
+    if "numbers" in g.explained:
+        return "Numbers on."
+    g.explained.add("numbers")
     return f"Numbers on: {len(elements)} things. Say 'click' and a number."
 
 

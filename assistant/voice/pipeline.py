@@ -20,7 +20,7 @@ from assistant.core.config import Settings
 from assistant.core.conversation import Conversation
 from assistant.tools.registry import ToolContext
 from assistant.voice.chunker import SentenceChunker
-from assistant.voice.commands import classify_yes_no, is_resume, is_stand_down
+from assistant.voice.commands import classify_yes_no, is_cancel, is_resume, is_stand_down
 from assistant.voice.latency import LatencyTracker
 from assistant.voice.stt.base import STTProvider, STTSession
 from assistant.voice.tts.base import TTSProvider
@@ -86,6 +86,11 @@ class VoiceLoop:
         self.dictation = False
         self._dictated: list[str] = []                # typed chunks, for "scratch that"
         self._dictation_at = 0.0
+        # "Cancel" undoes the last thing Nova did (a timer, a restart countdown ...)
+        self._last_action: tuple[str, dict, float] | None = None
+        registry = getattr(brain, "registry", None)
+        if registry is not None and hasattr(registry, "observers"):
+            registry.observers.append(self._note_action)
 
     @property
     def busy(self) -> bool:
@@ -353,6 +358,8 @@ class VoiceLoop:
 
             self._last_request = (text, lat.marks["speech_end"])
             self.on_event({"type": "transcript", "text": text})
+            if self.cfg.ack_sound:
+                self.player.play(tick())                   # "heard you", before any thinking
             self._turn = asyncio.create_task(self._reply(text, lat))
             started_reply = True
         except asyncio.CancelledError:
@@ -420,6 +427,10 @@ class VoiceLoop:
             else:
                 self.on_event({"type": "ignored", "text": text, "reason": "standing down (say \"Nova, wake up\")"})
             return True
+        if is_cancel(text) and (self._confirm is None or self._confirm.done()) and (
+                typed or self._cancel_is_for_me(text)):
+            await self.say(await self.cancel_last())
+            return True
         if self._confirm is not None and not self._confirm.done():
             answer = classify_yes_no(text)
             if answer is None and self._sounds_like_echo(text):
@@ -481,6 +492,87 @@ class VoiceLoop:
             self._dictated.append(chunk)
             self.on_event({"type": "dictated", "text": text.strip()})
         return True
+
+    # --- "cancel": stop or undo whatever is going on, like a person would --------------------
+    UNDOABLE = {"set_timer", "set_reminder", "set_alarm", "power", "watch", "subtitles", "remember",
+                "mouse_grid", "show_numbers", "dictation"}
+
+    def _note_action(self, name: str, args, ok: bool) -> None:
+        if ok and name in self.UNDOABLE and isinstance(args, dict):
+            self._last_action = (name, dict(args), time.perf_counter())
+
+    def _cancel_is_for_me(self, text: str) -> bool:
+        """Only when it's clearly meant for Nova: said with the name, right after Nova spoke,
+        or while Nova is busy / something of Nova's is on screen. ('Cancel' in a game chat isn't.)"""
+        grid = self.ctx.services.get("grid")
+        teacher = self.ctx.services.get("teacher")
+        return (self.busy or match_wake(text, self.cfg.wake.variants, 99)[0]
+                or time.perf_counter() < self._follow_up_until or self.dictation
+                or (grid is not None and grid.visible)
+                or (teacher is not None and (teacher.recording or teacher.awaiting_name)))
+
+    async def cancel_last(self) -> str:
+        """Stop what's happening, or undo the last thing Nova did. Returns what to say."""
+        sir = self._sir(",")
+        if self.busy:
+            await self.interrupt(reason="cancel")
+            undone = await self._undo_last(max_age_s=15)       # e.g. a restart it just started
+            return undone or f"Cancelled{sir}."
+        grid = self.ctx.services.get("grid")
+        if grid is not None and grid.visible:
+            await asyncio.to_thread(grid.hide)
+            return f"Cancelled{sir}."
+        teacher = self.ctx.services.get("teacher")
+        if teacher is not None and (teacher.recording or teacher.awaiting_name):
+            return await asyncio.to_thread(teacher.cancel)
+        if self.dictation:
+            self.set_dictation(False)
+            return f"Dictation off{sir}."
+        return await self._undo_last(max_age_s=120) or f"There's nothing to cancel{sir}."
+
+    async def _undo_last(self, max_age_s: float) -> str | None:
+        if self._last_action is None:
+            return None
+        name, args, at = self._last_action
+        if time.perf_counter() - at > max_age_s:
+            return None
+        self._last_action = None
+        s = self.ctx.services
+        try:
+            if name in ("set_timer", "set_reminder", "set_alarm") and s.get("scheduler"):
+                sched = s["scheduler"]
+                items = sched.upcoming()
+                if items:
+                    latest = max(items, key=lambda r: r.created)
+                    sched.cancel(latest.id)
+                    what = f" for {latest.text}" if latest.text else ""
+                    return f"Cancelled the {latest.kind}{what}."
+            elif name == "power" and args.get("action") in ("restart", "shutdown"):
+                await self.brain.registry.execute("cancel_shutdown", {}, self.ctx)
+                return f"Cancelled the {args['action']}."
+            elif name == "watch" and s.get("watchers"):
+                hits = s["watchers"].cancel("")
+                if hits:
+                    return f"I've stopped watching for {hits[0].describe()}."
+            elif name == "subtitles" and s.get("subtitles") and s["subtitles"].on:
+                await s["subtitles"].stop()
+                return "Subtitles off."
+            elif name == "remember":
+                from assistant.core.memory import get_store
+                store = s.get("memory") or get_store(self.settings)
+                mems = store.all() if store else []
+                if mems:
+                    store.delete([mems[0].id])
+                    return f"Forgotten: {mems[0].text}."
+            elif name in ("mouse_grid", "show_numbers") and s.get("grid") and s["grid"].visible:
+                await asyncio.to_thread(s["grid"].hide)
+                return "Cancelled."
+            elif name == "dictation" and self.dictation:
+                self.set_dictation(False)
+                return "Dictation off."
+        except Exception:
+            log.exception("undo failed")
+        return None
 
     def _sir(self, sep: str = "") -> str:
         who = self.settings.assistant.address_user_as
@@ -668,11 +760,24 @@ class VoiceLoop:
         self.player.reset_marker()
         speaker = asyncio.create_task(self._speaker(queue, lat))
 
+        pushed = [0]
+
         def push(chunks: list[str]) -> None:
             for c in chunks:
                 lat.mark("first_chunk")
                 self.on_event({"type": "speak", "text": c})
                 queue.put_nowait(c)
+                pushed[0] += 1
+
+        async def still_working() -> None:
+            # Silence while the model or a tool is slow feels like a freeze: say so instead.
+            await asyncio.sleep(self.cfg.still_working_s)
+            if pushed[0] == 0:
+                filler = next(self._fillers)
+                if filler:
+                    push([filler])
+                    chunker.emitted += 1
+        notice = asyncio.create_task(still_working()) if self.cfg.still_working_s > 0 else None
 
         try:
             async for ev in self.brain.run_turn(self.conv, text, self.ctx):
@@ -683,7 +788,7 @@ class VoiceLoop:
                 elif isinstance(ev, ToolStarted):
                     lat.mark("llm_first_token")  # a tool call is the model's first response too
                     push(chunker.flush())       # speak what's been said so far first
-                    if chunker.emitted == 0 and ev.name in self.cfg.filler_tools:
+                    if chunker.emitted == 0 and pushed[0] == 0 and ev.name in self.cfg.filler_tools:
                         filler = next(self._fillers)
                         if filler:
                             push([filler])
@@ -703,6 +808,8 @@ class VoiceLoop:
             await speaker
             await self.player.drain()
         finally:
+            if notice is not None:
+                notice.cancel()
             if not speaker.done():
                 speaker.cancel()
                 await asyncio.gather(speaker, return_exceptions=True)
@@ -723,6 +830,13 @@ class VoiceLoop:
             await self._synth_and_play(chunk, lat)
 
 
+def tick(sample_rate: int = 24000) -> np.ndarray:
+    """A short, soft tick: 'I heard you'."""
+    t = np.arange(int(sample_rate * 0.05)) / sample_rate
+    env = np.minimum(1, t / 0.004) * np.exp(-t * 70)
+    return (0.12 * np.sin(2 * np.pi * 1400 * t) * env).astype(np.float32)
+
+
 def chime(sample_rate: int = 24000) -> np.ndarray:
     """A soft two-note chime played before Nova speaks up on its own."""
     out = []
@@ -734,7 +848,8 @@ def chime(sample_rate: int = 24000) -> np.ndarray:
     return np.concatenate(out).astype(np.float32)
 
 
-_STOP_FILLER = {"please", "now", "thanks", "thank", "you", "nova", "sir", "for", "a", "sec",
+_STOP_FILLER = {"please", "now", "thanks", "thank", "you", "nova", "sir", "for", "a", "sec", "that", "this",
+                "all", "everything", "then", "it's", "okay", "ok",
                 "second", "moment", "right", "there", "it", "talking"}
 
 

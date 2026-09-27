@@ -175,6 +175,10 @@ class LocalBrain:
         tools_used = False
         nudged = False
         # Common commands ("pause", "what's playing", "play X") skip the model entirely.
+        # "No, I meant Steam" / "I said ten minutes": the correction *is* the request.
+        m = _CORRECTION.match(user_text)
+        if m and len(m.group(1).split()) >= 1:
+            user_text = m.group(1)
         grid = ctx.services.get("grid")
         from assistant.brain.intents import _clean
         from assistant.tools.teach import teach_intent
@@ -406,6 +410,9 @@ class _Round:
         self.text: list[str] = []
         self.calls: list[dict] = []
 
+
+_CORRECTION = re.compile(r"^\s*(?:no[,.!]?\s+|nope[,.!]?\s+|sorry[,.!]?\s+|actually[,.!]?\s+)*"
+                         r"(?:i meant|i said|i mean|make (?:that|it))\s+(.+?)\s*$", re.I)
 
 _PROMISE = re.compile(
     r"\b(i'?ll|i will|let me|on it|one moment|give me a moment|checking|i'?m going to|"

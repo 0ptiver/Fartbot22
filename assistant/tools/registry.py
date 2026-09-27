@@ -68,6 +68,13 @@ class Tool:
         }
 
 
+# How long a tool may take before Nova gives up on it. Most are instant; these legitimately take long.
+DEFAULT_TOOL_TIMEOUT_S = 30.0
+TOOL_TIMEOUTS = {"escalate": 330.0, "look_at_screen": 150.0, "run_routine": 300.0, "web_search": 30.0,
+                 "play_music": 30.0, "power": 60.0, "open_file": 45.0, "move_file": 45.0, "delete_file": 45.0,
+                 "type_text": 45.0, "replay_keys": 45.0, "press_keys": 45.0, "forget": 45.0}
+
+
 class ToolError(Exception):
     """Raised by handlers for expected failures; the message is shown to the model."""
 
@@ -230,14 +237,20 @@ class ToolRegistry:
                 record["status"] = "declined"
                 return ToolResult("The user declined this action.", is_error=True)
 
+        limit = TOOL_TIMEOUTS.get(name, DEFAULT_TOOL_TIMEOUT_S)
         try:
             if inspect.iscoroutinefunction(tool.handler):
-                out = await tool.handler(args, ctx)
+                out = await asyncio.wait_for(tool.handler(args, ctx), limit)
             else:
-                out = await asyncio.to_thread(tool.handler, args, ctx)
+                out = await asyncio.wait_for(asyncio.to_thread(tool.handler, args, ctx), limit)
         except asyncio.CancelledError:
             record["status"] = "cancelled"
             raise
+        except TimeoutError:
+            # A stuck step must never freeze Nova (owner: "he pauses and freezes").
+            record["status"] = "timeout"
+            return ToolResult(f"That took too long (over {limit:.0f} seconds), so I stopped waiting for it.",
+                              is_error=True)
         except ToolError as e:
             record["status"] = "error"
             return ToolResult(str(e), is_error=True)

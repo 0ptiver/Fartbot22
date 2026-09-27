@@ -40,7 +40,7 @@ class LocalLLMConfig(BaseModel):
     keep_alive: str = "30m"             # keep the model in VRAM between turns
     think: bool = False                 # Qwen3 "thinking" adds seconds of silence; off for voice
     temperature: float = 0.6
-    timeout_s: float = 60
+    timeout_s: float = 30               # a stalled Ollama gives up instead of freezing Nova
     fast_commands: bool = True          # "pause", "what's playing", "play X": no model call
 
 
@@ -162,6 +162,8 @@ class VoiceConfig(BaseModel):
     tts: TTSConfig = Field(default_factory=TTSConfig)
     confirm_timeout_s: float = 12.0     # how long Nova waits for "yes"/"no" before cancelling
     dictation_timeout_s: float = 120.0  # dictation switches itself off after this much quiet
+    ack_sound: bool = True              # a soft tick the moment Nova accepts a request
+    still_working_s: float = 1.8        # nothing said by then? "One moment, sir." (0 = never)
     first_chunk_min_chars: int = 12
     latency_report: bool = True
     # Said when a slow tool starts and nothing has been said yet this turn.

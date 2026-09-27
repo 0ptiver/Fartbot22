@@ -160,6 +160,7 @@ async def video(args: dict, ctx: ToolContext, _media: MediaBackend | None = None
 
 
 def register(reg: ToolRegistry) -> None:
+    register_media(reg)
     reg.tool("video", "Control the video playing in the browser (YouTube, Netflix, Twitch...) or a "
              "video app. Finds it by itself: no need to ask which video. actions run in order, "
              "e.g. ['fullscreen', 'play']. play/pause are exact (not toggles).",
@@ -168,3 +169,49 @@ def register(reg: ToolRegistry) -> None:
                              "minItems": 1, "maxItems": 5}},
               "required": ["actions"], "additionalProperties": False},
              risk=Risk.SAFE, category="media")(video)
+
+
+# --- whatever is playing ------------------------------------------------------------------------
+async def media(args: dict, ctx: ToolContext, _media: MediaBackend | None = None) -> str:
+    """Pause/play/next/previous on whatever is actually playing: Spotify, YouTube, anything.
+    (Plain 'pause' used to always mean Spotify, so a playing video 'wasn't playing'.)"""
+    api = _media or MEDIA
+    action = args["action"]
+    items = await api.list()
+    if not items:                                  # Windows lists nothing: the media keys still work
+        from assistant.tools import music
+        key = {"play": "play_pause", "pause": "play_pause", "toggle": "play_pause"}.get(action, action)
+        await asyncio.to_thread(music.press_media_key, key)
+        return {"pause": "Paused.", "play": "Playing.", "next": "Skipped.", "previous": "Going back."}.get(action, "Done.")
+    playing = [m for m in items if m.status == "playing"]
+    paused = [m for m in items if m.status == "paused"]
+    if action == "pause":
+        if not playing:
+            return "Nothing is playing."
+        target = playing[0]
+    elif action == "play":
+        if playing:
+            return f"{playing[0].title or 'It'} is already playing."
+        if not paused:
+            return "There's nothing paused to resume."
+        target = paused[0]
+    else:
+        target = (playing or paused or items)[0]
+    if not await api.command(target, action):
+        raise ToolError(f"{_app_name(target)} didn't accept that.")
+    name = f" {target.title}" if target.title else ""
+    return {"pause": f"Paused{name}.", "play": f"Playing{name}.", "next": "Next.",
+            "previous": "Previous."}.get(action, "Done.")
+
+
+def _app_name(m: Media) -> str:
+    a = m.app.lower()
+    return "Spotify" if "spotify" in a else "The browser" if any(b in a for b in BROWSERS) else "That app"
+
+
+def register_media(reg: ToolRegistry) -> None:
+    reg.tool("media", "Pause, play (resume), next or previous on whatever is playing on the PC (Spotify, "
+             "a YouTube video, any player). Use for plain 'pause' / 'resume' / 'skip'.",
+             {"type": "object", "properties": {"action": {"type": "string", "enum": ["play", "pause", "next",
+                                                                                      "previous"]}},
+              "required": ["action"], "additionalProperties": False}, risk=Risk.SAFE, category="media")(media)
