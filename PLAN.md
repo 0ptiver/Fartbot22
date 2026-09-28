@@ -256,6 +256,7 @@ scripts/           # install, run, register-startup
 - [x] Phone bugs (owner's screenshots): the reply showed Nova's whole <context> block (ContextFilter strips it from the stream, prompt says never repeat it); Nova said there was no "junk job" reminder while Up next showed it (the context now lists the timers and reminders set)
 - [x] "He answers so randomly" (owner's screenshot: a question got his remembered facts read out, then a made-up "Opening business.facebook.com"): only memories the request is about reach the model (and at most 3); shortcut-shaped memories become taught shortcuts; every sentence is checked for made-up actions, not just the first; the prompt says answer what was asked and follow up on the last reply
 - [x] "If I tell it to do something it does it": the prompt no longer invites "I can't"; every way of saying no to an instruction ("unfortunately", "I'm afraid", "beyond my capabilities", in any sentence) is nudged to use a tool, then handed to Claude
+- [x] "It says I can't help you with that": the small model's refusals are held back; Claude answers the same request and Nova says it (the refusal stays only if Claude can't be reached); the prompt says help with anything the owner asks, no refusing or lectures
 
 ### Phase 7 — Proactive + polish
 - [ ] Morning briefing, hardware/disk/download alerts, background research tasks

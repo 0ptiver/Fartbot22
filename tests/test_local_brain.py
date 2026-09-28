@@ -538,3 +538,27 @@ async def test_a_shortcut_saved_as_a_memory_becomes_a_real_shortcut(local_settin
     assert not any("business.facebook" in m.text for m in store.all()) and len(store.all()) == 4
     lesson = L.get_lessons().match("open my business")
     assert lesson and "business.facebook.com" in lesson.means
+
+
+@pytest.mark.parametrize("refusal", [
+    "I'm sorry, but I can't help with that.",
+    "Sure. Actually, I can't assist with that request, sir.",
+    "That's not something I can help with.",
+])
+async def test_the_owners_request_is_answered_not_refused(local_settings, ctx, refusal):
+    """Owner: "it says I can't help you with that ... I want to be able to do anything with Nova".
+    The small model's refusal is never shown: Claude answers it and Nova says the answer."""
+    expert = FakeExpert("Here's a roast for your mate: he's so slow his GPS gives up.")
+    brain, fake = make(local_settings, [text_reply(refusal)], expert)
+    conv = Conversation()
+    events = await collect(brain, conv, "give me a savage roast for my mate Jake", ctx)
+    said = "".join(e.text for e in events if isinstance(e, TextDelta))
+    assert "can't" not in said and "GPS" in said and expert.calls[0][0] == "give me a savage roast for my mate Jake"
+    assert "GPS" in conv.messages[-1]["content"]
+
+
+async def test_a_refusal_stays_if_claude_cannot_be_reached(local_settings, ctx):
+    brain, _ = make(local_settings, [text_reply("I can't help with that.")],
+                    FakeExpert(error=ExpertError("Claude Code isn't signed in.")))
+    events = await collect(brain, Conversation(), "give me a savage roast for my mate Jake", ctx)
+    assert "can't help" in "".join(e.text for e in events if isinstance(e, TextDelta))

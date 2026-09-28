@@ -267,6 +267,7 @@ class LocalBrain:
         held: list[Event] = []
         failing = False
         claimed = False
+        refused = False                          # the model said no to the request itself
         did = False                              # an action really happened this turn
         failed_why = ""
         rescue = self.settings.brain.agent.on_failure and self._can_rescue(ctx)
@@ -275,6 +276,8 @@ class LocalBrain:
         first: list[Event] = []                 # the reply's first sentence, until it's clear it's honest
 
         def verdict(text: str) -> str | None:
+            if not did and _HELP_REFUSAL.search(text):
+                return "refused"                  # said no to the request itself: Claude answers it
             if asks and (_STUCK in text or _CANT.search(text)):
                 return "stuck"
             if not did and not question and (
@@ -294,7 +297,7 @@ class LocalBrain:
         shown = False                            # any text reached the user
 
         def sentences(final: bool) -> list[TextDelta]:
-            nonlocal pending, shown, failing, failed_why
+            nonlocal pending, shown, failing, failed_why, refused
             out = []
             while pending:
                 m = re.search(r"[.!?](?:\s+|$)", pending)
@@ -309,6 +312,11 @@ class LocalBrain:
                     log.info("dropped a made-up claim: %s", sent.strip()[:120])
                     dropped.append(sent)
                     continue
+                if not did and _HELP_REFUSAL.search(sent):
+                    failing, refused = True, True        # "Sure. Actually, I can't help with that."
+                    held.append(TextDelta(sent + pending))
+                    pending = ""
+                    break
                 if asks and not did and (_STUCK in sent or _CANT.search(sent)):
                     # "Certainly, sir. Unfortunately I can't close that.": the rest is held and the
                     # job goes to Claude (or is said as it is, when Claude is off).
@@ -322,8 +330,11 @@ class LocalBrain:
             return out
 
         def judge(text: str) -> None:
-            nonlocal failing, claimed, failed_why
+            nonlocal failing, claimed, failed_why, refused
             v = verdict(text)
+            if v == "refused":
+                failing = refused = True
+                return
             if v:
                 failing, claimed = True, claimed or v == "claim"
                 failed_why = failed_why or (f"Nova's everyday model said '{text.strip()[:120]}' without doing anything."
@@ -388,6 +399,18 @@ class LocalBrain:
             if isinstance(ev, TextDelta) and failing:
                 held.append(ev)
                 continue
+            if isinstance(ev, TurnComplete) and failing and refused:
+                answered = False
+                async for e in self._answer_instead(conv, request, ctx):
+                    answered = True
+                    yield e
+                if answered:
+                    return
+                for h in held:                    # Claude isn't there: say what the model said
+                    yield h
+                held = []
+                yield ev
+                return
             if isinstance(ev, TurnComplete) and failing:
                 if rescue:
                     note = f"What Nova tried first failed: {failed_why}" if failed_why else ""
@@ -406,6 +429,30 @@ class LocalBrain:
             yield ev
         for h in held:
             yield h
+
+    async def _answer_instead(self, conv: Conversation, request: str, ctx: ToolContext) -> AsyncIterator[Event]:
+        """The everyday model refused the owner's own request ("I can't help with that"): Claude
+        answers it instead, and Nova says that answer. Yields nothing if Claude can't be reached."""
+        if "escalate" not in self.registry._tools:
+            return
+        t0 = time.perf_counter()
+        started = time.perf_counter()
+        res = await self.registry.execute("escalate", {"task": request}, ctx)
+        text = res.content if isinstance(res.content, str) else _summarize_content(res.content, 2000)
+        if res.is_error or not text.strip():
+            log.info("the model refused and Claude couldn't answer: %s", text[:200])
+            return
+        log.info("the everyday model refused %r; Claude answered instead", request[:80])
+        yield ToolStarted("answer_1", "escalate", {"task": request})
+        yield ToolFinished("answer_1", "escalate", False, _summarize_content(text, 200), _ms(started))
+        answer = text.strip()
+        last = conv.messages[-1] if conv.messages else {}
+        if last.get("role") == "assistant":                # remember the answer, not the refusal
+            last["content"] = answer
+        else:
+            conv.messages.append({"role": "assistant", "content": answer})
+        yield TextDelta(answer)
+        yield TurnComplete(answer, {"total_ms": _ms(t0)}, {"input_tokens": 0, "output_tokens": 0}, "answered")
 
     async def _work_it_out(self, conv: Conversation, task: str, ctx: ToolContext, sir: str,
                            note: str = "") -> AsyncIterator[Event]:
@@ -1172,6 +1219,16 @@ _DONE_CLAIM = re.compile(      # "Skipped the song.", "I've closed Spotify.": a 
     r"started|stopped|muted|unmuted|minimi[sz]ed|maximi[sz]ed|full[- ]?screened|moved|typed|pressed|clicked|"
     r"searched|navigated|brought|quit|killed|loaded|went|took)\b"
     r"|\b(?:took|taken) you\b|\bskipped to\b", re.I)
+# "I'm sorry, but I can't help with that": the small model being over-careful with the owner's own
+# request (owner: "it says I can't help you with that ... I want to be able to do anything with Nova").
+_HELP_REFUSAL = re.compile(
+    r"\bi (?:can'?t|cannot|can not|won'?t|will not|am not able to|'m not able to|am unable to|'m unable to) "
+    r"(?:help|assist|provide|comply|fulfil+|answer|discuss|talk about|write|create|generate|engage|support|"
+    r"give you|share|go into|do that for you)\b"
+    r"|\bi(?:'m| am) not (?:comfortable|able to help|going to (?:help|answer|write|discuss))\b"
+    r"|\bagainst my (?:guidelines|policies|policy|programming|principles)\b|\bi must (?:decline|refuse)\b"
+    r"|\b(?:that'?s|that is|it'?s|it is) not (?:appropriate|something i can (?:help|assist|discuss))\b"
+    r"|\bi(?:'d| would) prefer not to\b|\bas an ai\b", re.I)
 _DOING_CLAIM = re.compile(     # "Opening business.facebook.com in your browser, sir.": said as it happens
     r"^(?:(?:ok|okay|sure|certainly|right|alright|all right|very well|of course)[,.!]?\s+)?(?:sir[,.]?\s+)?"
     r"(?:i'?m\s+|i am\s+)?(?:now\s+)?(?:re)?(?:opening|closing|launching|skipping|pausing|resuming|switching|"
@@ -1262,6 +1319,8 @@ def _refuses(text: str, request: str | None = None) -> bool:
     """Said it can't. For an instruction, any "I can't" / "I'm afraid" / "unfortunately" counts:
     it has tools for the whole PC and gets nudged to use one (owner: "if I tell it to do something
     it does it")."""
+    if _HELP_REFUSAL.search(text):
+        return False                   # "can't help with that" is answered by Claude (_answer_instead)
     return bool(_REFUSES.search(text) or (request and _is_action_request(request) and _CANT.search(text)))
 
 
