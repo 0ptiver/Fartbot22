@@ -356,7 +356,11 @@ class VoiceLoop:
                     # stand down, he's straight up ignoring me").
                     ok = True
                 if not ok:
-                    near = score >= self.lock.threshold - VOICE_NEAR_MISS
+                    # A near miss is only worth mentioning when it was said to Nova: song lyrics
+                    # from the speakers scored 0.64 against the bar of 0.66 (owner's log).
+                    for_nova = (self.cfg.mode != "wake" or barged
+                                or match_wake(text, self.cfg.wake.variants, self.cfg.wake.window_words)[0])
+                    near = for_nova and score >= self.lock.threshold - VOICE_NEAR_MISS
                     self._rejected = (text, audio, time.monotonic())
                     self.on_event({"type": "ignored", "text": text, "voice": True, "near": near,
                                    "score": round(score, 2), "threshold": round(self.lock.threshold, 2),

@@ -9,6 +9,7 @@ window showing that video (by its title), brings it to the front and presses the
 from __future__ import annotations
 
 import asyncio
+import threading
 import logging
 import sys
 from dataclasses import dataclass
@@ -41,30 +42,95 @@ class Media:
         return any(m in self.app.lower() for m in MUSIC_APPS)
 
 
+class WinRTThread:
+    """Everything that talks to Windows' media list runs on this one thread: its own asyncio loop,
+    with COM set up as multithreaded. WinRT's answers can't reach a thread that some other part
+    of the program has put in single-threaded COM mode (audio and UI libraries do that), and then
+    an await never finishes: that froze Nova's window and the update's check (owner's case)."""
+
+    def __init__(self):
+        self.loop: asyncio.AbstractEventLoop | None = None
+        self._lock = threading.Lock()
+
+    def _start(self) -> None:
+        ready = threading.Event()
+
+        def run() -> None:
+            if sys.platform == "win32":
+                try:
+                    import ctypes
+                    ctypes.windll.ole32.CoInitializeEx(None, 0)          # COINIT_MULTITHREADED
+                except Exception:
+                    pass
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            self.loop = loop
+            ready.set()
+            loop.run_forever()
+        threading.Thread(target=run, name="nova-winrt", daemon=True).start()
+        ready.wait(5)
+
+    async def run(self, coro, timeout: float):
+        with self._lock:
+            if self.loop is None:
+                self._start()
+        fut = asyncio.run_coroutine_threadsafe(coro, self.loop)
+        try:
+            return await asyncio.wait_for(asyncio.wrap_future(fut), timeout)
+        except asyncio.TimeoutError:
+            fut.cancel()
+            raise
+
+
+WINRT = WinRTThread()
+
+
+def apartment() -> str:
+    """This thread's COM mode, for the log: 'STA' here is what makes WinRT awaits hang."""
+    if sys.platform != "win32":
+        return "n/a"
+    import ctypes
+    kind, qual = ctypes.c_int(), ctypes.c_int()
+    hr = ctypes.windll.ole32.CoGetApartmentType(ctypes.byref(kind), ctypes.byref(qual))
+    if hr != 0:
+        return "not set up"
+    return {0: "STA", 1: "MTA", 2: "NA", 3: "main STA"}.get(kind.value, str(kind.value))
+
+
 class MediaBackend:
     """Windows' media sessions (GlobalSystemMediaTransportControls). A fake in tests."""
 
     def __init__(self):
         self._sessions: list = []
         self._manager = None
+        self._logged = False
 
     async def list(self) -> list[Media]:
         if sys.platform != "win32":
             return []
+        if not self._logged:
+            self._logged = True
+            try:
+                log.info("media list runs on its own thread (Nova's main thread COM mode: %s)", apartment())
+            except Exception:
+                pass
         try:
-            from winrt.windows.media.control import (
-                GlobalSystemMediaTransportControlsSessionManager as Manager)
-            # Windows can stop answering (one app's media controls stuck): never wait forever.
-            # That froze the whole window and the update's check (owner's case).
-            if self._manager is None:
-                self._manager = await asyncio.wait_for(Manager.request_async(), ASK_S)
-            self._sessions = list(self._manager.get_sessions())
+            return await WINRT.run(self._list(), ASK_S * 2)
         except ImportError as e:   # a winrt piece missing: carry on with keys and the media key
             log.warning("media sessions unavailable (%s): run scripts\\update.ps1", e)
             return []
         except asyncio.TimeoutError:
-            log.warning("Windows' media list didn't answer within %.0f s", ASK_S)
+            # Windows can stop answering (one app's media controls stuck): never wait forever.
+            log.warning("Windows' media list didn't answer within %.0f s", ASK_S * 2)
             return []
+
+    async def _list(self) -> list[Media]:
+        """On the WinRT thread."""
+        from winrt.windows.media.control import (
+            GlobalSystemMediaTransportControlsSessionManager as Manager)
+        if self._manager is None:
+            self._manager = await asyncio.wait_for(Manager.request_async(), ASK_S)
+        self._sessions = list(self._manager.get_sessions())
         out = []
         for i, s in enumerate(self._sessions):
             try:
@@ -76,6 +142,17 @@ class MediaBackend:
                              (props.artist if props else "") or "",
                              {4: "playing", 5: "paused", 3: "stopped"}.get(status, "other")))
         return out
+
+    async def count(self) -> int | None:
+        """How many players Windows lists, or None when it doesn't answer (for the doctor)."""
+        async def go():
+            from winrt.windows.media.control import (
+                GlobalSystemMediaTransportControlsSessionManager as Manager)
+            return len(list((await Manager.request_async()).get_sessions()))
+        try:
+            return await WINRT.run(go(), 5)
+        except asyncio.TimeoutError:
+            return None
 
     def available(self) -> bool:
         """Can Nova see what Windows is playing at all? (Windows, winrt installed.)"""
@@ -92,8 +169,11 @@ class MediaBackend:
         fn = {"play": s.try_play_async, "pause": s.try_pause_async,
               "toggle": s.try_toggle_play_pause_async, "next": s.try_skip_next_async,
               "previous": s.try_skip_previous_async}[action]
+
+        async def go():
+            return bool(await fn())
         try:
-            return bool(await asyncio.wait_for(fn(), ASK_S))
+            return await WINRT.run(go(), ASK_S)
         except asyncio.TimeoutError:
             return False
 

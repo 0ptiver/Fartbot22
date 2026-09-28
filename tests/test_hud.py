@@ -330,3 +330,44 @@ async def test_media_list_that_never_answers_gives_up(monkeypatch):
     mods["winrt.windows.media.control"].GlobalSystemMediaTransportControlsSessionManager = Stuck()
     monkeypatch.setattr(_s, "modules", {**_s.modules, **mods})
     assert await asyncio.wait_for(b.list(), 2) == []
+
+
+async def test_media_list_runs_on_its_own_thread(monkeypatch):
+    """WinRT answers can't reach a single-threaded-COM thread; all of it runs on 'nova-winrt'."""
+    import sys as _s
+    import threading
+    import types
+
+    from assistant.tools import video as V
+    seen = []
+
+    class Props:
+        title, artist = "Go Your Own Way", "Fleetwood Mac"
+
+    class Session:
+        source_app_user_model_id = "Spotify.exe"
+
+        async def try_get_media_properties_async(self):
+            seen.append(threading.current_thread().name)
+            return Props()
+
+        def get_playback_info(self):
+            return types.SimpleNamespace(playback_status=4)
+
+    class Manager:
+        async def _mgr(self):
+            seen.append(threading.current_thread().name)
+            return types.SimpleNamespace(get_sessions=lambda: [Session()])
+
+        def request_async(self):
+            return self._mgr()
+    mods = {"winrt": types.ModuleType("winrt"), "winrt.windows": types.ModuleType("winrt.windows"),
+            "winrt.windows.media": types.ModuleType("winrt.windows.media"),
+            "winrt.windows.media.control": types.ModuleType("winrt.windows.media.control")}
+    mods["winrt.windows.media.control"].GlobalSystemMediaTransportControlsSessionManager = Manager()
+    monkeypatch.setattr(_s, "modules", {**_s.modules, **mods})
+    monkeypatch.setattr(V.sys, "platform", "win32")
+    monkeypatch.setattr(V, "apartment", lambda: "test")
+    items = await V.MediaBackend().list()
+    assert [(m.title, m.status) for m in items] == [("Go Your Own Way", "playing")]
+    assert seen == ["nova-winrt", "nova-winrt"]

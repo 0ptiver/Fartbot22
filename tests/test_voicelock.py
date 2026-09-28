@@ -318,3 +318,13 @@ async def test_that_was_me_learns_the_voice_and_does_it(settings, registry, tmp_
     assert "It is noon, sir." in loop.tts.spoken
     assert len(loop.lock.prints.prints) == 2                 # the new microphone's print, numbers only
     assert "There's nothing" in await loop.accept_rejected()  # only once
+
+
+async def test_a_near_miss_from_music_is_not_mentioned(settings, registry, tmp_path):
+    """Owner's log: song lyrics from the speakers ('go my own way') scored 0.64 against a bar of
+    0.66. Nova shouldn't apologise for not recognising a song that never said its name."""
+    loop, events = lock_loop(settings, registry, tmp_path, 0.66, "oh go my own way")
+    await loop.run()
+    assert loop.tts.spoken == []
+    [ev] = [e for e in events if e["type"] == "ignored"]
+    assert ev["voice"] and not ev["near"]
