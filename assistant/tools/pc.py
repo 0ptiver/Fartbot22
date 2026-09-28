@@ -239,6 +239,15 @@ class WindowBackend:
         import ctypes
         return int(ctypes.windll.user32.GetForegroundWindow() or 0)  # type: ignore[attr-defined]
 
+    def state(self, hwnd: int) -> str:
+        """'minimized', 'maximized' or 'normal'."""
+        _need_windows()
+        import ctypes
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+        if user32.IsIconic(hwnd):
+            return "minimized"
+        return "maximized" if user32.IsZoomed(hwnd) else "normal"
+
     def is_fullscreen(self, hwnd: int) -> bool:
         """Does the window cover its whole screen (a video in full screen, a game)?"""
         _need_windows()
@@ -416,6 +425,20 @@ def _gone(hwnd: int) -> bool:
         _t.sleep(0.2)
 
 
+def _reaches(hwnd: int, want: str) -> bool:
+    import time as _t
+    deadline = _t.monotonic() + CLOSE_WAIT_S / 2
+    while True:
+        try:
+            if WINDOWS.state(hwnd) == want:
+                return True
+        except Exception:
+            return True                              # can't tell: don't claim a failure either
+        if _t.monotonic() >= deadline:
+            return False
+        _t.sleep(0.1)
+
+
 def end_processes(exe: str) -> int:
     """End every process of this program run by this user (tray apps only). How many ended."""
     import getpass
@@ -479,6 +502,9 @@ def window_control(args: dict, ctx: ToolContext) -> str:
         return f"Closed {label}."
     else:
         WINDOWS.show(w.hwnd, action)
+        want = {"minimize": "minimized", "maximize": "maximized", "restore": "normal"}.get(action)
+        if want and hasattr(WINDOWS, "state") and not _reaches(w.hwnd, want):
+            raise ToolError(f"I asked {label} to {action}, but it didn't. Try clicking on it once.")
     return {"focus": f"Switched to {label}.", "minimize": f"Minimized {label}.",
             "maximize": f"Maximized {label}.", "restore": f"Restored {label}.",
             }[action]

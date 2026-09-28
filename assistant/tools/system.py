@@ -90,12 +90,11 @@ def volume(args: dict, ctx: ToolContext, _ep=None) -> str:
     if action == "get":
         muted = bool(ep.GetMute())
         return f"Volume is {current}%" + (" (muted)" if muted else "")
-    if action == "mute":
-        ep.SetMute(1, None)
-        return "Muted."
-    if action == "unmute":
-        ep.SetMute(0, None)
-        return f"Unmuted. Volume is {current}%."
+    if action in ("mute", "unmute"):
+        ep.SetMute(1 if action == "mute" else 0, None)
+        if bool(ep.GetMute()) != (action == "mute"):
+            raise ToolError(f"Windows didn't {action} the sound.")
+        return "Muted." if action == "mute" else f"Unmuted. Volume is {current}%."
     if action == "set":
         if "level" not in args:
             raise ToolError("'level' is required for action=set")
@@ -108,6 +107,9 @@ def volume(args: dict, ctx: ToolContext, _ep=None) -> str:
     ep.SetMasterVolumeLevelScalar(target / 100, None)
     if target > 0 and ep.GetMute():
         ep.SetMute(0, None)
+    now = round(ep.GetMasterVolumeLevelScalar() * 100)
+    if abs(now - target) > 2:                            # read back: only say what's true
+        raise ToolError(f"I set the volume to {target}%, but Windows says it's {now}%.")
     return f"Volume set to {target}%."
 
 

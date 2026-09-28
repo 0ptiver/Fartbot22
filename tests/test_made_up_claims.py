@@ -164,3 +164,35 @@ def test_spotify_in_the_tray_is_quit(settings, monkeypatch):
 ])
 def test_where_to_go(text, expected):
     assert match_intent(text) == expected
+
+
+async def test_a_stuck_media_list_is_not_asked_again_for_a_while(monkeypatch):
+    """Every media command on the owner's PC waited 4 s for Windows' list (the 4.0 s chips)."""
+    import asyncio
+    calls = []
+
+    async def hang(coro, timeout):
+        calls.append(1)
+        coro.close()
+        raise asyncio.TimeoutError
+    b = V.MediaBackend()
+    monkeypatch.setattr(V.sys, "platform", "win32")
+    monkeypatch.setattr(V, "apartment", lambda: "test")
+    monkeypatch.setattr(V.WINRT, "run", hang)
+    assert await b.list() == [] and b.stuck()
+    assert await b.list() == [] and len(calls) == 1            # not asked (or waited on) again
+    b._stuck_until = 0
+    await b.list()
+    assert len(calls) == 2                                      # asked again later
+
+
+async def test_playing_a_song_trusts_spotify_when_windows_list_is_stuck(monkeypatch):
+    from assistant.tools import music
+    stuck = type("M", (), {"available": lambda s: True, "stuck": lambda s: True,
+                           "list": lambda s: asyncio_list()})()
+    monkeypatch.setattr(V, "MEDIA", stuck)
+    assert await music.hear_spotify({"title": "God's Plan"}) is None           # straight away, no 30 s wait
+
+
+async def asyncio_list():
+    return []

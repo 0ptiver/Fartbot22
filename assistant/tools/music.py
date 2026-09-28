@@ -74,8 +74,13 @@ async def hear_spotify(target: dict) -> bool | None:
     if not video.MEDIA.available():
         return None
     want = _simple(target.get("title") or "")
-    for _ in range(HEAR_TRIES):
-        for m in await video.MEDIA.list():
+    for i in range(HEAR_TRIES):
+        items = await video.MEDIA.list()
+        if not items and i == 0 and getattr(video.MEDIA, "stuck", lambda: False)():
+            # Windows' media list isn't answering (the owner's PC): Spotify's own check, done
+            # when it started playing, is the one to trust. Waiting here took over half a minute.
+            return None
+        for m in items:
             if m.is_music_app and m.status == "playing" and (not want or want in _simple(m.title)
                                                               or _simple(m.title) in want):
                 return True

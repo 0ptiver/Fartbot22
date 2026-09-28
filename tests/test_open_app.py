@@ -159,3 +159,24 @@ def test_back_to_the_game(settings, monkeypatch):
     monkeypatch.setattr(pc, "game_processes", lambda: set())
     with pytest.raises(ToolError, match="can't see a game"):
         pc.window_control({"action": "focus", "app": "the game"}, ToolContext(settings))
+
+
+class StateWins(Wins):
+    def __init__(self, wins, obeys=True):
+        super().__init__(wins)
+        self.obeys, self.states = obeys, {w.hwnd: "normal" for w in wins}
+
+    def show(self, hwnd, how):
+        if self.obeys:
+            self.states[hwnd] = {"minimize": "minimized", "maximize": "maximized", "restore": "normal"}[how]
+
+    def state(self, hwnd):
+        return self.states[hwnd]
+
+
+def test_minimise_is_checked(settings, monkeypatch):
+    monkeypatch.setattr(pc, "WINDOWS", StateWins([pc.Win(4, "Discord", "Discord.exe")]))
+    assert pc.window_control({"action": "minimize", "app": "discord"}, ToolContext(settings)) == "Minimized Discord."
+    monkeypatch.setattr(pc, "WINDOWS", StateWins([pc.Win(4, "Discord", "Discord.exe")], obeys=False))
+    with pytest.raises(ToolError, match="didn't"):
+        pc.window_control({"action": "maximize", "app": "discord"}, ToolContext(settings))

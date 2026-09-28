@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 import logging
 import sys
 from dataclasses import dataclass
@@ -100,10 +101,17 @@ def apartment() -> str:
 class MediaBackend:
     """Windows' media sessions (GlobalSystemMediaTransportControls). A fake in tests."""
 
+    STUCK_S = 60.0                  # after Windows' list stops answering, don't ask again for this long
+
     def __init__(self):
         self._sessions: list = []
         self._manager = None
         self._logged = False
+        self._stuck_until = 0.0
+
+    def stuck(self) -> bool:
+        """Windows' media list recently didn't answer (so it isn't asked for a while)."""
+        return time.monotonic() < self._stuck_until
 
     async def list(self) -> list[Media]:
         if sys.platform != "win32":
@@ -114,6 +122,8 @@ class MediaBackend:
                 log.info("media list runs on its own thread (Nova's main thread COM mode: %s)", apartment())
             except Exception:
                 pass
+        if self.stuck():
+            return []                               # it hung a moment ago: don't wait 4 s again
         try:
             return await WINRT.run(self._list(), ASK_S * 2)
         except ImportError as e:   # a winrt piece missing: carry on with keys and the media key
@@ -121,7 +131,10 @@ class MediaBackend:
             return []
         except asyncio.TimeoutError:
             # Windows can stop answering (one app's media controls stuck): never wait forever.
-            log.warning("Windows' media list didn't answer within %.0f s", ASK_S * 2)
+            log.warning("Windows' media list didn't answer within %.0f s; not asking again for %.0f s",
+                        ASK_S * 2, self.STUCK_S)
+            self._stuck_until = time.monotonic() + self.STUCK_S
+            self._manager = None                    # ask Windows afresh next time
             return []
 
     async def _list(self) -> list[Media]:
