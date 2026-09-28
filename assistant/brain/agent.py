@@ -1,0 +1,175 @@
+"""When Nova is stuck, Claude works it out with Nova's hands, and Nova learns the steps.
+
+Owner: "it keeps saying I can't do this and that ... you need to give it all of the tools for it
+to do anything on the computer and think and navigate when something goes wrong ... allow it to
+self learn and be able to work through things so it gets it right in the future".
+
+The everyday model (4B, on the GPU) can't reason through a problem. So when it refuses or a PC
+action fails, the task goes to Claude on the owner's subscription (Claude Code, same as "ask
+Claude"), with Nova's SAFE tools lent through agent/tools_server.py: look at the screen, drive the
+browser and any app, click, type, check, try another way. Every step shows in Nova's live feed.
+When it works, the steps are saved as a lesson (brain/lessons.py): next time the same request is
+replayed instantly, no Claude needed.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import secrets
+import sys
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from assistant.brain.expert import ClaudeCodeExpert, ExpertError
+from assistant.core.config import ROOT, Settings
+
+AGENT_SYSTEM = (
+    "You are Nova's problem solver. Nova is a voice assistant on its owner Oliver's Windows PC; it "
+    "couldn't do the task below by itself, so you do it using the nova tools, which act on the real PC. "
+    "Work step by step like a careful person: look first (screenshot, or app with action look, or "
+    "my_browser list_tabs), act, then check the result with another look. If something doesn't work, "
+    "try a different way (a different tool, a button's exact name from look, keys, screen_click on the "
+    "screenshot). Prefer my_browser for the user's own browser and app for other programs. "
+    "Never enter passwords, payment details or personal information, never buy, send money, post or "
+    "delete anything unless the task clearly asks for it, and never open a site the tools refuse. "
+    "Be quick: no more steps than needed. "
+    "Finish with a final line for Nova to say out loud: 'DONE: <one short sentence of what you did>' "
+    "or 'FAILED: <one short sentence of what's in the way>'."
+)
+# Steps worth learning (the ones that change something; looking isn't a step to repeat).
+_NOT_LEARNED = {"screenshot", "now_playing", "system_status", "get_time", "find_files", "read_file",
+                "weather", "calculate", "convert"}
+
+
+@dataclass
+class AgentResult:
+    ok: bool
+    say: str
+    steps: list[dict] = field(default_factory=list)
+
+
+class Agent:
+    def __init__(self, settings: Settings, expert: ClaudeCodeExpert | None = None):
+        self.settings = settings
+        self.cfg = settings.brain.agent
+        self.expert = expert or ClaudeCodeExpert(settings)
+        self.workspace = ROOT / "data" / "agent"
+
+    def available(self) -> bool:
+        if not self.cfg.enabled or self.settings.brain.expert.backend != "claude_code":
+            return False
+        try:
+            self.expert.executable()
+            return True
+        except ExpertError:
+            return False
+
+    def command(self, mcp_file: Path) -> list[str]:
+        cmd = [self.expert.executable(), "-p", "Complete the task given on standard input.",
+               "--output-format", "json",
+               "--permission-mode", "dontAsk",                     # only what's allowed below
+               "--tools", "WebSearch,WebFetch",                    # built-ins: look things up, nothing else
+               "--allowedTools", "WebSearch,WebFetch,mcp__nova",    # + Nova's lent tools
+               "--mcp-config", str(mcp_file), "--strict-mcp-config",
+               "--no-session-persistence",
+               "--max-turns", str(self.cfg.max_turns),
+               "--append-system-prompt", AGENT_SYSTEM]
+        if self.cfg.model:
+            cmd += ["--model", self.cfg.model]
+        return cmd
+
+    def mcp_config(self, log: Path) -> dict:
+        exe = Path(sys.executable)
+        return {"mcpServers": {"nova": {
+            "command": str(exe), "args": ["-m", "assistant.agent.tools_server"], "cwd": str(ROOT),
+            "env": {"NOVA_AGENT_LOG": str(log), "PYTHONPATH": str(ROOT), "PYTHONIOENCODING": "utf-8"}}}}
+
+    async def run(self, task: str, context: str = "", on_step=None) -> AgentResult:
+        """Run Claude on the task; on_step(entry) is called for each tool it uses, as it happens."""
+        self.workspace.mkdir(parents=True, exist_ok=True)
+        run_id = secrets.token_hex(4)
+        log = self.workspace / f"run-{run_id}.jsonl"
+        mcp_file = self.workspace / f"mcp-{run_id}.json"
+        mcp_file.write_text(json.dumps(self.mcp_config(log)), encoding="utf-8")
+        prompt = (f"{context}\n\n" if context else "") + f"Oliver asked Nova: {task}"
+        proc = await asyncio.create_subprocess_exec(
+            *self.command(mcp_file), stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE, cwd=str(self.workspace), env=self.expert.env(),
+            **({"creationflags": 0x08000000} if sys.platform == "win32" else {}))
+        steps: list[dict] = []
+        seen = 0
+        done = asyncio.ensure_future(proc.communicate(prompt.encode("utf-8")))
+        deadline = time.monotonic() + self.cfg.timeout_s
+        try:
+            while True:
+                finished = await asyncio.wait({done}, timeout=0.4)
+                seen = self._read_steps(log, steps, seen, on_step)
+                if finished[0]:
+                    break
+                if time.monotonic() > deadline:
+                    raise asyncio.TimeoutError
+            out, err = done.result()
+            seen = self._read_steps(log, steps, seen, on_step)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            proc.kill()
+            await proc.wait()
+            raise
+        finally:
+            for f in (mcp_file,):
+                try:
+                    f.unlink()
+                except OSError:
+                    pass
+        answer = self.expert._parse(proc.returncode, out, err)
+        ok, say = _verdict(answer)
+        try:
+            log.unlink()
+        except OSError:
+            pass
+        return AgentResult(ok, say, steps)
+
+    @staticmethod
+    def _read_steps(log: Path, steps: list[dict], seen: int, on_step) -> int:
+        try:
+            lines = log.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return seen
+        for line in lines[seen:]:
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            steps.append(entry)
+            if on_step is not None:
+                try:
+                    on_step(entry)
+                except Exception:
+                    pass
+        return len(lines)
+
+
+def _verdict(answer: str) -> tuple[bool, str]:
+    """Claude's last 'DONE: ...' / 'FAILED: ...' line."""
+    for line in reversed(answer.strip().splitlines()):
+        line = line.strip().strip("*")
+        up = line.upper()
+        if up.startswith("DONE:"):
+            return True, line[5:].strip() or "Done."
+        if up.startswith("FAILED:"):
+            return False, line[7:].strip() or "I couldn't do that."
+    last = answer.strip().splitlines()[-1] if answer.strip() else "I couldn't do that."
+    return False, last[:300]
+
+
+def learnable(steps: list[dict]) -> list[dict]:
+    """The steps to repeat next time: the actions that worked, in order. Nothing if the run needed
+    a click on a screen position (that won't be in the same place next time)."""
+    if any(s.get("tool") == "screen_click" for s in steps):
+        return []
+    calls = [{"tool": s["tool"], "args": s.get("args") or {}} for s in steps
+             if s.get("ok") and s.get("tool") not in _NOT_LEARNED
+             and not (s.get("tool") == "app" and (s.get("args") or {}).get("action") == "look")
+             and not (s.get("tool") == "my_browser" and (s.get("args") or {}).get("action") == "list_tabs")]
+    return calls[-4:] if calls else []

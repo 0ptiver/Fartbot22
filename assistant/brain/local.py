@@ -168,9 +168,150 @@ class LocalBrain:
                         raise OllamaError(chunk["error"])
                     yield chunk
 
-    # --- learning from the user (brain/lessons.py) ----------------------------------------
+    # --- working it out when stuck (brain/agent.py) ------------------------------------------
     async def run_turn(self, conv: Conversation, user_text: str, ctx: ToolContext,
                        extra_context: dict[str, str] | None = None) -> AsyncIterator[Event]:
+        """Everything below, plus: when Nova can't do something (a PC action failed, or the model
+        says it can't), Claude works it out with Nova's tools and the steps are learned. 'Figure it
+        out' / 'try another way' asks for that directly (owner chose automatic: "it keeps saying I
+        can't do this and that ... allow it to self learn and be able to work through things")."""
+        who = self.settings.assistant.address_user_as
+        sir = f", {who}" if who else ""
+        if _WORK_IT_OUT.match(user_text.strip()) and self._can_rescue(ctx):
+            task = getattr(conv, "last_request", None) or user_text
+            async for ev in self._work_it_out(conv, task, ctx, sir, "Oliver asked Nova to work it out itself."):
+                yield ev
+            return
+        conv.last_request = user_text
+        async for ev in self._rescued(conv, user_text, self._learning_turn(conv, user_text, ctx, extra_context),
+                                      ctx, sir):
+            yield ev
+
+    def _agent(self):
+        from assistant.brain.agent import Agent
+        from assistant.brain.expert import ClaudeCodeExpert
+        if getattr(self, "_agent_obj", None) is None:
+            self._agent_obj = Agent(self.settings, self.expert if isinstance(self.expert, ClaudeCodeExpert) else None)
+        return self._agent_obj
+
+    def _can_rescue(self, ctx: ToolContext) -> bool:
+        # Never from the phone: the phone can't use Nova's PC-control tools, so Claude can't either.
+        return not ctx.remote and self.settings.brain.agent.enabled and self._agent().available()
+
+    async def _rescued(self, conv: Conversation, request: str, gen, ctx: ToolContext, sir: str) -> AsyncIterator[Event]:
+        """Pass a turn through; if a PC action failed (and nothing fixed it) or Nova said it
+        couldn't, hold that back and work it out instead."""
+        held: list[Event] = []
+        failing = False
+        failed_why = ""
+        rescue = self.settings.brain.agent.on_failure and self._can_rescue(ctx)
+        asks = bool(_ACTION_REQUEST.search(request) or _MORE_ACTIONS.search(request)) and not _QUESTION.match(request)
+        first: list[Event] = []                 # the reply's first sentence, until it's clear it isn't "I can't"
+        classified = not rescue
+
+        def classify(text: str) -> bool:
+            return asks and (_STUCK in text or bool(_CANT.search(text)))
+        async for ev in gen:
+            if not classified and isinstance(ev, TextDelta) and not failing:
+                first.append(ev)
+                text = "".join(e.text for e in first)
+                if re.search(r"[.!?](?:\s|$)", text) or len(text.split()) >= 25:
+                    classified = True
+                    if classify(text):
+                        failing, failed_why = True, f"Nova's everyday model said: {text.strip()[:150]}"
+                        held.extend(first)
+                    else:
+                        for e in first:
+                            yield e
+                    first = []
+                continue
+            if first and not isinstance(ev, TextDelta):
+                if isinstance(ev, TurnComplete) and classify("".join(e.text for e in first)):
+                    failing, failed_why = True, "Nova's everyday model said it couldn't."
+                    held.extend(first)
+                else:
+                    for e in first:
+                        yield e
+                first, classified = [], True
+            if isinstance(ev, ToolFinished) and ev.name in _RESCUABLE:
+                if ev.is_error and not ev.summary.startswith(_DELIBERATE):
+                    failing, failed_why = True, ev.summary
+                elif not ev.is_error and failing:       # the model sorted it out itself
+                    failing = False
+                    for h in held:
+                        yield h
+                    held = []
+            if isinstance(ev, TextDelta) and rescue and (failing or _STUCK in ev.text):
+                failing = True
+                failed_why = failed_why or "Nova's everyday model said it couldn't."
+                held.append(ev)
+                continue
+            if isinstance(ev, TurnComplete) and failing and rescue:
+                note = f"What Nova tried first failed: {failed_why}" if failed_why else ""
+                async for e in self._work_it_out(conv, request, ctx, sir, note):
+                    yield e
+                return
+            yield ev
+        for h in held:
+            yield h
+
+    async def _work_it_out(self, conv: Conversation, task: str, ctx: ToolContext, sir: str,
+                           note: str = "") -> AsyncIterator[Event]:
+        from assistant.brain import lessons as L
+        from assistant.brain.agent import AgentResult, learnable
+        from assistant.brain.situation import situation
+        t0 = time.perf_counter()
+        yield TextDelta(f"Let me work that out{sir}. ")
+        yield ToolStarted("agent", "work_it_out", {"task": task})
+        try:
+            now = await situation()
+        except Exception:
+            now = {}
+        context = "\n".join([note] + [f"{k}: {v}" for k, v in now.items()]).strip()
+        steps: asyncio.Queue = asyncio.Queue()
+        job = asyncio.ensure_future(self._agent().run(task, context, steps.put_nowait))
+        n = 0
+        try:
+            while True:
+                getter = asyncio.ensure_future(steps.get())
+                done, _ = await asyncio.wait({job, getter}, return_when=asyncio.FIRST_COMPLETED)
+                entries = [getter.result()] if getter in done else []
+                if getter not in done:
+                    getter.cancel()
+                if job in done:
+                    while not steps.empty():
+                        entries.append(steps.get_nowait())
+                for e in entries:                       # Claude's steps, live in the feed
+                    n += 1
+                    yield ToolStarted(f"agent_{n}", e.get("tool", "?"), e.get("args") or {})
+                    yield ToolFinished(f"agent_{n}", e.get("tool", "?"), not e.get("ok"),
+                                       str(e.get("result", ""))[:200], int(e.get("ms") or 0))
+                if job in done:
+                    break
+            result = job.result()
+        except asyncio.TimeoutError:
+            result = AgentResult(False, "I ran out of time working that out.")
+        except ExpertError as e:
+            result = AgentResult(False, str(e))
+        finally:
+            if not job.done():
+                job.cancel()
+        yield ToolFinished("agent", "work_it_out", not result.ok, result.say[:200], _ms(t0))
+        say = result.say.rstrip(".") + "."
+        if result.ok and self.settings.brain.agent.learn:
+            calls = learnable(result.steps)
+            if calls and L.get_lessons().learn_calls(task, calls, "worked out by Claude"):
+                say += " I've learned how, so next time it's instant."
+        conv.messages.append({"role": "user", "content": task})
+        conv.messages.append({"role": "assistant", "content": say})
+        conv.trim()
+        conv.last_action = {"text": task, "at": time.time()}
+        yield TextDelta(say)
+        yield TurnComplete(say, {"total_ms": _ms(t0)}, {"input_tokens": 0, "output_tokens": 0}, "agent")
+
+    # --- learning from the user (brain/lessons.py) ----------------------------------------
+    async def _learning_turn(self, conv: Conversation, user_text: str, ctx: ToolContext,
+                             extra_context: dict[str, str] | None = None) -> AsyncIterator[Event]:
         """Every request: corrections ("no, I meant ..."), teaching ("when I say X, Y"),
         preferences said in passing, and things learned before, then the request itself.
         A request that fixes a mistake is remembered for next time."""
@@ -493,7 +634,7 @@ class LocalBrain:
                     if hold:
                         if not calls and _acts_without_tools("".join(text_parts), user_text):
                             who = self.settings.assistant.address_user_as
-                            text_parts = [f"Sorry{', ' + who if who else ''}, I wasn't able to do that."]
+                            text_parts = [f"Sorry{', ' + who if who else ''}, {_STUCK}"]
                             held = [TextDelta(text_parts[0])]
                         for i, ev in enumerate(held):
                             ev = _spaced(ev, spoken) if i == 0 else ev
@@ -770,6 +911,23 @@ def _prohibition(text: str) -> str | None:
             return (f"Understood{{sir}}. I won't open {host} again; it's blocked. "
                     f"Say \"unblock {host}\" if you ever want it back.")
     return "Understood{sir}. I won't."
+
+
+_STUCK = "I wasn't able to do that."
+# PC actions worth working out when they fail (not deliberate refusals like a banned site).
+_RESCUABLE = {"click_element", "app", "my_browser", "video", "window", "open_app", "press_keys", "type_text",
+              "open_website", "media", "play_music", "music_control", "mouse", "open_file"}
+_DELIBERATE = ("You told me never", "The user declined", "I don't type into a command window", "Which ",
+               "Where to?", "Click what?", "Type what?", "Find what?")
+_CANT = re.compile(r"\b(?:i|nova) (?:can ?not|can'?t|couldn'?t|could not|am unable|'?m unable|am not able|'?m not able|"
+                   r"wasn'?t able|was not able|don'?t have (?:the )?(?:ability|access|a way)|do not have (?:the )?(?:ability|access))\b"
+                   r"|\bnot a valid action\b|\bisn'?t (?:possible|something i can)\b", re.I)
+_MORE_ACTIONS = re.compile(r"\b(?:rearrange|sort|organi[sz]e|sign|log|download|install|join|message|reply|post|scroll|"
+                           r"select|drag|copy|paste|rename|fill|book|order|subscribe|follow|like|share|upload)\b", re.I)
+_WORK_IT_OUT = re.compile(
+    r"^(?:nova[, ]+)?(?:(?:just|please|can you|could you|then|ok|okay|so)[, ]+)*(?:figure (?:it|that|this) out|"
+    r"work (?:it|that|this) out|do it yourself|take (?:over|control)|work through it|find a way|"
+    r"try (?:harder|again|another way|a different way)|use your (?:brain|head)|think about it)\b", re.I)
 
 
 _NEVER_MIND = re.compile(r"^\W*(?:never ?mind|forget it|nothing|cancel|it'?s fine|no|nah|don'?t worry)\b", re.I)

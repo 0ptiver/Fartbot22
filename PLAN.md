@@ -261,6 +261,14 @@ scripts/           # install, run, register-startup
 - [x] Owner: "when I tell him to full screen my video or things like that he doesn't". Causes: Windows blocks background programs from switching windows, so F went to whichever window was in front; and F only works when the page (not YouTube's search box) has the keyboard; and Nova reported success without checking. Now: WindowBackend.focus (Alt tap + AttachThreadInput + minimise/restore fallback, verified); video full screen clicks the player's own "Full screen" button (UI Automation) with F as backup and checks the window really covers the screen (says so if not); mute clicks "Mute"; "switch to X" reports when Windows refuses; typing/keys first return the keyboard to your window if Nova's window is in front
 - [x] Grid/numbers instructions spoken once per session, then just "Grid on." / "Numbers on."
 
+### Work it out + learn (owner: "it keeps saying I can't do this and that ... allow it to self learn and be able to work through things"; chose automatic)
+- [x] agent/tools_server.py: MCP bridge (own JSON-RPC, no new dependency) lending Nova's SAFE tools + screenshot + screen_click; nothing that asks first, no phone, terminal typing refused, sitecheck applies
+- [x] brain/agent.py: Claude Code with that bridge only (+ WebSearch/WebFetch), DONE:/FAILED: verdict, steps streamed to the live feed
+- [x] Automatic: failed PC actions and "I can't" to action requests are held back and handed over; "figure it out" / "try another way" asks directly; deliberate refusals (banned site, declined) never are
+- [x] Learning: the steps that worked become a lesson; next time instant with no Claude
+- [x] Video play/pause through the player's own button when Windows' media list is stuck (owner: "it can't play the video")
+- [ ] Not yet tried on the PC
+
 ### Scam lookalike (owner: "make it fact check what the real url is before it goes to it, it just opened this scam website like 50 times")
 - [x] sitecheck: lookalikes -> real site with a note; banned sites never open (block/unblock/list by voice); unknown names searched, not guessed; in all three website paths
 - [x] "Stop taking me to that website" / "don't ... again": no model, no tool; bans the site just opened

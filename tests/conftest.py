@@ -102,3 +102,11 @@ def _no_real_blocked_sites(tmp_path, monkeypatch):
     from assistant.tools import sitecheck
     monkeypatch.setattr(sitecheck, "BLOCKED_FILE", tmp_path / "blocked-sites.json")
     monkeypatch.setattr(sitecheck, "LAST_OPENED", {"host": ""})
+
+
+@pytest.fixture(autouse=True)
+def _no_real_claude_agent(monkeypatch):
+    """Tests never start the real Claude Code (it's installed in some sandboxes); tests that want
+    the work-it-out hand-off turn it on with a fake runner."""
+    from assistant.brain.agent import Agent
+    monkeypatch.setattr(Agent, "available", lambda self: False)

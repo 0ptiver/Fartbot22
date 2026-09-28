@@ -57,6 +57,16 @@ class ClaudeCodeConfig(BaseModel):
     allowed_tools: list[str] = Field(default_factory=lambda: ["WebSearch", "WebFetch"])
 
 
+class AgentConfig(BaseModel):
+    """When Nova is stuck, Claude works it out with Nova's tools (brain/agent.py)."""
+    enabled: bool = True
+    on_failure: bool = True             # also when a PC action fails or the model says it can't
+    model: str | None = None            # None = your plan's default (fast); or "opus"
+    timeout_s: float = 240
+    max_turns: int = 30
+    learn: bool = True                  # save what worked as a lesson, so next time is instant
+
+
 class ExpertConfig(BaseModel):
     backend: str = "claude_code"        # claude_code (your Claude subscription) | anthropic (API)
     claude_code: ClaudeCodeConfig = Field(default_factory=ClaudeCodeConfig)
@@ -66,6 +76,7 @@ class BrainConfig(BaseModel):
     backend: str = "local"              # local (Ollama, free) | anthropic (Claude API, paid)
     local: LocalLLMConfig = Field(default_factory=LocalLLMConfig)
     expert: ExpertConfig = Field(default_factory=ExpertConfig)
+    agent: AgentConfig = Field(default_factory=AgentConfig)
     chat_model: str = "claude-haiku-4-5"
     expert_model: str = "claude-opus-5"
     chat_max_tokens: int = 1024
