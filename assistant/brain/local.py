@@ -217,7 +217,8 @@ class LocalBrain:
         def verdict(text: str) -> str | None:
             if asks and (_STUCK in text or _CANT.search(text)):
                 return "stuck"
-            if not did and not question and _DONE_CLAIM.search(text):
+            if not did and not question and (_DONE_CLAIM.search(text)
+                                             or ((asks or _ABOUT_NOVA.search(request)) and _STATE_CLAIM.search(text))):
                 return "claim"
             return None
 
@@ -992,14 +993,18 @@ def _wrong_target(tool: str, args, request: str) -> str | None:
     return None
 
 
-_DONE_CLAIM = re.compile(
+_DONE_CLAIM = re.compile(      # "Skipped the song.", "I've closed Spotify.": a claim, whatever was asked
     r"(?:^|[.!?]\s+)(?:(?:ok|okay|done|right|certainly|sure|alright)[,.!]?\s+)?(?:sir[,.]?\s+)?(?:i(?:'ve| have)?\s+)?"
     r"(?:just\s+|now\s+|also\s+)?(?:re)?(?:opened|closed|skipped|paused|played|resumed|unpaused|switched|launched|"
     r"started|stopped|muted|unmuted|minimi[sz]ed|maximi[sz]ed|full[- ]?screened|moved|typed|pressed|clicked|"
     r"searched|navigated|brought|quit|killed|loaded|went|took)\b"
-    r"|\b(?:is|are|has been|have been)\s+(?:now\s+)?(?:re)?(?:open(?:ed)?|closed|loaded|playing|paused|skipped|"
+    r"|\b(?:took|taken) you\b|\bskipped to\b", re.I)
+_STATE_CLAIM = re.compile(     # "Firefox is reopened", "Now on YouTube": only a claim when an action was asked
+    r"\b(?:is|are|has been|have been)\s+(?:now\s+)?(?:re)?(?:open(?:ed)?|closed|loaded|playing|paused|skipped|"
     r"muted|minimi[sz]ed|maximi[sz]ed|stopped|launched)\b"
-    r"|\b(?:now|you(?:'re| are)(?: now| back)?) on \w|\b(?:took|taken) you\b|\bskipped to\b", re.I)
+    r"|(?:^|[.!?]\s+)(?:you(?:'re| are)\s+)?(?:now|back) on \w", re.I)
+_ABOUT_NOVA = re.compile(r"\byou (?:just |still |also )?(?:didn'?t|did not|haven'?t|have not|never|forgot|closed|opened|"
+                         r"broke|messed|killed|skipped|paused|stopped|lost)\b", re.I)
 _MORE_ACTIONS = re.compile(r"\b(?:rearrange|sort|organi[sz]e|sign|log|download|install|join|message|reply|post|scroll|"
                            r"select|drag|copy|paste|rename|fill|book|order|subscribe|follow|like|share|upload)\b", re.I)
 _WORK_IT_OUT = re.compile(

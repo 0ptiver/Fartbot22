@@ -196,3 +196,9 @@ async def test_playing_a_song_trusts_spotify_when_windows_list_is_stuck(monkeypa
 
 async def asyncio_list():
     return []
+
+
+async def test_news_about_things_being_on_or_open_is_not_a_claim(local_settings, ctx):
+    brain, fake = make(local_settings, [text_reply("The Steam summer sale is now on, sir. It's open until July.")])
+    events = await collect(brain, Conversation(), "tell me about the steam sale", ctx)
+    assert said(events).startswith("The Steam summer sale is now on")

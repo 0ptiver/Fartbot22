@@ -261,6 +261,13 @@ scripts/           # install, run, register-startup
 - [x] Owner: "when I tell him to full screen my video or things like that he doesn't". Causes: Windows blocks background programs from switching windows, so F went to whichever window was in front; and F only works when the page (not YouTube's search box) has the keyboard; and Nova reported success without checking. Now: WindowBackend.focus (Alt tap + AttachThreadInput + minimise/restore fallback, verified); video full screen clicks the player's own "Full screen" button (UI Automation) with F as backup and checks the window really covers the screen (says so if not); mute clicks "Mute"; "switch to X" reports when Windows refuses; typing/keys first return the keyboard to your window if Nova's window is in front
 - [x] Grid/numbers instructions spoken once per session, then just "Grid on." / "Numbers on."
 
+### Polish pass 5 (owner: "go ahead and go through and polish up everything you can")
+- [x] Windows' media list stuck on the owner's PC: not asked again for a minute after it hangs (every media command waited 4 s); "play X" trusts Spotify's own check instead of 8 slow Windows checks (was 30 s+, then a false failure)
+- [x] Minimise / maximise / restore read the window state back; volume and mute read back from Windows
+- [x] Claim guard split: "Skipped...", "I've closed..." always count; "is open" / "now on" only when an action was asked or the owner complained (news like "the sale is now on" was flagged)
+- [x] Everyday phrase audit re-run: 93/106 direct, no regressions
+- [ ] Not yet tried on the PC
+
 ### Made-up claims (owner: "he gets more and more stupid the more you do, can you just actually fix the problems")
 - [x] "Skipped." with nothing skipped: Windows' media list empty -> Spotify checked before/after, else "pressed the key, can't check"
 - [x] "Firefox is reopened" / "Now on YouTube" / "Closed Spotify" with no tool run: any unbacked action claim is held back (Claude or an honest reply)
