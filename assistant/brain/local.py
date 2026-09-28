@@ -199,26 +199,47 @@ class LocalBrain:
         return not ctx.remote and self.settings.brain.agent.enabled and self._agent().available()
 
     async def _rescued(self, conv: Conversation, request: str, gen, ctx: ToolContext, sir: str) -> AsyncIterator[Event]:
-        """Pass a turn through; if a PC action failed (and nothing fixed it) or Nova said it
-        couldn't, hold that back and work it out instead."""
+        """Pass a turn through, but never let it claim or give up falsely:
+        - a PC action failed (and nothing fixed it), or Nova said it couldn't do an action;
+        - Nova said it did something ("Skipped.", "Closed Spotify", "Now on YouTube") while nothing
+          actually happened this turn (owner's screenshots: those were all made up).
+        Then Claude works it out (when on), or Nova says plainly that it hasn't done it."""
         held: list[Event] = []
         failing = False
+        claimed = False
+        did = False                              # an action really happened this turn
         failed_why = ""
         rescue = self.settings.brain.agent.on_failure and self._can_rescue(ctx)
-        asks = bool(_ACTION_REQUEST.search(request) or _MORE_ACTIONS.search(request)) and not _QUESTION.match(request)
-        first: list[Event] = []                 # the reply's first sentence, until it's clear it isn't "I can't"
-        classified = not rescue
+        question = bool(_QUESTION.match(request))
+        asks = bool(_ACTION_REQUEST.search(request) or _MORE_ACTIONS.search(request)) and not question
+        first: list[Event] = []                 # the reply's first sentence, until it's clear it's honest
 
-        def classify(text: str) -> bool:
-            return asks and (_STUCK in text or bool(_CANT.search(text)))
+        def verdict(text: str) -> str | None:
+            if asks and (_STUCK in text or _CANT.search(text)):
+                return "stuck"
+            if not did and not question and _DONE_CLAIM.search(text):
+                return "claim"
+            return None
+
+        def judge(text: str) -> None:
+            nonlocal failing, claimed, failed_why
+            v = verdict(text)
+            if v:
+                failing, claimed = True, claimed or v == "claim"
+                failed_why = failed_why or (f"Nova's everyday model said '{text.strip()[:120]}' without doing anything."
+                                            if v == "claim" else f"Nova's everyday model said: {text.strip()[:150]}")
+        classified = False
         async for ev in gen:
             if not classified and isinstance(ev, TextDelta) and not failing:
                 first.append(ev)
                 text = "".join(e.text for e in first)
                 if re.search(r"[.!?](?:\s|$)", text) or len(text.split()) >= 25:
                     classified = True
-                    if classify(text):
-                        failing, failed_why = True, f"Nova's everyday model said: {text.strip()[:150]}"
+                    clean = _LEAKED_CALL.sub("", text)        # ">window close" printed by the model
+                    judge(clean)
+                    if clean != text:
+                        first = [TextDelta(clean)] if clean.strip() else []
+                    if failing:
                         held.extend(first)
                     else:
                         for e in first:
@@ -226,31 +247,42 @@ class LocalBrain:
                     first = []
                 continue
             if first and not isinstance(ev, TextDelta):
-                if isinstance(ev, TurnComplete) and classify("".join(e.text for e in first)):
-                    failing, failed_why = True, "Nova's everyday model said it couldn't."
+                if isinstance(ev, TurnComplete):
+                    judge("".join(e.text for e in first))
+                if failing:
                     held.extend(first)
                 else:
                     for e in first:
                         yield e
                 first, classified = [], True
+            if isinstance(ev, ToolFinished) and not ev.is_error and ev.name != "work_it_out":
+                did = True
             if isinstance(ev, ToolFinished) and ev.name in _RESCUABLE:
                 if ev.is_error and not ev.summary.startswith(_DELIBERATE):
                     failing, failed_why = True, ev.summary
-                elif not ev.is_error and failing:       # the model sorted it out itself
+                elif not ev.is_error and failing and not claimed:   # the model sorted it out itself
                     failing = False
                     for h in held:
                         yield h
                     held = []
-            if isinstance(ev, TextDelta) and rescue and (failing or _STUCK in ev.text):
-                failing = True
-                failed_why = failed_why or "Nova's everyday model said it couldn't."
+            if isinstance(ev, TextDelta) and failing:
                 held.append(ev)
                 continue
-            if isinstance(ev, TurnComplete) and failing and rescue:
-                note = f"What Nova tried first failed: {failed_why}" if failed_why else ""
-                async for e in self._work_it_out(conv, request, ctx, sir, note):
-                    yield e
-                return
+            if isinstance(ev, TurnComplete) and failing:
+                if rescue:
+                    note = f"What Nova tried first failed: {failed_why}" if failed_why else ""
+                    async for e in self._work_it_out(conv, request, ctx, sir, note):
+                        yield e
+                    return
+                if claimed:
+                    honest = f"Sorry{sir}, I haven't actually done that. Could you say it another way?"
+                    yield TextDelta(honest)
+                    ev.text = honest
+                    yield ev
+                    return
+                for h in held:
+                    yield h
+                held = []
             yield ev
         for h in held:
             yield h
@@ -480,14 +512,22 @@ class LocalBrain:
         clauses = _DIDNT.findall(text)
         if not clauses:
             return None
+        # Other sentences said with it ("You didn't pause it. Just go ahead and close Spotify.").
+        rest = [p for p in re.split(r"(?<=[.!?;])\s+", _DIDNT.sub("", text)) if p.strip(" ,.!?;")]
         calls = []
-        for c in clauses:
-            c = re.sub(r"\b(?:yet|either|at all|properly|like i asked|when i asked|for me)\b", "", c).strip(" ,.!?")
+        for c, is_clause in [(c, True) for c in clauses] + [(r, False) for r in rest]:
+            c = _COMPLAINT_FILLER.sub("", c)
+            c = re.sub(r"\b(\w+)\b", lambda m: _BASE.get(m.group(1).lower(), m.group(1)), c, count=1)
+            c = re.sub(r"\s+", " ", c).strip(" ,.!?;")
+            if not c:
+                continue
             got = self._compound(c, ctx) or ([{"tool": i[0], "args": i[1]}] if (i := match_intent(c)) else None)
             if not got:
-                return None
+                if is_clause or _ACTION_REQUEST.search(c):
+                    return None                  # something we don't understand: the model (or Claude) decides
+                continue                          # "dude", "first of all": nothing to do
             calls += got
-        return calls[:4]
+        return calls[:4] or None
 
     def _fast_path(self, text: str, ctx: ToolContext) -> bool:
         grid = ctx.services.get("grid")
@@ -672,9 +712,12 @@ class LocalBrain:
                     fn["arguments"] = args
                     yield ToolStarted(cid, fn.get("name", "?"), args if isinstance(args, dict) else {})
                 started = time.perf_counter()
-                results = await asyncio.gather(*(
-                    self.registry.execute(fn.get("name", ""), fn.get("arguments"), ctx)
-                    for _, fn in named))
+                async def run(fn: dict) -> ToolResult:
+                    wrong = _wrong_target(fn.get("name", ""), fn.get("arguments"), user_text)
+                    if wrong:
+                        return ToolResult(wrong, is_error=True)
+                    return await self.registry.execute(fn.get("name", ""), fn.get("arguments"), ctx)
+                results = await asyncio.gather(*(run(fn) for _, fn in named))
                 timings["tools_ms"] = timings.get("tools_ms", 0) + _ms(started)
                 for (cid, fn), res in zip(named, results):
                     text = await self._result_text(res, fn.get("arguments"))
@@ -860,8 +903,17 @@ def _small_talk(text: str, sir: str, owner: str = "", name: str = "Nova") -> str
     return None
 
 
-_DIDNT = re.compile(r"\byou (?:didn'?t|did not|never|haven'?t|have not|still haven'?t|forgot to)\s+(.+?)"
-                    r"(?=\s*(?:[,.!?;]|\band\b|\bbut\b)\s*(?:you\b|$|and\b|but\b)|$)", re.I)
+_DIDNT = re.compile(r"\byou (?:just\s+|still\s+|also\s+)?(?:didn'?t|did not|never|haven'?t|have not|still haven'?t|"
+                    r"still didn'?t|forgot to)\s+(.+?)(?=\s*[.!?;]|\s*,?\s*\b(?:and|but)\s+(?:you|also)\b|$)", re.I)
+# "you still haven't closed Spotify" -> "close spotify" (the fast path knows the plain verb).
+_BASE = {"closed": "close", "opened": "open", "reopened": "reopen", "skipped": "skip", "paused": "pause",
+         "played": "play", "unpaused": "unpause", "resumed": "resume", "muted": "mute", "unmuted": "unmute",
+         "took": "take", "taken": "take", "switched": "switch", "stopped": "stop", "started": "start",
+         "launched": "launch", "turned": "turn", "typed": "type", "pressed": "press", "clicked": "click",
+         "went": "go", "gone": "go", "moved": "move", "minimized": "minimize", "minimised": "minimise",
+         "maximized": "maximize", "maximised": "maximise", "brought": "bring", "quit": "quit", "put": "put"}
+_COMPLAINT_FILLER = re.compile(r"\b(?:yet|either|at all|properly|like i asked|when i asked|for me|first of all|again|"
+                               r"like i said|dude|bro|man|mate|anything|any of it|a thing)\b", re.I)
 _SPLIT = re.compile(r"\s*,?\s*\b(?:and then|and also|and|then|also)\b\s*|\s*,\s*|(?<=[?.!])\s+", re.I)
 
 _OPEN_BROWSER = re.compile(
@@ -922,6 +974,32 @@ _DELIBERATE = ("You told me never", "The user declined", "I don't type into a co
 _CANT = re.compile(r"\b(?:i|nova) (?:can ?not|can'?t|couldn'?t|could not|am unable|'?m unable|am not able|'?m not able|"
                    r"wasn'?t able|was not able|don'?t have (?:the )?(?:ability|access|a way)|do not have (?:the )?(?:ability|access))\b"
                    r"|\bnot a valid action\b|\bisn'?t (?:possible|something i can)\b", re.I)
+# "Done" said about the PC: only true if a tool actually did it this turn.
+_LEAKED_CALL = re.compile(r"^\s*(?:>\s*[a-z_]+(?:\s+[a-z_]+){0,3}\s*(?:\n+|$))+", re.I)
+_SAID_THIS = re.compile(r"\b(?:this|that|it|the window|this window|that window|the app|this app|current)\b", re.I)
+
+
+def _wrong_target(tool: str, args, request: str) -> str | None:
+    """The small model closing 'this' (whatever is in front) when the user named an app: "just go
+    ahead and close Spotify" closed Firefox (owner's case). Refused back to the model."""
+    if tool != "window" or not isinstance(args, dict):
+        return None
+    from assistant.tools.pc import THIS
+    if args.get("action") in ("close", "quit", "minimize") and str(args.get("app", "")).lower().strip() in THIS \
+            and not _SAID_THIS.search(request):
+        return ("Not done: the user didn't say 'this'; 'this' would close whatever window is in front. "
+                "Call window again with app set to the app the user named.")
+    return None
+
+
+_DONE_CLAIM = re.compile(
+    r"(?:^|[.!?]\s+)(?:(?:ok|okay|done|right|certainly|sure|alright)[,.!]?\s+)?(?:sir[,.]?\s+)?(?:i(?:'ve| have)?\s+)?"
+    r"(?:just\s+|now\s+|also\s+)?(?:re)?(?:opened|closed|skipped|paused|played|resumed|unpaused|switched|launched|"
+    r"started|stopped|muted|unmuted|minimi[sz]ed|maximi[sz]ed|full[- ]?screened|moved|typed|pressed|clicked|"
+    r"searched|navigated|brought|quit|killed|loaded|went|took)\b"
+    r"|\b(?:is|are|has been|have been)\s+(?:now\s+)?(?:re)?(?:open(?:ed)?|closed|loaded|playing|paused|skipped|"
+    r"muted|minimi[sz]ed|maximi[sz]ed|stopped|launched)\b"
+    r"|\b(?:now|you(?:'re| are)(?: now| back)?) on \w|\b(?:took|taken) you\b|\bskipped to\b", re.I)
 _MORE_ACTIONS = re.compile(r"\b(?:rearrange|sort|organi[sz]e|sign|log|download|install|join|message|reply|post|scroll|"
                            r"select|drag|copy|paste|rename|fill|book|order|subscribe|follow|like|share|upload)\b", re.I)
 _WORK_IT_OUT = re.compile(

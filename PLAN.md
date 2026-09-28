@@ -261,6 +261,14 @@ scripts/           # install, run, register-startup
 - [x] Owner: "when I tell him to full screen my video or things like that he doesn't". Causes: Windows blocks background programs from switching windows, so F went to whichever window was in front; and F only works when the page (not YouTube's search box) has the keyboard; and Nova reported success without checking. Now: WindowBackend.focus (Alt tap + AttachThreadInput + minimise/restore fallback, verified); video full screen clicks the player's own "Full screen" button (UI Automation) with F as backup and checks the window really covers the screen (says so if not); mute clicks "Mute"; "switch to X" reports when Windows refuses; typing/keys first return the keyboard to your window if Nova's window is in front
 - [x] Grid/numbers instructions spoken once per session, then just "Grid on." / "Numbers on."
 
+### Made-up claims (owner: "he gets more and more stupid the more you do, can you just actually fix the problems")
+- [x] "Skipped." with nothing skipped: Windows' media list empty -> Spotify checked before/after, else "pressed the key, can't check"
+- [x] "Firefox is reopened" / "Now on YouTube" / "Closed Spotify" with no tool run: any unbacked action claim is held back (Claude or an honest reply)
+- [x] "Close Spotify" closed Firefox: the model can't close "this" unless the user said this/it; Spotify only in the tray is quit (checked)
+- [x] "You didn't skip anything", "You didn't pause it. Just go ahead and close Spotify.", "...you still haven't closed Spotify": done directly, no model
+- [x] "Take me back to YouTube": its tab, else opened; "go (back) to Spotify": the app; leaked ">window close" text removed
+- [ ] Not yet tried on the PC
+
 ### Work it out + learn (owner: "it keeps saying I can't do this and that ... allow it to self learn and be able to work through things"; chose automatic)
 - [x] agent/tools_server.py: MCP bridge (own JSON-RPC, no new dependency) lending Nova's SAFE tools + screenshot + screen_click; nothing that asks first, no phone, terminal typing refused, sitecheck applies
 - [x] brain/agent.py: Claude Code with that bridge only (+ WebSearch/WebFetch), DONE:/FAILED: verdict, steps streamed to the live feed

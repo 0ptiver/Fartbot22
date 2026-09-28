@@ -413,6 +413,8 @@ async def _switch(w, args: dict, ctx: ToolContext) -> str:
     tabs = await asyncio.to_thread(_tabs, hwnd)
     if tabs:
         i = _match_tab(tabs, want)
+        if i is None and args.get("or_open"):
+            return await _navigate(w, want, new_tab=True)
         if i is None:
             raise ToolError(f"I can't see a {want} tab. Open tabs: " + ", ".join(t[0][:30] for t in tabs[:8]) + ".")
         await _click(ctx, tabs[i][1])
@@ -432,6 +434,8 @@ async def _switch(w, args: dict, ctx: ToolContext) -> str:
             break
         seen.add(title)
         last = title
+    if args.get("or_open"):
+        return await _navigate(w, want, new_tab=True)
     raise ToolError(f"I went through the tabs in {name} and didn't find {want}.")
 
 
@@ -468,7 +472,8 @@ def register(reg: ToolRegistry) -> None:
             "go": {"type": "string", "maxLength": 300},
             "tab": {"type": "string", "maxLength": 100},
             "number": {"type": "integer", "minimum": -1, "maximum": 99},
-            "text": {"type": "string", "maxLength": 200}},
+            "text": {"type": "string", "maxLength": 200},
+            "or_open": {"type": "boolean", "description": "switch_tab: open it in a new tab if there's no such tab"}},
          "required": ["action"], "additionalProperties": False},
         risk=Risk.SAFE, category="web",
     )(my_browser)
@@ -513,6 +518,15 @@ def tab_intent(t: str) -> tuple[str, dict] | None:
         n = _num(m.group(1) or m.group(2) or "")
         if n is not None and (m.group(1) or m.group(2) in _WORD_NUM):
             return "my_browser", {"action": "switch_tab", "number": n}
+    # "Take me back to YouTube": its tab if there is one, else open it (owner's case: Nova just
+    # said "Now on YouTube" without doing anything).
+    if m := re.fullmatch(r"(?:take me|bring me|get me|go|jump|head)(?: back)? to (?:the |my )?(.+?)" + _BR, t):
+        from assistant.brain.intents import _APP_FIRST
+        from assistant.tools import pc
+        from assistant.tools.browser import NAMES
+        site = m.group(1).removesuffix(" website").removesuffix(" site").removesuffix(" page")
+        if (site in NAMES or site in pc.SITES) and site not in _APP_FIRST:
+            return "my_browser", {"action": "switch_tab", "tab": site, "or_open": True}
     if m := re.fullmatch(r"(?:go|switch|change|take me|jump|flip|move|bring me)(?: back)? to (?:the |my )?(.+?) tab" + _BR
                          + r"|(?:open|show me|pull up) (?:the |my )?(.+?) tab", t):
         name = m.group(1) or m.group(2)

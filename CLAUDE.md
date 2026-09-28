@@ -76,6 +76,10 @@ Branch: `claude/jarvis-voice-assistant-lhnfza` (commit and push there after ever
 - **"Close X" where X is a browser tab closes the tab** (`mybrowser.has_tab`); window titles contain the tab name (owner's case: "close Gmail" closed Firefox).
 - **Every address is fact-checked before opening** (`tools/sitecheck.py`, used by my_browser, open_website and Nova's browser): lookalikes of known sites (one letter off, doubled letters, digits for letters, .co for .com) open the real site with a note; banned sites (data/blocked-sites.json) never open; unknown site *names* become a search, never a guessed address. Owner's case: kbbb.com (scam lookalike of kbb.com) opened ~50 times.
 - **"Don't"/"stop" messages never act** (`local._prohibition`): the 4B model re-ran its last tool call for "stop taking me to that website". About a site, they ban the last opened one. A bare "Nova" gets "Yes, sir?".
+- **No action claim without a tool that did it** (`LocalBrain._rescued` + `_DONE_CLAIM`): the model said "Firefox is reopened", "Now on YouTube", "Closed Spotify" with no tool run (owner's screenshots). Unbacked claims are held back (Claude works it out, or an honest "I haven't actually done that"). Questions are exempt.
+- **Media with Windows' list empty/stuck is checked through Spotify** (`video._spotify_checked`), else the key press is reported as unchecked; never "Skipped." on faith. The owner's PC hits this path (the 4.0 s Media chips).
+- **The model may not close/quit/minimise "this" unless the user said this/it/that** (`_wrong_target`): "close Spotify" closed Firefox.
+- "You didn't X" complaints: past tense to base verb (`_BASE`), fillers dropped, extra sentences run too (`_complaint`).
 - "Cancel" in game chat must not do anything: it only counts with the name, in the follow-up window, while Nova is busy, or while the grid, dictation or a lesson is active.
 
 ## Status (end of this session)

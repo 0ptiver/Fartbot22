@@ -450,7 +450,16 @@ def window_control(args: dict, ctx: ToolContext) -> str:
             import asyncio
             tab_action = "switch_tab" if action == "focus" else "close_tab"
             return asyncio.run(mybrowser.my_browser({"action": tab_action, "tab": app}, ctx))
-    w = _find_window(app)
+    try:
+        w = _find_window(app)
+    except ToolError:
+        # No window, but running in the tray ("close Spotify" while Spotify only shows by the clock).
+        exe = next((k for k in TRAY_APPS if k == app.lower().replace(" ", "")), None)
+        if action in ("close", "quit") and exe and exe != "steamwebhelper":
+            if end_processes(f"{exe}.exe"):
+                return f"Quit {TRAY_APPS[exe]} (it was running in the tray)."
+            return f"{TRAY_APPS[exe]} isn't running."
+        raise
     exe = w.process.lower().removesuffix(".exe")
     label = TRAY_APPS.get(exe) or ("FiveM" if exe.startswith("fivem") else "") or w.process.removesuffix(".exe") or w.title
     if action == "focus":

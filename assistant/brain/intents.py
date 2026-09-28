@@ -359,7 +359,7 @@ _SITES = {"youtube", "google", "netflix", "twitch", "reddit", "gmail", "amazon",
 _APP_FIRST = {"spotify", "steam", "discord", "claude", "chatgpt", "x", "weather", "target", "maps", "google maps"}
 _NOT_AN_APP = re.compile(r"\b(?:news|file|folder|document|documents|downloads|pictures|photo|tab|window|link|"
                          r"grid|numbers|settings for|and|then|with|it|that|this|routine|timer|video|movie|music|song|playlist|"
-                         r"dictation|recording|lesson|mode|watching|over|again)\b")
+                         r"dictation|recording|lesson|mode|watching|over|again|sleep|bed|work|school|town|the store)\b")
 _THIS = r"(?:this|that|it|the|this window|that window|the window|current window|the app|this app)"
 
 
@@ -499,7 +499,7 @@ def everyday_intent(t: str) -> tuple[str, dict] | None:
         if len(m.group(1).split()) <= 3 and not _NOT_AN_APP.search(m.group(1)) \
                 and not re.fullmatch(r"(?:the |my )?(?:pc|computer|laptop|system)", m.group(1)):
             return "window", {"action": "quit", "app": m.group(1)}
-    m = re.fullmatch(r"(open|launch|start|close|quit|exit|switch to|bring up|go to) (?:up )?(?:the |my )?(.+?)"
+    m = re.fullmatch(r"(open|launch|start|close|quit|exit|switch to|switch back to|bring up|go to|go back to) (?:up )?(?:the |my )?(.+?)"
                      r"(?: app| application| program)?", n)
     if m and len(m.group(2).split()) <= 3 and not _NOT_AN_APP.search(m.group(2)):
         verb, what = m.group(1), m.group(2)
@@ -512,8 +512,8 @@ def everyday_intent(t: str) -> tuple[str, dict] | None:
             return "open_app", {"name": what}
         if verb in ("close", "quit", "exit"):
             return "window", {"action": "close", "app": what}
-        if verb in ("switch to", "bring up"):
-            return "window", {"action": "focus", "app": what}
+        if verb in ("switch to", "switch back to", "bring up", "go to", "go back to"):
+            return "window", {"action": "focus", "app": what}      # "go back to Spotify": the app
     return None
 
 

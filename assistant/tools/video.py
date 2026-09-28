@@ -465,11 +465,19 @@ async def media(args: dict, ctx: ToolContext, _media: MediaBackend | None = None
     api = _media or MEDIA
     action = args["action"]
     items = await api.list()
-    if not items:                                  # Windows lists nothing: the media keys still work
+    if not items:
+        # Windows lists nothing (its media list can get stuck). Spotify can say what it's playing
+        # itself, before and after; otherwise press the key and say it's unchecked. Never "Skipped."
+        # on faith (owner: "you didn't skip anything").
+        checked = await _spotify_checked(action, ctx)
+        if checked is not None:
+            return checked
         from assistant.tools import music
         key = {"play": "play_pause", "pause": "play_pause", "toggle": "play_pause"}.get(action, action)
         await asyncio.to_thread(music.press_media_key, key)
-        return {"pause": "Paused.", "play": "Playing.", "next": "Skipped.", "previous": "Going back."}.get(action, "Done.")
+        what = {"next": "next-track", "previous": "previous-track"}.get(action, "play/pause")
+        return (f"I pressed the {what} key, but Windows isn't telling me what's playing, "
+                "so I can't check it worked.")
     playing = [m for m in items if m.status == "playing"]
     paused = [m for m in items if m.status == "paused"]
     if action == "pause":
@@ -498,6 +506,47 @@ async def media(args: dict, ctx: ToolContext, _media: MediaBackend | None = None
     name = f" {target.title}" if target.title else ""
     return {"pause": f"Paused{name}.", "play": f"Playing{name}.", "next": "Next.",
             "previous": "Previous."}.get(action, "Done.")
+
+
+async def _spotify_checked(action: str, ctx: ToolContext) -> str | None:
+    """Do it through Spotify and check with Spotify. None when Spotify can't say (not linked,
+    nothing on it, an error): the caller falls back."""
+    from assistant.integrations.spotify import Spotify, SpotifyError
+    from assistant.tools import music
+    if action not in ("next", "previous", "play", "pause") or not Spotify.linked():
+        return None
+    sp = music._spotify(ctx)
+
+    async def state():
+        s = await sp._call("GET", "/me/player")
+        return s if s and s.get("item") else None
+    try:
+        before = await state()
+        if before is None:
+            return None
+        track = lambda s: (s["item"].get("id") or s["item"].get("uri"), s["item"].get("name", ""),  # noqa: E731
+                           ", ".join(a["name"] for a in s["item"].get("artists", [])))
+        was = track(before)
+        if action == "pause" and not before.get("is_playing"):
+            return f"Spotify is already paused on {was[1]}."
+        if action == "play" and before.get("is_playing"):
+            return f"{was[1]} is already playing."
+        await sp.control({"play": "resume"}.get(action, action))
+        for _ in range(12):
+            await asyncio.sleep(max(SETTLE_S, 0.01))
+            now = await state()
+            if now is None:
+                continue
+            if action in ("next", "previous") and track(now)[0] != was[0]:
+                name, by = track(now)[1:]
+                return f"Now playing {name}" + (f" by {by}." if by else ".")
+            if action == "pause" and not now.get("is_playing"):
+                return f"Paused {was[1]}."
+            if action == "play" and now.get("is_playing"):
+                return f"Playing {track(now)[1]}."
+    except SpotifyError:
+        return None
+    raise ToolError(f"I asked Spotify to {'skip' if action == 'next' else action}, but nothing changed.")
 
 
 def _app_name(m: Media) -> str:

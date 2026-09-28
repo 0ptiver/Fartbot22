@@ -265,3 +265,11 @@ async def test_reopen_after_the_browser_was_closed(settings, monkeypatch):
     monkeypatch.setattr(L, "launch", start)
     out = await MB.my_browser({"action": "reopen_tab"}, ctx_for(settings, fake))
     assert out == "Opened Firefox and brought back Kelley Blue Book."
+
+
+async def test_take_me_back_to_youtube_switches_or_opens(settings, ff):
+    """Owner's case: 'Take me back to YouTube' got 'Now on YouTube' with nothing done."""
+    out = await MB.my_browser({"action": "switch_tab", "tab": "kelley blue book", "or_open": True}, ctx_for(settings, ff))
+    assert out.startswith("Now on Kelley Blue Book") and ff.sel == 1 and len(ff.tabs) == 3     # it was there
+    out = await MB.my_browser({"action": "switch_tab", "tab": "reddit", "or_open": True}, ctx_for(settings, ff))
+    assert out == "Opened reddit.com in a new tab in Firefox." and len(ff.tabs) == 4           # it wasn't
