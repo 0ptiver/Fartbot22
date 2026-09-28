@@ -225,6 +225,11 @@ class PhoneConfig(BaseModel):
     # Phone access over Tailscale. Switched on/off (and set up) in the window's Phone page.
     port: int = 8767                    # on the PC's Tailscale address only
     session_days: int = 30              # a phone stays signed in this long
+    # Controlling the PC from the phone (apps, windows, your browser, typing, clicking, Claude's
+    # "work it out"): "ask" = allowed, with a Yes/No on the phone first; "off" = refused.
+    pc_control: str = "ask"
+    speak_replies: bool = True          # voice messages get Nova's voice back on the phone
+    https: bool = True                  # Tailscale HTTPS certificate (phone browsers need it for the mic)
 
 
 class ScreenshotConfig(BaseModel):

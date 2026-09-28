@@ -76,6 +76,11 @@ TOOL_TIMEOUTS = {"escalate": 330.0, "look_at_screen": 150.0, "run_routine": 300.
                  "browser": 60.0, "summarize_page": 330.0}
 
 
+# Never from the phone, whatever the settings: they record or listen at the PC, or change who
+# Nova listens to.
+REMOTE_NEVER = {"run_shell", "voice_lock", "teach", "dictation", "replay_keys", "replay_click"}
+
+
 class ToolError(Exception):
     """Raised by handlers for expected failures; the message is shown to the model."""
 
@@ -155,6 +160,8 @@ class ToolRegistry:
 
     def describe(self, name: str, args: dict[str, Any]) -> str:
         """Plain-words description of a pending action, for confirmation prompts."""
+        if name == "work_it_out":
+            return f"let Claude control the PC to do this: {str(args.get('task', ''))[:120]}"
         tool = self._tools.get(name)
         if tool is not None and tool.describe is not None:
             try:
@@ -181,6 +188,11 @@ class ToolRegistry:
         override = self.settings.safety.risk_overrides.get(name)
         risk = Risk(override) if override else tool.risk
         if remote and name in self.settings.safety.remote_blocked_tools:
+            # PC control from the phone (owner's choice): allowed, but always asked on the phone
+            # first. A few need someone at the PC and are never done remotely.
+            if (getattr(getattr(self.settings, "phone", None), "pc_control", "off") == "ask"
+                    and name not in REMOTE_NEVER and risk != Risk.BLOCKED):
+                return Risk.CONFIRM
             return Risk.BLOCKED
         return risk
 

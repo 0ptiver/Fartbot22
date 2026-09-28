@@ -123,6 +123,9 @@ browser:
 phone:
   port: 8767                     # listens on the PC's Tailscale address only
   session_days: 30               # how long a phone stays signed in
+  pc_control: ask                # ask = the phone can control the PC, with a Yes/No on the phone first; off = never
+  speak_replies: true            # talk to Nova from the phone and hear its voice back
+  https: true                    # uses Tailscale's HTTPS certificate (phones only allow the mic on https)
 
 tools:
   # Voice mouse ("Nova, show the grid" ... "click 14"): cells across and down the main screen.

@@ -69,6 +69,7 @@ async def test_typing_and_keys(settings, registry, kb, monkeypatch):
 
 
 async def test_terminal_asks_first(settings, registry, kb, monkeypatch):
+    settings.phone.pc_control = "off"          # the "phone can't control the PC" setting
     use(monkeypatch, TERMINAL)
     asked = []
 

@@ -277,8 +277,8 @@
                 <h3><svg><use href="#i-phone"/></svg>Phone access</h3>
                 <span id="phoneState" class="lock-state">off</span>
               </div>
-              <p class="small">Talk to Nova from your phone when you're away: chat, reminders, timers, "tell me when",
-                pause the music, lock the PC. It only works over <b>Tailscale</b>, a free private network between
+              <p class="small">Talk to Nova from your phone like you're at the desk: speak or type, and Nova answers in
+                its own voice. Anything that controls the PC asks Yes/No on the phone first. It only works over <b>Tailscale</b>, a free private network between
                 your own devices. Nothing is opened to the internet.</p>
 
               <div id="phoneSetup">
@@ -312,6 +312,7 @@
                   and sign in with your password and a code. Tip: "Add to Home Screen" gives Nova an app icon.</p>
                 <ul id="phoneAddrs" class="addrs"></ul>
                 <p id="phoneWait" class="small warn-text" hidden></p>
+                <p id="phoneVoiceNote" class="small warn-text" hidden></p>
                 <div class="lock-actions">
                   <button id="phoneToggle" type="button" class="btn">Turn off</button>
                   <button id="phoneRedo" type="button" class="btn">New password + code</button>

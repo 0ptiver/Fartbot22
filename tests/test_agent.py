@@ -185,12 +185,25 @@ async def test_deliberate_refusals_are_not_worked_around(local_settings, ctx):
     assert "never to open" in said(events) and agent.calls == []
 
 
-async def test_never_from_the_phone(local_settings):
-    brain, fake = make(local_settings, [text_reply("I can't do that from here.")])
-    agent = with_agent(brain, FakeAgent())
-    brain.registry._tools["click_element"].handler = lambda a, c: (_ for _ in ()).throw(__import__(
-        "assistant.tools.registry", fromlist=["ToolError"]).ToolError("I can't see it."))
-    await collect(brain, Conversation(), "figure it out", ToolContext(local_settings, remote=True))
+async def test_from_the_phone_only_after_a_yes_on_the_phone(local_settings):
+    brain, fake = make(local_settings, [text_reply("I can't do that from here."), text_reply("Fine.")])
+    agent = with_agent(brain, FakeAgent(steps=[]))
+    asked = []
+
+    async def no(tool, args):
+        asked.append(brain.registry.describe(tool, args))
+        return False
+    events = await collect(brain, Conversation(), "figure it out", ToolContext(local_settings, remote=True, confirm=no))
+    assert agent.calls == [] and asked and asked[0].startswith("let Claude control the PC")
+    assert said(events) == "All right, sir, I'll leave it."
+
+    async def yes(tool, args):
+        return True
+    await collect(brain, Conversation(), "figure it out", ToolContext(local_settings, remote=True, confirm=yes))
+    assert agent.calls
+    local_settings.phone.pc_control = "off"
+    agent.calls.clear()
+    await collect(brain, Conversation(), "figure it out", ToolContext(local_settings, remote=True, confirm=yes))
     assert agent.calls == []
 
 

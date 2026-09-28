@@ -7,9 +7,11 @@ Safety, from the outside in:
 - Nothing works without signing in: a password and a 6-digit authenticator code (auth.py).
   Each phone gets its own revocable session, and the PC says out loud when a new phone signs
   in or someone keeps getting it wrong.
-- Requests from the phone run as "remote": tools that type, click, delete, run things or
-  change the voice lock are refused outright (safety.remote_blocked_tools), and the audit log
-  marks every one of them as remote.
+- Requests from the phone run as "remote": anything that controls the PC (typing, clicking,
+  windows, the browser, Claude's "work it out") asks Yes/No on the phone first
+  (phone.pc_control: ask; "off" refuses them), a few things are never done remotely (voice lock,
+  teaching, dictation), and the audit log marks every one of them as remote.
+- Voice messages (remote/voice.py) are heard and answered by the PC, like the headset.
 - Same page hardening as the HUD: strict CSP, textContent only, Host/Origin checks.
 - Replies appear on the phone; nothing is said out loud at home.
 """
@@ -44,8 +46,9 @@ _FILES = {"/": ("phone.html", "text/html"), "/phone.js": ("phone.js", "text/java
           "/phone.css": ("phone.css", "text/css"), "/icon.svg": ("icon.svg", "image/svg+xml"),
           "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json")}
 TAILNET = (ipaddress.ip_network("100.64.0.0/10"), ipaddress.ip_network("fd7a:115c:a1e0::/48"))
-# Services the phone's requests may use. Not the grid, the lesson recorder or the voice lock.
-SHARED_SERVICES = ("scheduler", "watchers", "memory", "subtitles", "voice", "spotify")
+# Services the phone's requests may use (the mouse too: clicking asks on the phone first).
+# Not the lesson recorder or the voice lock.
+SHARED_SERVICES = ("scheduler", "watchers", "memory", "subtitles", "voice", "spotify", "grid")
 KEEP = {"you", "text", "tool_started", "tool_finished", "turn_complete", "error", "announcement", "sys"}
 
 # Buttons on the phone: fixed tool calls, nothing free-form.
@@ -124,24 +127,50 @@ class PhoneChat:
     """One signed-in phone's conversation. It outlives the connection (phones drop the socket
     when the screen locks), and the last 100 events are replayed on reconnect."""
 
-    def __init__(self, brain, services: dict, client_id: str):
+    def __init__(self, brain, services: dict, client_id: str, speaker=None):
         from assistant.core.session import Session
         self.backlog: deque[dict] = deque(maxlen=100)
         self.sockets: set = set()
         self.session = Session(brain, self.send, client_id=client_id, remote=True)
         self.session.ctx.services.update(services)
+        self.speaker = speaker                 # text -> base64 WAV in Nova's voice (or None)
+        self.speak_next = False                # the request was spoken: answer out loud
+        self._speaking: asyncio.Task | None = None
+        self._said: list[str] = []             # what this turn showed, to say out loud
 
     async def send(self, msg: dict) -> None:
-        if msg.get("type") in KEEP:
+        kind = msg.get("type")
+        if kind in KEEP:
             self.backlog.append({**msg, "ts": time.time()})
+        if kind == "you":
+            self._said = []
+        elif kind == "text":
+            self._said.append(str(msg.get("text") or ""))
+        elif kind in ("turn_complete", "cancelled") and self.speak_next:
+            self.speak_next = False
+            said = "".join(self._said).strip() or str(msg.get("text") or "").strip()
+            if kind == "turn_complete" and self.speaker and said:
+                self._speaking = asyncio.ensure_future(self._speak(said))
         for s in list(self.sockets):
             with contextlib.suppress(Exception):
                 await s(msg)
 
+    async def _speak(self, text: str) -> None:
+        try:
+            data = await self.speaker(text)
+        except Exception as e:
+            log.warning("phone voice reply failed: %s", e)
+            return
+        if data:
+            for s in list(self.sockets):
+                with contextlib.suppress(Exception):
+                    await s({"type": "audio", "mime": "audio/wav", "data": data})
+
 
 def create_phone_app(settings: Settings, auth: PhoneAuth, loop, hub, scheduler=None, watchers=None,
                      trust_test_client: bool = False, chats: dict | None = None,
-                     names: set[str] | None = None) -> FastAPI:
+                     names: set[str] | None = None, secure_url: str | None = None,
+                     voice_note: str = "") -> FastAPI:
     from assistant.hud.server import status as loop_status, timers as timer_list, vitals
 
     port = settings.phone.port
@@ -162,7 +191,8 @@ def create_phone_app(settings: Settings, auth: PhoneAuth, loop, hub, scheduler=N
         return p == str(port) and name.strip("[]").lower() in allowed
 
     def origin_ok(headers) -> bool:
-        return headers.get("origin") == f"http://{headers.get('host', '')}"
+        host = headers.get("host", "")
+        return headers.get("origin") in (f"http://{host}", f"https://{host}")
 
     def spawn(coro) -> None:
         t = asyncio.ensure_future(coro)
@@ -187,7 +217,8 @@ def create_phone_app(settings: Settings, auth: PhoneAuth, loop, hub, scheduler=N
         resp: Response = await call_next(request)
         resp.headers.update({
             "Content-Security-Policy": ("default-src 'none'; script-src 'self'; style-src 'self'; "
-                                        f"img-src 'self' data:; manifest-src 'self'; connect-src 'self' ws://{host}; "
+                                        f"img-src 'self' data:; media-src 'self' blob:; manifest-src 'self'; "
+                                        f"connect-src 'self' ws://{host} wss://{host}; "
                                         "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"),
             "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
             "Cache-Control": "no-store", "X-Frame-Options": "DENY"})
@@ -265,6 +296,47 @@ def create_phone_app(settings: Settings, auth: PhoneAuth, loop, hub, scheduler=N
         text = res.content if isinstance(res.content, str) else "Done."
         return text if not res.is_error else f"Couldn't: {text}"
 
+    async def speak_reply(text: str) -> str | None:
+        from assistant.remote import voice as phone_voice
+        return await phone_voice.speak(loop, settings, text)
+
+    def chat_for(device) -> PhoneChat:
+        chat = chats.get(device.id)
+        if chat is None:
+            services = {k: v for k, v in loop.ctx.services.items() if k in SHARED_SERVICES}
+            chat = chats[device.id] = PhoneChat(loop.brain, services, client_id=f"phone:{device.id}",
+                                                speaker=speak_reply if settings.phone.speak_replies
+                                                and getattr(loop, "tts", None) is not None else None)
+        return chat
+
+    @app.post("/api/voice")
+    async def voice_message(request: Request):
+        """A voice message from the phone: heard by the PC's Whisper, answered like the headset."""
+        if not origin_ok(request.headers):
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        device = auth.device_for(request.cookies.get(COOKIE))
+        if device is None:
+            return JSONResponse({"error": "signed out"}, status_code=401)
+        data = await request.body()
+        from assistant.remote import voice as phone_voice
+        if len(data) > phone_voice.MAX_BYTES:
+            return JSONResponse({"error": "That message is too long."}, status_code=413)
+        chat = chat_for(device)
+        try:
+            text = await phone_voice.transcribe(loop, data)
+        except Exception as e:
+            log.warning("phone voice message failed: %s", e)
+            return JSONResponse({"error": "I couldn't hear that one. Try again?"}, status_code=500)
+        text = " ".join(text.split())[:2000]
+        if not text:
+            await chat.send({"type": "sys", "text": "I didn't catch that."})
+            return {"text": ""}
+        chat.speak_next = True
+        await chat.send({"type": "you", "text": text, "voice": True})
+        hub.publish({"type": "remote", "text": f"From your phone (voice): {text}"})
+        chat.session.start_turn(text)
+        return {"text": text}
+
     @app.websocket("/ws")
     async def ws(websocket: WebSocket) -> None:
         client = websocket.client.host if websocket.client else None
@@ -276,10 +348,7 @@ def create_phone_app(settings: Settings, auth: PhoneAuth, loop, hub, scheduler=N
             await websocket.close(code=4401)
             return
         await websocket.accept()
-        chat = chats.get(device.id)
-        if chat is None:
-            services = {k: v for k, v in loop.ctx.services.items() if k in SHARED_SERVICES}
-            chat = chats[device.id] = PhoneChat(loop.brain, services, client_id=f"phone:{device.id}")
+        chat = chat_for(device)
         lock = asyncio.Lock()
 
         async def send(msg: dict[str, Any]) -> None:
@@ -287,7 +356,8 @@ def create_phone_app(settings: Settings, auth: PhoneAuth, loop, hub, scheduler=N
                 await websocket.send_text(json.dumps(msg, default=str))
 
         await send({"type": "hello", "name": settings.assistant.name, "user": settings.assistant.address_user_as,
-                    "device": device.name, "backlog": list(chat.backlog)})
+                    "device": device.name, "backlog": list(chat.backlog),
+                    "voice": bool(getattr(loop, "stt", None)), "secure_url": secure_url, "voice_note": voice_note})
         chat.sockets.add(send)
 
         async def pump() -> None:
@@ -352,6 +422,26 @@ def create_phone_app(settings: Settings, auth: PhoneAuth, loop, hub, scheduler=N
     return app
 
 
+CERT_DIR_NAME = "phone-cert"
+
+
+def tailscale_cert(dns: str, folder: Path) -> tuple[str, str]:
+    """An HTTPS certificate for this PC's Tailscale name (phones only allow the mic on https).
+    Needs HTTPS turned on once for the tailnet (Tailscale admin: DNS -> HTTPS Certificates)."""
+    exe = _tailscale_exe()
+    if not exe:
+        raise RuntimeError("Tailscale isn't installed")
+    folder.mkdir(parents=True, exist_ok=True)
+    cert, key = folder / "cert.pem", folder / "key.pem"
+    flags = {"creationflags": 0x08000000} if sys.platform == "win32" else {}
+    out = subprocess.run([exe, "cert", "--cert-file", str(cert), "--key-file", str(key), dns],
+                         capture_output=True, text=True, timeout=90, **flags)
+    if out.returncode != 0 or not cert.exists() or not key.exists():
+        why = (out.stderr or out.stdout or "").strip().splitlines()
+        raise RuntimeError(why[-1][:200] if why else f"tailscale cert failed ({out.returncode})")
+    return str(cert), str(key)
+
+
 class PhoneService:
     """Starts and stops the phone server as phone access is switched on/off and as Tailscale
     comes and goes (it's often not up yet when Nova starts at sign-in)."""
@@ -369,6 +459,8 @@ class PhoneService:
         self._server = None
         self._task: asyncio.Task | None = None
         self._wake = asyncio.Event()
+        self.secure = False                    # serving https (Tailscale certificate)
+        self.voice_note = ""                   # why voice messages can't work yet, in plain words
 
     @property
     def running(self) -> bool:
@@ -378,6 +470,8 @@ class PhoneService:
         if not self.bound_ip:
             return []
         port = self.settings.phone.port
+        if self.secure:                         # the certificate is for the name, not the number
+            return [f"https://{self.ts['dns']}:{port}"]
         out = [f"http://{self.ts['dns']}:{port}"] if self.ts.get("dns") else []
         return out + [f"http://{self.bound_ip}:{port}"]
 
@@ -385,7 +479,8 @@ class PhoneService:
         return {"type": "phone", "configured": self.auth.configured, "enabled": self.auth.enabled,
                 "running": self.running, "tailscale": bool(self.ts.get("installed")),
                 "tailscale_up": bool(self.ts.get("ip")), "addresses": self.addresses(),
-                "devices": self.auth.devices(), "locked_for": self.auth.locked_for(), "error": self.error}
+                "devices": self.auth.devices(), "locked_for": self.auth.locked_for(), "error": self.error,
+                "secure": self.secure, "voice_note": self.voice_note}
 
     async def refresh_tailscale(self) -> None:
         """For the Phone page: is Tailscale on this PC (even before phone access is set up)?"""
@@ -448,9 +543,24 @@ class PhoneService:
             sock.close()
             self.error = f"Couldn't listen on {ip}:{self.settings.phone.port} ({e})"
             return
+        tls, self.secure, self.voice_note = None, False, ""
+        dns = self.ts.get("dns")
+        if self.settings.phone.https and dns:
+            from assistant.core.config import ROOT
+            try:
+                tls = await asyncio.to_thread(tailscale_cert, dns, ROOT / "data" / CERT_DIR_NAME)
+                self.secure = True
+            except Exception as e:
+                log.warning("phone access: no HTTPS certificate (%s); voice messages need it", e)
+                self.voice_note = ("Voice messages need HTTPS: in the Tailscale admin page, open DNS and "
+                                   "turn on MagicDNS and HTTPS Certificates, then restart Nova.")
+        elif not dns:
+            self.voice_note = "Voice messages need Tailscale's MagicDNS name for this PC (turn on MagicDNS)."
+        secure_url = f"https://{dns}:{self.settings.phone.port}" if self.secure else None
         app = create_phone_app(self.settings, self.auth, self.loop, self.hub, self.scheduler, self.watchers,
-                               chats=self.chats, names={ip, self.ts.get("dns") or ""})
-        self._server = _QuietServer(app, sock)
+                               chats=self.chats, names={ip, dns or ""}, secure_url=secure_url,
+                               voice_note=self.voice_note)
+        self._server = _QuietServer(app, sock, ssl=tls)
         self._task = asyncio.create_task(self._server.serve())
         self.bound_ip, self.error = ip, ""
         log.info("phone access on %s", ", ".join(self.addresses()))

@@ -153,9 +153,10 @@ class FakeBrain:
 
     async def run_turn(self, conv, text, ctx, extra_context=None):
         self.seen.append((text, ctx))
-        res = await self.registry.execute("type_text", {"text": "hello"}, ctx)
-        yield ToolStarted("t1", "type_text", {})
-        yield ToolFinished("t1", "type_text", res.is_error, str(res.content), 5)
+        if text.startswith("type"):
+            res = await self.registry.execute("type_text", {"text": "hello"}, ctx)
+            yield ToolStarted("t1", "type_text", {})
+            yield ToolFinished("t1", "type_text", res.is_error, str(res.content), 5)
         yield TextDelta(f"You said {text}.")
         yield TurnComplete("", {}, {}, "end_turn")
 
@@ -238,19 +239,23 @@ def test_websocket_needs_a_signed_in_phone(phone_rig):
     assert e.value.code == 4403
 
 
-def test_phone_requests_run_as_remote_and_risky_tools_are_refused(phone_rig):
+def test_phone_requests_run_as_remote_and_pc_control_asks_on_the_phone(phone_rig):
+    """Owner's choice: the phone can control the PC, but asks Yes/No on the phone first."""
     client, auth, secret, loop, brain, hub = phone_rig
     sign_in(client, secret)
     with client.websocket_connect("/ws", headers=ORIGIN) as ws:
         hello = recv(ws, "hello")
         assert hello["device"] == "iPhone · Safari"
         ws.send_json({"type": "text", "text": "type hello"})
+        ask = recv(ws, "confirm_request")
+        assert ask["tool"] == "type_text"
+        ws.send_json({"type": "confirm", "id": ask["id"], "approved": False})
         done = recv(ws, "tool_finished")
-        assert done["is_error"] and "remote" in done["summary"]
+        assert done["is_error"] and "declined" in done["summary"]
         assert recv(ws, "text")["text"] == "You said type hello."
     text, ctx = brain.seen[0]
     assert ctx.remote and ctx.client_id.startswith("phone:")
-    assert "grid" not in ctx.services and "teacher" not in ctx.services     # no mouse, no lessons
+    assert ctx.services["grid"] == "GRID" and "teacher" not in ctx.services     # the mouse (asks first), no lessons
     assert ctx.services["memory"] == "MEM"
     assert any(e["type"] == "remote" and "type hello" in e["text"] for e in hub.backlog)
     audit = [json.loads(line) for line in open(ctx.settings.safety.audit_path())]
@@ -371,3 +376,154 @@ async def test_service_listens_only_while_switched_on(settings, monkeypatch):
     svc.auth.set_enabled(True)
     await svc._reconcile()
     assert not svc.running and "Waiting" not in svc.error    # Tailscale down: wait, don't fall back
+
+
+def test_pc_control_off_refuses_from_the_phone(phone_rig, settings):
+    settings.phone.pc_control = "off"
+    client, auth, secret, loop, brain, hub = phone_rig
+    sign_in(client, secret)
+    with client.websocket_connect("/ws", headers=ORIGIN) as ws:
+        recv(ws, "hello")
+        ws.send_json({"type": "text", "text": "type hello"})
+        done = recv(ws, "tool_finished")
+        assert done["is_error"] and "remote" in done["summary"]
+
+
+def test_some_things_never_happen_from_the_phone(registry, settings):
+    assert registry.effective_risk("type_text", remote=True).value == "confirm"
+    assert registry.effective_risk("teach", remote=True).value == "blocked"
+    assert registry.effective_risk("voice_lock", remote=True).value == "blocked"
+    assert registry.effective_risk("dictation", remote=True).value == "blocked"
+
+
+# --- talking to Nova from the phone -----------------------------------------------------------------
+class FakeSTT:
+    def __init__(self, text):
+        self.text, self.fed = text, []
+
+    def session(self):
+        stt = self
+
+        class S:
+            async def feed(self, audio):
+                stt.fed.append(audio)
+
+            async def finish(self):
+                return type("R", (), {"text": stt.text})()
+        return S()
+
+
+class FakeTTS:
+    sample_rate = 24000
+
+    def __init__(self):
+        self.said = []
+
+    async def synthesize(self, text):
+        import numpy as np
+        self.said.append(text)
+        yield np.zeros(2400, dtype=np.float32)
+
+
+def test_a_voice_message_is_heard_answered_and_spoken_back(phone_rig, monkeypatch):
+    """Owner: "speak to Nova as if I was sitting here at my computer"."""
+    import numpy as np
+    from assistant.remote import voice as V
+    client, auth, secret, loop, brain, hub = phone_rig
+    loop.stt, loop.tts = FakeSTT("what time is it"), FakeTTS()
+    monkeypatch.setattr(V, "decode", lambda data: np.zeros(16000, dtype=np.float32))
+    assert client.post("/api/voice", content=b"x", headers=ORIGIN).status_code == 401    # signed out
+    sign_in(client, secret)
+    assert client.post("/api/voice", content=b"x", headers=HOST).status_code == 403      # no Origin
+    with client.websocket_connect("/ws", headers=ORIGIN) as ws:
+        assert recv(ws, "hello")["voice"] is True
+        r = client.post("/api/voice", content=b"fake audio", headers=ORIGIN)
+        assert r.status_code == 200 and r.json()["text"] == "what time is it"
+        you = recv(ws, "you")
+        assert you["voice"] is True and you["text"] == "what time is it"
+        audio = recv(ws, "audio")
+        wav = base64.b64decode(audio["data"])
+        assert audio["mime"] == "audio/wav" and wav[:4] == b"RIFF"
+    assert brain.seen[0][0] == "what time is it" and brain.seen[0][1].remote
+    assert loop.tts.said == ["You said what time is it."]
+    assert any("phone (voice)" in e.get("text", "") for e in hub.backlog)
+
+
+def test_silence_from_the_phone_does_nothing(phone_rig, monkeypatch):
+    import numpy as np
+    from assistant.remote import voice as V
+    client, auth, secret, loop, brain, hub = phone_rig
+    loop.stt, loop.tts = FakeSTT("anything"), FakeTTS()
+    monkeypatch.setattr(V, "decode", lambda data: np.zeros(100, dtype=np.float32))
+    sign_in(client, secret)
+    with client.websocket_connect("/ws", headers=ORIGIN) as ws:
+        recv(ws, "hello")
+        assert client.post("/api/voice", content=b"x", headers=ORIGIN).json()["text"] == ""
+        assert "didn't catch" in recv(ws, "sys")["text"]
+    assert brain.seen == [] and loop.stt.fed == []
+
+
+def test_typed_messages_are_not_spoken_by_the_pc(phone_rig):
+    client, auth, secret, loop, brain, hub = phone_rig
+    loop.stt, loop.tts = FakeSTT(""), FakeTTS()
+    sign_in(client, secret)
+    with client.websocket_connect("/ws", headers=ORIGIN) as ws:
+        recv(ws, "hello")
+        ws.send_json({"type": "text", "text": "hi"})
+        recv(ws, "turn_complete")
+    assert loop.tts.said == []
+
+
+def test_spoken_replies_are_as_short_as_at_the_desk(settings):
+    from assistant.remote import voice as V
+    settings.voice.max_spoken_sentences = 2
+    assert V.spoken("One. Two! Three? Four.", settings) == "One. Two!"
+
+
+async def test_voice_messages_need_https_and_say_how(settings, monkeypatch, tmp_path):
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        settings.phone.port = s.getsockname()[1]
+    monkeypatch.setattr(R, "tailscale_info", lambda: {"installed": True, "ip": "127.0.0.1", "dns": "pc.tail1.ts.net"})
+
+    def no_cert(dns, folder):
+        raise RuntimeError("HTTPS certificates are not enabled")
+    monkeypatch.setattr(R, "tailscale_cert", no_cert)
+    svc = R.PhoneService(settings, PhoneLoop(None), hud.Hub())
+    set_up(svc.auth)
+    await svc._reconcile()
+    try:
+        assert svc.running and not svc.secure and "HTTPS Certificates" in svc.voice_note
+        assert svc.addresses()[0].startswith("http://")
+        assert svc.info()["voice_note"] == svc.voice_note
+    finally:
+        await svc.stop()
+
+
+async def test_with_a_certificate_the_phone_gets_an_https_address(settings, monkeypatch):
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        settings.phone.port = s.getsockname()[1]
+    monkeypatch.setattr(R, "tailscale_info", lambda: {"installed": True, "ip": "127.0.0.1", "dns": "pc.tail1.ts.net"})
+    monkeypatch.setattr(R, "tailscale_cert", lambda dns, folder: ("cert.pem", "key.pem"))
+    seen = {}
+
+    class FakeServer:
+        def __init__(self, app, sock, ssl=None):
+            seen["ssl"] = ssl
+            sock.close()
+
+        async def serve(self):
+            await asyncio.sleep(0)
+
+        def stop(self):
+            pass
+    monkeypatch.setattr(hud, "_QuietServer", FakeServer)
+    svc = R.PhoneService(settings, PhoneLoop(None), hud.Hub())
+    set_up(svc.auth)
+    await svc._reconcile()
+    try:
+        assert svc.secure and svc.voice_note == "" and seen["ssl"] == ("cert.pem", "key.pem")
+        assert svc.addresses() == [f"https://pc.tail1.ts.net:{settings.phone.port}"]
+    finally:
+        await svc.stop()

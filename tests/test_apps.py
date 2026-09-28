@@ -114,6 +114,7 @@ async def test_typing_into_a_terminal_still_asks(settings, desk):
 
 
 def test_the_app_tool_is_blocked_from_a_phone(registry):
+    registry.settings.phone.pc_control = "off"          # the "phone can't control the PC" setting
     assert registry.effective_risk("app", remote=True).value == "blocked"
     assert registry.effective_risk("my_browser", remote=True).value == "blocked"
 

@@ -49,6 +49,7 @@ def test_for_turn_sends_only_relevant_ones_when_there_are_many(store):
 
 
 async def test_tools_and_forget_asks_first(settings, registry):
+    settings.phone.pc_control = "off"          # the "phone can't control the PC" setting
     ctx = ToolContext(settings)
     res = await registry.execute("remember", {"text": "My dog is called Max"}, ctx)
     assert res.content == "Remembered: My dog is called Max."

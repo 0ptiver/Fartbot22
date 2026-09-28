@@ -94,6 +94,7 @@ async def test_move_and_rename_need_confirmation(home, settings, registry):
 
 
 async def test_delete_goes_to_recycle_bin(home, settings, registry, monkeypatch):
+    settings.phone.pc_control = "off"          # the "phone can't control the PC" setting
     trashed = []
     import send2trash
     monkeypatch.setattr(send2trash, "send2trash", trashed.append)

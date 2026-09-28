@@ -40,6 +40,7 @@ async def test_power_always_asks(settings, registry, power):
 
 
 async def test_power_blocked_remotely(settings, registry, power):
+    settings.phone.pc_control = "off"          # the "phone can't control the PC" setting
     res = await registry.execute("power", {"action": "sleep"}, ToolContext(settings, remote=True, confirm=yes))
     assert res.is_error and power == []
 
@@ -136,6 +137,7 @@ def test_system_status(settings, monkeypatch):
 
 
 async def test_press_key_focuses_the_app_first(settings, registry, wins, monkeypatch):
+    settings.phone.pc_control = "off"          # the "phone can't control the PC" setting
     pressed = []
     wins.press = lambda vk: pressed.append(vk)
     res = await registry.execute("press_key", {"key": "f", "app": "chrome"}, ToolContext(settings))

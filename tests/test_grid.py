@@ -103,6 +103,7 @@ def test_back_zoom_limits_and_other_actions(ctl):
 
 
 async def test_mouse_is_blocked_remotely(settings, registry):
+    settings.phone.pc_control = "off"          # the "phone can't control the PC" setting
     res = await registry.execute("mouse", {"action": "click"}, ToolContext(settings, remote=True))
     assert res.is_error and "blocked" in res.content
 

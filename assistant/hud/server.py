@@ -469,7 +469,7 @@ def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=Non
 class _QuietServer:
     """uvicorn without its Ctrl+C handling: Ctrl+C belongs to the voice loop."""
 
-    def __init__(self, app: FastAPI, sock: socket.socket):
+    def __init__(self, app: FastAPI, sock: socket.socket, ssl: tuple[str, str] | None = None):
         import uvicorn
 
         class Server(uvicorn.Server):
@@ -481,7 +481,8 @@ class _QuietServer:
                 pass
 
         self.sock = sock
-        self.server = Server(uvicorn.Config(app, log_level="warning", lifespan="off"))
+        tls = {"ssl_certfile": ssl[0], "ssl_keyfile": ssl[1]} if ssl else {}
+        self.server = Server(uvicorn.Config(app, log_level="warning", lifespan="off", **tls))
 
     async def serve(self) -> None:
         await self.server.serve(sockets=[self.sock])

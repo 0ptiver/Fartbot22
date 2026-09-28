@@ -195,8 +195,11 @@ class LocalBrain:
         return self._agent_obj
 
     def _can_rescue(self, ctx: ToolContext) -> bool:
-        # Never from the phone: the phone can't use Nova's PC-control tools, so Claude can't either.
-        return not ctx.remote and self.settings.brain.agent.enabled and self._agent().available()
+        # From the phone only when PC control from the phone is allowed, and then after a Yes on
+        # the phone (_work_it_out asks): Claude controls the PC.
+        if ctx.remote and (self.settings.phone.pc_control != "ask" or ctx.confirm is None):
+            return False
+        return self.settings.brain.agent.enabled and self._agent().available()
 
     async def _rescued(self, conv: Conversation, request: str, gen, ctx: ToolContext, sir: str) -> AsyncIterator[Event]:
         """Pass a turn through, but never let it claim or give up falsely:
@@ -294,6 +297,13 @@ class LocalBrain:
         from assistant.brain.agent import AgentResult, learnable
         from assistant.brain.situation import situation
         t0 = time.perf_counter()
+        if ctx.remote:
+            ok = await ctx.confirm("work_it_out", {"task": task})
+            if not ok:
+                say = f"All right{sir}, I'll leave it."
+                yield TextDelta(say)
+                yield TurnComplete(say, {"total_ms": _ms(t0)}, {"input_tokens": 0, "output_tokens": 0}, "agent")
+                return
         yield TextDelta(f"Let me work that out{sir}. ")
         yield ToolStarted("agent", "work_it_out", {"task": task})
         try:

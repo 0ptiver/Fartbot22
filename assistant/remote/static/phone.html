@@ -25,6 +25,7 @@
   <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
   <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v8M6.4 6.6a8 8 0 1 0 11.2 0"/></symbol>
   <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></symbol>
   <symbol id="i-send" viewBox="0 0 24 24"><path d="M4 12h14M13 6l6 6-6 6"/></symbol>
   <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></symbol>
   <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/></symbol>
@@ -93,7 +94,7 @@
     <div id="empty" class="empty">
       <h2 id="greeting">Hello, sir.</h2>
       <p class="muted">Ask anything, set reminders, check on the PC, pause the music…<br>
-        To talk instead of typing, tap the mic on your keyboard.</p>
+        Tap the <strong>mic</strong> to talk: Nova hears you and answers in its own voice.</p>
       <div class="suggest">
         <button type="button" data-say="How's my PC doing?">How's my PC doing?</button>
         <button type="button" data-say="Remind me in 30 minutes to check the oven">Remind me in 30 minutes…</button>
@@ -114,6 +115,7 @@
   <form id="ask" class="composer" autocomplete="off">
     <input id="askInput" type="text" maxlength="2000" enterkeyhint="send" placeholder="Message Nova…" aria-label="Message Nova">
     <button type="button" id="stopBtn" class="stop" hidden title="Stop"><svg><use href="#i-stop"/></svg></button>
+    <button type="button" id="micBtn" class="mic" title="Talk to Nova" aria-pressed="false"><svg><use href="#i-mic"/></svg><span class="sr">Talk</span></button>
     <button type="submit" title="Send"><svg><use href="#i-send"/></svg><span class="sr">Send</span></button>
   </form>
 </div>

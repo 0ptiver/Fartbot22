@@ -241,22 +241,29 @@ and so are their "yes" answers. Only a voiceprint (256 numbers, no audio) is kep
 
 ## Nova on your phone
 
-Chat with Nova from anywhere: questions, reminders, timers, "tell me when my download finishes",
-pause the music, turn the volume down, lock the PC, or make Nova stand down. Replies show on the
-phone (optionally read aloud by the phone). Nothing is said out loud at home, except a warning
-when a new phone signs in.
+Talk to Nova from anywhere as if you were at the desk. Tap the mic, speak, and Nova hears you
+with the same Whisper as the headset, answers with the same brain, and replies in its own voice
+(Kokoro, made on the PC and played on the phone). You can type too. Nothing is said out loud at
+home, except a warning when a new phone signs in.
 
 1. Install **Tailscale** (free) on the PC and on the phone, and sign in to both with the same
    account. Tailscale is a private network between your own devices, so nothing is opened to the
    internet and your router isn't touched.
-2. In Nova's window, open **Phone**: choose a phone password, scan the QR code with an
+2. **For voice:** at login.tailscale.com, open **DNS** and turn on **MagicDNS** and
+   **HTTPS Certificates** (once). Phones only allow the mic on an https address; Nova then gets a
+   certificate for its own Tailscale name by itself. Without this, typing still works and the
+   Phone page says what's missing.
+3. In Nova's window, open **Phone**: choose a phone password, scan the QR code with an
    authenticator app (Microsoft Authenticator, Google Authenticator, Authy…) and type its code.
-3. On the phone, with Tailscale connected, open the address the Phone page shows (like
-   `http://laptop-name.tailxxxx.ts.net:8767`), sign in with the password and a code, and tap
+4. On the phone, with Tailscale connected, open the address the Phone page shows (like
+   `https://laptop-name.tailxxxx.ts.net:8767`), sign in with the password and a code, and tap
    "Add to Home Screen".
 
-From a phone, Nova never types, clicks, presses keys, moves or deletes files, runs programs or
-routines, shuts down or restarts, or changes the voice lock. Five wrong sign-ins lock it for 15
+Anything that controls the PC from the phone (typing, clicking, keys, opening and closing apps,
+files, routines, letting Claude work it out) shows a **Yes/No on the phone first**; shutting down
+and deleting still ask as usual. Some things never happen from a phone: the terminal, the voice
+lock, dictation and teach-by-showing. `phone.pc_control: off` in `config/local.yaml` blocks PC
+control from the phone entirely. Voice messages aren't kept. Five wrong sign-ins lock it for 15
 minutes, and Nova tells you. The Phone page lists every signed-in phone, with a Sign out button
 for each. It also has **Turn off** and **Forget all**.
 

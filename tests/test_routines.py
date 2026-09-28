@@ -64,6 +64,7 @@ async def test_runs_steps_in_order(game):
 
 
 async def test_risky_steps_still_ask(game):
+    game.phone.pc_control = "off"          # the "phone can't control the PC" setting
     reg = build_registry(game, AuditLog(game.safety.audit_path()))
     log, asked = [], []
     fake = add_fakes(reg, log)

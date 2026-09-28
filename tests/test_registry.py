@@ -70,6 +70,7 @@ async def test_confirm_approved(settings):
 
 
 async def test_risk_override_and_remote_block(settings):
+    settings.phone.pc_control = "off"          # the "phone can't control the PC" setting
     settings.safety.risk_overrides = {"double": "blocked"}
     settings.safety.remote_blocked_tools = ["danger"]
     reg = make(settings)

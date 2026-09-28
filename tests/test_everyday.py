@@ -184,6 +184,7 @@ def test_empty_recycle_bin_is_checked(monkeypatch):
 
 
 def test_empty_recycle_bin_asks_first_and_not_from_a_phone(registry):
+    registry.settings.phone.pc_control = "off"          # the "phone can't control the PC" setting
     assert registry.effective_risk("empty_recycle_bin", remote=False).value == "confirm"
     assert registry.effective_risk("empty_recycle_bin", remote=True).value == "blocked"
 

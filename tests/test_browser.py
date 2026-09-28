@@ -156,6 +156,7 @@ def test_follow_ups_need_novas_browser_in_use():
 
 
 def test_browser_is_blocked_from_a_phone(registry):
+    registry.settings.phone.pc_control = "off"          # the "phone can't control the PC" setting
     assert registry.effective_risk("browser", remote=True).value == "blocked"
 
 

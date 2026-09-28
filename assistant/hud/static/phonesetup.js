@@ -43,6 +43,9 @@ const NovaPhone = (() => {
     wait.textContent = ev.error ? ev.error
       : ev.locked_for ? `Sign-in is locked for ${Math.ceil(ev.locked_for / 60)} more minutes after wrong tries.`
       : ev.enabled && !ev.running ? "Waiting for Tailscale on this PC: open Tailscale and make sure it says Connected." : "";
+    const note = $("phoneVoiceNote");
+    note.hidden = !(ev.running && ev.voice_note);
+    note.textContent = ev.running ? ev.voice_note || "" : "";
     $("phoneToggle").textContent = ev.enabled ? "Turn off" : "Turn on";
     $("phoneToggle").className = "btn" + (ev.enabled ? "" : " primary");
 
