@@ -250,7 +250,8 @@ scripts/           # install, run, register-startup
 - [x] Talk like at the desk (owner: "speak to Nova as if I was sitting here at my computer, does the same things, answers the same stuff"). Mic button on the phone (MediaRecorder, 60 s max) -> POST /api/voice (Origin + cookie, 8 MB cap) -> faster-whisper decode_audio (webm/opus and mp4/aac checked) -> the PC's own STT -> the same Session turn -> Kokoro reply as a WAV over the websocket (`audio` event), capped like spoken replies. Audio isn't kept. remote/voice.py
 - [x] PC control from the phone, owner's pick "ask on the phone": `phone.pc_control: ask` turns remote_blocked_tools into CONFIRM (Yes/No card on the phone), `off` keeps the old blocks; REMOTE_NEVER (run_shell, voice_lock, teach, dictation, replay) stays blocked. The grid is shared now. "Work it out" from the phone asks first too
 - [x] HTTPS for the mic: `tailscale cert` for the MagicDNS name into data/phone-cert, uvicorn serves TLS, address becomes https://name:port. If certificates aren't enabled, typing still works and the Phone page + phone say how to turn them on
-- [ ] Voice + PC control from the phone not yet tried on a real phone
+- [x] Owner confirmed phone voice + PC control work ("it all worked flawlessly")
+- [x] Nova's bubble on the phone (owner: "make it so you can see Nova's chat bubble thingy in the phone app"): the PC window's orb.js served at /orb.js; shows this conversation (listening with the phone mic's level while recording, thinking, speaking while the reply plays, amber for a Yes/No) else home standby/muted/offline; tap it to talk; talking cuts off a playing reply; big when the chat is empty, small in a chat, tiny while typing. Not yet seen on the phone
 
 ### Phase 7 — Proactive + polish
 - [ ] Morning briefing, hardware/disk/download alerts, background research tasks

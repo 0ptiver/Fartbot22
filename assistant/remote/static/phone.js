@@ -11,7 +11,8 @@ const el = (tag, cls, text) => {
 
 const P = { ws: null, name: "Nova", user: "sir", live: null, chips: new Map(), retry: 0, confirmId: null,
   standby: false, busy: false, speak: false, timers: [], watches: [], skew: 0,
-  canHear: false, secureUrl: null, voiceNote: "", rec: null, chunks: [], recTimer: null, player: null, lastVoice: false };
+  canHear: false, secureUrl: null, voiceNote: "", rec: null, chunks: [], recTimer: null, player: null, lastVoice: false,
+  home: "offline", sending: false, talking: false, meter: null, recStart: 0 };
 try { P.speak = localStorage.getItem("novaSpeak") === "1"; } catch (e) { /* ignore */ }
 
 const COLORS = {
@@ -162,7 +163,11 @@ function chipDone(name, bad, ms) {
 }
 function trim() { const c = $("chat"); while (c.children.length > 200) c.firstChild.remove(); }
 function scroll() { const s = $("chatScroll"); requestAnimationFrame(() => { s.scrollTop = s.scrollHeight; }); }
-function empty() { $("empty").hidden = $("chat").children.length > 0; }
+function empty() {
+  const none = $("chat").children.length === 0;
+  $("empty").hidden = !none;
+  $("stage").classList.toggle("big", none);
+}
 function greet() {
   const h = new Date().getHours();
   $("greeting").textContent = `Good ${h < 5 ? "evening" : h < 12 ? "morning" : h < 18 ? "afternoon" : "evening"}${P.user ? ", " + P.user : ""}.`;
@@ -178,11 +183,63 @@ function status(ev) {
   $("standBtn").classList.toggle("wake", P.standby);
 }
 function setState(state) {
+  P.home = state;
   $("stateText").textContent = state === "offline" ? "Not connected" : AT_HOME[state] || AT_HOME.idle;
   const c = COLORS[state] || COLORS.idle;
   document.documentElement.style.setProperty("--glow", c.join(", "));
   $("dot").classList.toggle("busy", state === "thinking" || state === "speaking");
 }
+
+// --- Nova's bubble -----------------------------------------------------------------------------
+// What the bubble shows is this conversation: listening while you talk, thinking while Nova
+// works on it, speaking while its reply plays. Otherwise it follows Nova at home (standing down,
+// mic off, not connected).
+function orbState() {
+  if (P.home === "offline") return "offline";
+  if (P.rec) return "listening";
+  if (P.confirmId) return "confirm";
+  if (P.talking) return "speaking";
+  if (P.busy || P.sending) return "thinking";
+  if (P.home === "standby" || P.home === "muted") return P.home;
+  return "idle";
+}
+const HINTS = { listening: "Listening… tap to send", thinking: "Thinking…", speaking: "Speaking · tap to talk",
+  confirm: "Waiting for your yes or no", standby: "Standing down · tap to talk", offline: "Not connected" };
+let lastHint = "";
+function orbFrame() {
+  const state = orbState();
+  let hint = HINTS[state] || "Tap to talk";
+  if (state === "listening") hint = `${fmt((Date.now() - P.recStart) / 1000)} · tap to send`;
+  if (hint !== lastHint) {
+    lastHint = hint;
+    $("orbHint").textContent = hint;
+    $("orbHint").classList.toggle("rec", state === "listening");
+  }
+  return { state, level: P.rec ? micLevel() : 0, color: COLORS[state] || COLORS.idle };
+}
+function micLevel() {
+  const m = P.meter;
+  if (!m) return 0.2;
+  m.an.getFloatTimeDomainData(m.buf);
+  let sum = 0;
+  for (const v of m.buf) sum += v * v;
+  return Math.min(1, Math.sqrt(sum / m.buf.length) * 8);
+}
+function startMeter(stream) {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const an = ctx.createAnalyser();
+    an.fftSize = 1024;
+    ctx.createMediaStreamSource(stream).connect(an);
+    P.meter = { ctx, an, buf: new Float32Array(an.fftSize) };
+  } catch (e) { P.meter = null; }
+}
+function stopMeter() {
+  if (P.meter) { P.meter.ctx.close().catch(() => {}); P.meter = null; }
+}
+
 function fmt(s) {
   s = Math.max(0, Math.round(s));
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
@@ -273,7 +330,9 @@ function playVoice(b64, mime) {
     const old = P.player.src;
     P.player.src = URL.createObjectURL(new Blob([bytes], { type: mime || "audio/wav" }));
     if (old && old.startsWith("blob:")) URL.revokeObjectURL(old);
-    P.player.play().catch(() => banner("Tap anywhere to hear Nova's reply.", true));
+    P.player.onplaying = () => { P.talking = true; };
+    P.player.onended = P.player.onpause = () => { P.talking = false; };
+    P.player.play().catch(() => { P.talking = false; banner("Tap anywhere to hear Nova's reply.", true); });
   } catch (e) { /* ignore */ }
 }
 function pickMime() {
@@ -302,17 +361,21 @@ async function toggleMic() {
     sendVoice(blob);
   };
   rec.start();
+  P.recStart = Date.now();
+  startMeter(stream);
   $("micBtn").classList.add("rec"); $("micBtn").setAttribute("aria-pressed", "true");
   if (navigator.vibrate) navigator.vibrate(20);
   P.recTimer = setTimeout(stopRec, MAX_REC_MS);
 }
 function stopRec() {
   clearTimeout(P.recTimer);
+  stopMeter();
   $("micBtn").classList.remove("rec"); $("micBtn").setAttribute("aria-pressed", "false");
   if (P.rec && P.rec.state !== "inactive") P.rec.stop();
 }
 async function sendVoice(blob) {
   if (!blob.size) return;
+  P.sending = true;
   $("micBtn").classList.add("sending");
   try {
     const r = await fetch("/api/voice", { method: "POST", credentials: "same-origin",
@@ -322,7 +385,7 @@ async function sendVoice(blob) {
     if (!r.ok) addSys("sys err", body.error || "Couldn't send that.");
   } catch (e) {
     addSys("sys err", "Couldn't reach Nova. Is Tailscale connected?");
-  } finally { $("micBtn").classList.remove("sending"); }
+  } finally { P.sending = false; $("micBtn").classList.remove("sending"); }
 }
 
 // --- wiring ----------------------------------------------------------------------------------
@@ -346,6 +409,10 @@ function init() {
   }
   $("stopBtn").onclick = () => { send({ type: "cancel" }); if (P.player) P.player.pause(); };
   $("micBtn").onclick = toggleMic;
+  $("orbBtn").onclick = toggleMic;
+  $("askInput").addEventListener("focus", () => document.body.classList.add("typing"));
+  $("askInput").addEventListener("blur", () => document.body.classList.remove("typing"));
+  if (typeof NovaOrb !== "undefined") { NovaOrb.add($("orb")); NovaOrb.start(orbFrame); }
   $("yesBtn").onclick = () => answer(true);
   $("noBtn").onclick = () => answer(false);
   $("menuBtn").onclick = () => {

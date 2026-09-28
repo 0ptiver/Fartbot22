@@ -44,7 +44,9 @@ STATIC = Path(__file__).parent / "static"
 COOKIE = "nova_phone"
 _FILES = {"/": ("phone.html", "text/html"), "/phone.js": ("phone.js", "text/javascript"),
           "/phone.css": ("phone.css", "text/css"), "/icon.svg": ("icon.svg", "image/svg+xml"),
-          "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json")}
+          "/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
+          # Nova's bubble: the same one as the PC window, so the phone looks and moves the same.
+          "/orb.js": (Path(__file__).parent.parent / "hud" / "static" / "orb.js", "text/javascript")}
 TAILNET = (ipaddress.ip_network("100.64.0.0/10"), ipaddress.ip_network("fd7a:115c:a1e0::/48"))
 # Services the phone's requests may use (the mouse too: clicking asks on the phone first).
 # Not the lesson recorder or the voice lock.

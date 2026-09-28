@@ -13,6 +13,7 @@
 <link rel="apple-touch-icon" href="icon.svg">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="stylesheet" href="phone.css">
+<script src="orb.js" defer></script>
 <script src="phone.js" defer></script>
 </head>
 <body>
@@ -90,11 +91,18 @@
     </div>
   </section>
 
+  <section id="stage" class="stage big">
+    <button type="button" id="orbBtn" class="orb-btn" title="Tap to talk to Nova" aria-label="Talk to Nova">
+      <canvas id="orb" aria-hidden="true"></canvas>
+    </button>
+    <p id="orbHint" class="orb-hint" aria-live="polite">Tap to talk</p>
+  </section>
+
   <section class="chat-wrap" id="chatScroll">
     <div id="empty" class="empty">
       <h2 id="greeting">Hello, sir.</h2>
       <p class="muted">Ask anything, set reminders, check on the PC, pause the music…<br>
-        Tap the <strong>mic</strong> to talk: Nova hears you and answers in its own voice.</p>
+        Tap the <strong>bubble</strong> or the mic to talk: Nova answers in its own voice.</p>
       <div class="suggest">
         <button type="button" data-say="How's my PC doing?">How's my PC doing?</button>
         <button type="button" data-say="Remind me in 30 minutes to check the oven">Remind me in 30 minutes…</button>

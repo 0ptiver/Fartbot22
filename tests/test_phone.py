@@ -527,3 +527,17 @@ async def test_with_a_certificate_the_phone_gets_an_https_address(settings, monk
         assert svc.addresses() == [f"https://pc.tail1.ts.net:{settings.phone.port}"]
     finally:
         await svc.stop()
+
+
+def test_the_phone_shows_novas_bubble_and_every_element_its_script_uses(phone_rig):
+    """Owner: "make it so you can see Nova's chat bubble thingy in the phone app"."""
+    import re
+    client, *_ = phone_rig
+    page = client.get("/", headers=HOST).text
+    orb = client.get("/orb.js", headers=HOST)
+    assert orb.status_code == 200 and "NovaOrb" in orb.text and "javascript" in orb.headers["content-type"]
+    assert 'src="orb.js"' in page and 'id="orb"' in page
+    js = client.get("/phone.js", headers=HOST).text
+    ids = set(re.findall(r'\$\("([A-Za-z]\w*)"\)', js))
+    missing = sorted(i for i in ids if f'id="{i}"' not in page)
+    assert ids and not missing, missing
