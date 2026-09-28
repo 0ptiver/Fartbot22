@@ -299,6 +299,7 @@ def keyboard_intent(raw: str, t: str) -> tuple[str, dict] | None:
             text = text[:-1]
         if re.fullmatch(r"(?:in )?my (?:\w+ ?){1,3}", text.lower()):   # "type my email": not those words
             return None
+        text = re.sub(r"^(?:in|out)\s+(?=\S)", "", text, flags=re.I)  # "type in 5 plus 5" (owner's case)
         return "type_text", {"text": text}
     for pattern, keys in _SHORTCUTS:
         if re.fullmatch(pattern, t):
@@ -317,7 +318,11 @@ def keyboard_intent(raw: str, t: str) -> tuple[str, dict] | None:
         try:
             parse_keys(keys)
         except ToolError:
-            return None
+            # Not a key: "press the Instagram" means click the thing called that (owner's case:
+            # "I cannot press Instagram as it is not a valid action").
+            name = re.sub(r"^(?:the|on)\s+", "", t.split(" ", 1)[1]).removesuffix(" button")
+            return "click_element", {"name": name} if not re.search(r"\btimes$", t) else None
+        
         times = m.group(2)
         args = {"keys": keys}
         if times:

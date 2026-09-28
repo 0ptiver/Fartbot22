@@ -27,7 +27,7 @@ from assistant.voice.tts.base import TTSProvider
 from assistant.voice.vad import Endpointer, SpeechEnd, SpeechPause, SpeechStart
 from assistant.voice.speechtext import clean_for_speech
 from assistant.voice.textnorm import compact, normalize_words
-from assistant.voice.wake import _norm, echo_overlap, match_wake
+from assistant.voice.wake import _norm, continues, echo_overlap, follows_on, match_wake, unfinished
 
 log = logging.getLogger(__name__)
 
@@ -223,6 +223,8 @@ class VoiceLoop:
         finally:
             if voice is not None and not voice.done():
                 voice.cancel()
+        if self.cfg.mode == "wake" and not harmless and not self._for_me(text, over_nova=True):
+            return                                       # talking to someone else over Nova: carry on
         if not self._barged and self.speaking and self._is_new_speech(text):
             self._barged = True
             await self.interrupt(reason=f'heard "{text}"')
@@ -375,22 +377,30 @@ class VoiceLoop:
                 if not text or (not barged and not self._is_new_speech(text)):
                     self.on_event({"type": "ignored", "text": heard, "reason": "sounded like my own voice"})
                     return
+                named, rest = match_wake(text, self.cfg.wake.variants, self.cfg.wake.window_words)
+                if (self.cfg.mode == "wake" and not barged and not named and self._stop_phrase(text) is None
+                        and not self._for_me(text, over_nova=True)):
+                    self.on_event({"type": "ignored", "text": text, "reason": "not addressed to me"})
+                    return                                 # someone else, said while Nova was talking
                 await self.interrupt(reason=f'heard "{text}"')
                 if self._stop_phrase(text) is not None:
                     self.on_event({"type": "stopped", "text": text})
                     self._named = False
                     self._mute_until = time.perf_counter() + self.cfg.wake.cooldown_ms / 1000
                     return
-                rest = match_wake(text, self.cfg.wake.variants, self.cfg.wake.window_words)[1] or text
-                self._named = True   # talking over Nova counts as talking to Nova
-                text = rest
+                # Only the name opens a follow-up window (a command said over Nova doesn't).
+                self._named = bool(named) or self.cfg.mode != "wake"
+                text = rest or text
             elif kind == "thinking":
                 prev_text, prev_end = self._last_request
                 if self._stop_phrase(text) is not None:
                     await self.interrupt(reason=f'heard "{text}"')
                     self.on_event({"type": "stopped", "text": text})
                     return
-                if prev_text and lat.marks["speech_end"] - prev_end <= self.cfg.barge_in.merge_window_s:
+                named_now = match_wake(text, self.cfg.wake.variants, self.cfg.wake.window_words)[0]
+                one_sentence = (self.cfg.mode != "wake" or unfinished(prev_text or "") or continues(text))
+                if (prev_text and not named_now and one_sentence
+                        and lat.marks["speech_end"] - prev_end <= self.cfg.barge_in.merge_window_s):
                     # You paused and carried on: one request, not two.
                     await self.interrupt(reason="you kept talking")
                     text = f"{prev_text} {text}"
@@ -503,7 +513,12 @@ class VoiceLoop:
 
     async def _control_words(self, text: str, typed: bool = False) -> bool:
         """Kill switch, standby and yes/no answers. True if the utterance was used up here."""
-        if is_stand_down(text):
+        if is_stand_down(text) and (typed or self.cfg.mode != "wake"
+                                    or (self._turn is not None and not self._turn.done())
+                                    or match_wake(text, self.cfg.wake.variants, 99)[0]
+                                    or time.perf_counter() < self._follow_up_until):
+            # Needs the name (or Nova talking/just replied): "stand down!" is everyday GTA RP
+            # talk, and hearing it from the game put Nova to sleep (owner's case).
             await self.stand_down()
             return True
         if self.standby:
@@ -742,6 +757,9 @@ class VoiceLoop:
         if not addressed and not in_follow_up:
             self.on_event({"type": "ignored", "text": text, "reason": "not addressed to me"})
             return None
+        if not addressed and w.follow_up_smart and not self._for_me(text):
+            self.on_event({"type": "ignored", "text": text, "reason": "didn't sound like it was for me"})
+            return None
         # Only a request that used the name opens a follow-up window; follow-ups don't
         # chain, so a conversation with someone else in the room isn't answered.
         self._named = addressed
@@ -753,6 +771,20 @@ class VoiceLoop:
             self._after_reply()
             return None
         return rest if addressed else text
+
+    def _for_me(self, text: str, over_nova: bool = False) -> bool:
+        """Speech without the name that's still clearly for Nova: an answer to Nova's question, a
+        follow-on ('and louder', 'yes', 'thanks'), stop/cancel/stand down, or a known command.
+        Over Nova's own voice only stop words and commands count ('yeah hold on' is someone else)."""
+        if self._stop_phrase(text) is not None or is_cancel(text) or is_stand_down(text):
+            return True
+        if not over_nova and (self._last_said.rstrip().endswith("?") or follows_on(text)):
+            return True
+        from assistant.brain.intents import match_intent
+        try:
+            return match_intent(text) is not None
+        except Exception:
+            return False
 
     def _grid_command(self, text: str) -> bool:
         grid = self.ctx.services.get("grid")

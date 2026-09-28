@@ -262,7 +262,7 @@ def open_app(args: dict, ctx: ToolContext, _launcher=_launch, _dirs=None, _apps=
     name = args["name"].strip()
     aliases = {k.lower(): v for k, v in ctx.settings.tools.app_aliases.items()}
     target = aliases.get(name.lower())
-    label = name
+    label = name if name[:1].isupper() else name.title()
     if target is None:
         lnk = find_shortcut(name, _dirs)
         lnk_score = name_score(name, lnk.stem) if lnk else None

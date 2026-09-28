@@ -141,4 +141,48 @@ async def test_old_words_are_not_echo_after_the_window(settings, registry):
     loop, events = make_wake_loop(settings, registry, [text_msg("The time is noon, sir.")], [])
     loop._last_said, loop._spoke_at = "the time is noon sir", 0.0      # long ago
     loop._follow_up_until = float("inf")
+    loop.cfg.wake.follow_up_smart = False                               # (this test is about echo)
     assert await loop._check_wake("the time is noon", None) == "the time is noon"
+
+
+# Owner: "he answers everything I say when I don't say his name ... it gets quite annoying".
+async def test_chatting_with_friends_after_a_reply_is_ignored(settings, registry):
+    loop, events = make_wake_loop(settings, registry, [text_msg("It is noon, sir.")],
+        [("Nova, what time is it?", 1),
+         ("bro we need to hit the bank before the cops show up", 1)])      # GTA RP chat, in the window
+    await loop.run()
+    got = [(e["type"], e.get("reason")) for e in events if e["type"] in ("ignored", "transcript")]
+    assert got[-1] == ("ignored", "didn't sound like it was for me")
+    assert loop.tts.spoken == ["It is noon, sir."]
+
+
+@pytest.mark.parametrize("follow", ["volume up", "and what about tomorrow", "thanks", "yes please"])
+async def test_real_follow_ups_still_work_without_the_name(settings, registry, follow):
+    loop, events = make_wake_loop(settings, registry, [text_msg("It is noon, sir."), text_msg("Done, sir.")],
+        [("Nova, what time is it?", 1), (follow, 1)])
+    await loop.run()
+    assert ("transcript", follow) in [(e["type"], e.get("text")) for e in events]
+
+
+async def test_any_answer_to_novas_question_counts(settings, registry):
+    loop, events = make_wake_loop(settings, registry, [text_msg("Which one, sir?"), text_msg("Done, sir.")],
+        [("Nova, open the game", 1), ("the one with the cars", 1)])
+    await loop.run()
+    assert ("transcript", "the one with the cars") in [(e["type"], e.get("text")) for e in events]
+
+
+async def test_stand_down_from_the_game_doesnt_put_nova_to_sleep(settings, registry):
+    """'Stand down!' is everyday GTA RP talk; hearing it put Nova to sleep (owner's case)."""
+    loop, events = make_wake_loop(settings, registry, [], [("stand down, stand down, hands up", 1)])
+    await loop.run()
+    assert not loop.standby
+    loop2, _ = make_wake_loop(settings, registry, [], [("Nova, stand down", 1)])
+    await loop2.run()
+    assert loop2.standby
+
+
+def test_follow_on_words():
+    from assistant.voice.wake import continues, follows_on, unfinished
+    assert follows_on("and turn it up") and follows_on("Thanks.") and not follows_on("we need to go")
+    assert unfinished("open a new tab and") and unfinished("what's the weather,") and not unfinished("open discord")
+    assert continues("in Chicago tomorrow") and not continues("yo what's up guys")

@@ -207,7 +207,10 @@ async def test_no_browser_open(settings, monkeypatch):
     fake = Firefox(tabs=())
     install(monkeypatch, fake)
     with pytest.raises(ToolError, match="can't see your browser"):
-        await MB.my_browser({"action": "new_tab"}, ctx_for(settings, fake))
+        await MB.my_browser({"action": "close_tab"}, ctx_for(settings, fake))
+    from assistant.core import launch as L
+    monkeypatch.setattr(L, "launch", lambda t: setattr(fake, "tabs", [{"title": "New Tab", "url": ""}]))
+    assert await MB.my_browser({"action": "new_tab"}, ctx_for(settings, fake)) == "Opened Firefox."
 
 
 async def test_new_tab_shortcut_pressed_in_firefox_goes_through_the_checks(settings, registry, ff):
@@ -229,3 +232,36 @@ async def test_new_tab_shortcut_pressed_in_firefox_goes_through_the_checks(setti
 ])
 def test_phrases(said, expected):
     assert match_intent(said) == ("my_browser", expected)
+
+
+async def test_owners_case_close_gmail_closes_the_tab_not_firefox(settings, registry, monkeypatch):
+    """'Close Gmail' found the window titled 'Gmail - Mozilla Firefox' and closed the whole browser."""
+    fake = Firefox(tabs=("Gmail - Inbox", "Kelley Blue Book"), front="firefox")
+    install(monkeypatch, fake)
+    assert match_intent("close gmail") == ("window", {"action": "close", "app": "gmail"})
+    res = await registry.execute("window", {"action": "close", "app": "gmail"}, ctx_for(settings, fake))
+    assert res.content == "Closed Gmail - Inbox." and [t["title"] for t in fake.tabs] == ["Kelley Blue Book"]
+    res = await registry.execute("window", {"action": "focus", "app": "kelley blue book"}, ctx_for(settings, fake))
+    assert "Kelley Blue Book" in res.content
+
+
+async def test_close_an_app_is_still_the_app(settings, registry, monkeypatch):
+    fake = Firefox(tabs=("Discord | #general",), front="firefox")
+    install(monkeypatch, fake)
+    fake.discord = pc.Win(2, "Discord", "Discord.exe")
+    assert not MB.has_tab("discord")                                  # a running program: the app
+
+
+async def test_reopen_after_the_browser_was_closed(settings, monkeypatch):
+    """Owner's case: closed the browser by mistake, then 'reopen it' said it couldn't see a browser."""
+    fake = Firefox(tabs=(), front="discord")
+    install(monkeypatch, fake)
+    fake.closed = [{"title": "Kelley Blue Book", "url": "www.kbb.com"}]
+    from assistant.core import launch as L
+
+    def start(target):
+        assert target == "firefox.exe"
+        fake.tabs = [{"title": "New Tab", "url": ""}]
+    monkeypatch.setattr(L, "launch", start)
+    out = await MB.my_browser({"action": "reopen_tab"}, ctx_for(settings, fake))
+    assert out == "Opened Firefox and brought back Kelley Blue Book."

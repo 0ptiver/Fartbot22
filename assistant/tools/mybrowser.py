@@ -172,6 +172,24 @@ def _nice(url: str) -> str:
     return urlparse(url if "://" in url else "https://" + url).netloc.removeprefix("www.") or url
 
 
+def has_tab(name: str) -> bool:
+    """Is `name` one of the user's browser tabs (not an app)? 'Close Gmail' closed the whole of
+    Firefox because its window was titled 'Gmail - Mozilla Firefox' (owner's case)."""
+    from assistant.tools import pc, uia
+    want = uia._norm(name.removesuffix(" tab"))
+    if not want or want in BROWSER_PROCS or want in ("browser", "the browser", "my browser", "web browser", "firefox"):
+        return False
+    try:
+        wins = pc.WINDOWS.list()
+        if any(want.replace(" ", "") in w.process.lower().removesuffix(".exe") for w in wins):
+            return False                                   # it's a program that's running
+        w = find_browser()
+    except Exception:                                      # no browser, or can't look: the old way
+        return False
+    tabs = _tabs(w.hwnd) or [(_page_title(w.title), None, True)]
+    return any(uia.score(uia.Element(t[0], "tab", None), want, None) >= 55 for t in tabs)
+
+
 def _match_tab(tabs, name: str):
     from assistant.tools import uia
     want = uia._norm(name.removesuffix(" tab"))
@@ -218,13 +236,67 @@ _COMBOS = {"new_tab": "ctrl+t", "close_tab": "ctrl+w", "next_tab": "ctrl+tab", "
 ACTION_FOR = {**{v: k for k, v in _COMBOS.items()}, "ctrl+shift+t": "reopen_tab"}
 
 
+START_WAIT_S = 10.0
+
+
+def default_browser() -> str:
+    """The program name of Windows' default browser ('firefox'), from the https handler."""
+    import sys
+    if sys.platform != "win32":
+        return "firefox"
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\Shell\Associations"
+                            r"\UrlAssociations\https\UserChoice") as k:
+            prog = winreg.QueryValueEx(k, "ProgId")[0].lower()
+    except OSError:
+        return "firefox"
+    for key, exe in (("firefox", "firefox"), ("chrome", "chrome"), ("msedge", "msedge"), ("brave", "brave"),
+                     ("opera", "opera"), ("vivaldi", "vivaldi")):
+        if key in prog:
+            return exe
+    return "firefox"
+
+
+async def _start_browser():
+    """No browser open (closed by mistake?): start the default one and wait for its window."""
+    from assistant.core.launch import launch
+    exe = default_browser()
+    await asyncio.to_thread(launch, f"{exe}.exe")
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + START_WAIT_S
+    while True:
+        try:
+            return await asyncio.to_thread(find_browser)
+        except ToolError:
+            if loop.time() >= deadline:
+                raise ToolError(f"I started {exe.capitalize()}, but its window didn't appear.") from None
+        await asyncio.sleep(max(STEP_S, 0.01) * 2)
+
+
 async def my_browser(args: dict, ctx: ToolContext) -> str:
     action = args["action"]
     from assistant.tools import browser
     if action in _COMBOS and not args.get("go") and not args.get("tab") and not args.get("number") \
             and await asyncio.to_thread(browser.BROWSER.in_front):
         return await browser.shortcut(_COMBOS[action])       # Nova's own browser is the one in front
-    w = await asyncio.to_thread(find_browser)
+    try:
+        w = await asyncio.to_thread(find_browser)
+    except ToolError:
+        if action not in ("new_tab", "go", "reopen_tab"):
+            raise
+        w = await _start_browser()
+        await _bring(w)
+        if action == "reopen_tab":
+            before = await _read(w.hwnd)
+            await _keys("ctrl+shift+t")                  # also brings back the last session's tabs
+            st = await _until(w.hwnd, lambda st: st.title != before.title or st.count != before.count)
+            if st is None:
+                return f"Opened {label(w)}; there was nothing to bring back."
+            return f"Opened {label(w)} and brought back {_page_title(st.title) or 'your tabs'}."
+        if args.get("go"):
+            return await _navigate(w, args["go"], new_tab=False)
+        return f"Opened {label(w)}."
     name = label(w)
     await _bring(w)
     hwnd = w.hwnd

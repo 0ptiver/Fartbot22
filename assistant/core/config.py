@@ -124,6 +124,9 @@ class WakeConfig(BaseModel):
         "nova", "novah", "novo", "nover", "no va", "noah va", "know va"])
     window_words: int = 3
     follow_up_s: float = 6.0          # after a reply to "Nova, ...", one more request without the name
+    # ...but only if it's clearly for Nova (a command, "and ...", "yes", an answer to Nova's question).
+    # Off = anything said in the window counts (owner: "he answers everything I say").
+    follow_up_smart: bool = True
     acknowledgement: str = "Yes, sir?"  # said when you only say the name
     echo_overlap: float = 0.6         # ignore what sounds like its own voice from the speakers
     echo_window_s: float = 2.0        # ...but only this soon after it stopped talking

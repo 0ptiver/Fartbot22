@@ -56,6 +56,7 @@ voice:
   mode: wake                     # wake (say "Nova ..."), open_mic (answers everything), ptt (hold hotkey)
   wake:
     follow_up_s: 6               # after replying to "Nova, ...", one more request without the name (0 = off)
+    follow_up_smart: true        # ...only if it is clearly for Nova (a command, "and ...", "yes"), not chat with friends
     acknowledgement: "Yes, sir?" # said when you only say "Nova"
     window_words: 3              # "Nova" must be within the first/last 3 words
   ptt_hotkey: ctrl+alt+space     # only used in ptt mode

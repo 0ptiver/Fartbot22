@@ -441,7 +441,14 @@ def window_control(args: dict, ctx: ToolContext) -> str:
         return "Open: " + ", ".join(names[:15]) + "." if names else "No windows are open."
     if not args.get("app"):
         raise ToolError("Which app?")
-    w = _find_window(args["app"])
+    app = args["app"].strip()
+    if action in ("close", "quit", "focus") and app.lower() not in THIS + GAME_NAMES + BACK_NAMES:
+        from assistant.tools import mybrowser
+        if mybrowser.has_tab(app):                         # "close Gmail": the tab, not the browser
+            import asyncio
+            tab_action = "switch_tab" if action == "focus" else "close_tab"
+            return asyncio.run(mybrowser.my_browser({"action": tab_action, "tab": app}, ctx))
+    w = _find_window(app)
     exe = w.process.lower().removesuffix(".exe")
     label = TRAY_APPS.get(exe) or ("FiveM" if exe.startswith("fivem") else "") or w.process.removesuffix(".exe") or w.title
     if action == "focus":

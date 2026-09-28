@@ -187,3 +187,24 @@ async def test_asking_for_detail_gets_it_all(settings, registry):
                         tts=FakeTTS())
     await loop.run()
     assert "Sixth point." in " ".join(loop.tts.spoken)
+
+
+async def test_chat_while_nova_is_thinking_is_not_glued_on(settings, registry):
+    """'Nova, what's the time' ... 'yo what's up guys' was merged into one request."""
+    loop, events = make(settings, registry, [text_msg("Noon, sir.")], [
+        ("say", "Nova, what's the time", 10), ("quiet", 16),
+        ("until", lambda l: l.busy and not l.speaking),
+        ("say", "yo what's up guys", 10), ("quiet", 20)], delay=0.2)
+    await loop.run()
+    assert not [e for e in events if e["type"] == "merged"]
+    assert len(loop.brain.client.messages.calls) == 1 and loop.tts.spoken[-1] == "Noon, sir."
+
+
+async def test_chat_over_novas_voice_doesnt_interrupt(settings, registry):
+    loop, events = make(settings, registry, [STORY], [
+        ("say", "Nova, tell me a story", 10), ("quiet", 20),
+        ("until", lambda l: l.speaking),
+        ("say", "yeah hold on my mum is calling me", 30), ("quiet", 20)])
+    await loop.run()
+    assert "interrupted" not in [e["type"] for e in events]
+    assert "The end." in loop.tts.spoken
