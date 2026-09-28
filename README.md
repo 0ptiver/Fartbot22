@@ -156,6 +156,8 @@ Speech stack (all switchable in `config/config.yaml` → `voice`):
 | "Show the grid" … "click 14" / "zoom 14" / "double click 3" / "scroll down" / "hide the grid" | voice mouse (numbers work without "Nova" while the grid is showing) |
 | "Show the grid on screen 2" / "on the other monitor" … "next screen" | voice mouse on another screen (screen 1 = your main one) |
 | "Full screen the video and press play" / "pause the video" / "skip ahead" / "exit full screen" | `video`: finds the video playing in your browser by itself |
+| "Open a new tab" / "open YouTube in a new tab" / "go to the Spotify tab" / "close the YouTube tab" / "go to tab 3" / "reopen the last tab" / "what tabs do I have open?" / "find price on this page" | `my_browser`: your own browser (Firefox etc.), even when it isn't in front; brought forward and every step checked |
+| "Click send in Discord" / "in Spotify click shuffle" / "type gg into the message box" | `app`: any app, brought forward first; Nova can also list what's in it and go step by step |
 | "Open GTA" / "play GTA" / "open Xbox" | `open_app` also finds Steam/Epic games (desktop and Start menu) and Store apps; says "starting" until the window really appears |
 | "Go back to the game" / "switch back" | `window`: the game you were playing, or the window before this one |
 | "Close Spotify" / "quit Spotify" | close says if the app is still running in the tray; quit ends tray apps (Spotify, Discord, Steam) completely |
