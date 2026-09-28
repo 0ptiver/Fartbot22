@@ -384,11 +384,14 @@ async def test_ignored_nudge_is_not_said_twice(local_settings, ctx):
     assert said.count("I will now") == 0
 
 
-async def test_honest_answer_after_nudge_is_spoken(local_settings, ctx):
+async def test_an_untried_i_cant_is_not_the_answer(local_settings, ctx):
+    """Owner: "if I tell it to do something then it's not gonna tell me oh sir I can't do that".
+    The model never looked for Discord: its "can't" isn't relayed (Claude takes it on when it's on;
+    here it's off, so Nova says plainly it wasn't able)."""
     brain, fake = make(local_settings, [text_reply("Discord is now minimized, sir."),
                                         text_reply("I can't find a Discord window, sir.")])
     events = await collect(brain, Conversation(), "minimize discord", ctx)
-    assert events[-1].text.endswith("I can't find a Discord window, sir.")
+    assert events[-1].text.endswith("I wasn't able to do that.")
 
 
 async def test_answers_mentioning_closed_are_not_claims(local_settings, ctx):
@@ -477,3 +480,61 @@ async def test_the_model_is_told_the_reminders_that_are_set(local_settings, ctx,
     assert said == "Yes sir, your junk job is at 10." and "<context>" not in events[-1].text
     sent = fake.requests[0][1]["messages"][-1]["content"]
     assert "reminder 'junk job at 10am'" in sent and "(in 45 min)" in sent
+
+
+FACTS = ["I live in Kansas City, Missouri and run a junk removal business called Trash Teens",
+         "My dog's name is Sparky", "I have an i9 with 32 processors and 24 cores and a 5070 RTX",
+         "When I tell you to open my business, open the url business.facebook.com on firefox",
+         "I'm 6'3 and 170lbs"]
+
+
+def test_only_the_memories_a_request_is_about_reach_the_model(tmp_path):
+    """Owner's case: "Are you sure you said it?" got his town, business, dog and PC read out."""
+    from assistant.core.memory import MemoryStore
+    store = MemoryStore(tmp_path / "m.db")
+    for f in FACTS:
+        store.add(f)
+    assert store.for_turn("Are you sure you said it?") == []
+    assert store.for_turn("what's my dog called") == ["My dog's name is Sparky"]
+    assert store.for_turn("hey nova how are you doing") == []
+
+
+async def test_a_made_up_action_at_the_end_of_an_answer_is_dropped(local_settings, ctx):
+    """Owner's case: the reply ended "Opening business.facebook.com in your browser, sir." and
+    nothing opened."""
+    brain, _ = make(local_settings, [text_reply(
+        "Yes sir, I said your dog is Sparky. Opening business.facebook.com in your browser, sir.")])
+    conv = Conversation()
+    events = await collect(brain, conv, "Are you sure you said it?", ctx)
+    said = "".join(e.text for e in events if isinstance(e, TextDelta))
+    assert said.strip() == "Yes sir, I said your dog is Sparky." and "Opening" not in events[-1].text
+    assert "Opening" not in conv.messages[-1]["content"]
+
+
+async def test_an_answer_that_is_only_a_made_up_action_says_so_honestly(local_settings, ctx):
+    brain, _ = make(local_settings, [text_reply("Opening business.facebook.com in your browser, sir.")])
+    events = await collect(brain, Conversation(), "tell me a joke about cats", ctx)
+    said = "".join(e.text for e in events if isinstance(e, TextDelta))
+    assert "Opening" not in said and "haven't actually done that" in said
+
+
+async def test_real_actions_still_say_what_they_did(local_settings, ctx):
+    brain, _ = make(local_settings, [tool_reply("get_time", {}), text_reply("It's noon. Playing nothing, sir.")])
+    events = await collect(brain, Conversation(), "time?", ctx)
+    assert "Playing nothing" in "".join(e.text for e in events if isinstance(e, TextDelta))
+
+
+async def test_a_shortcut_saved_as_a_memory_becomes_a_real_shortcut(local_settings, ctx, tmp_path):
+    """Owner's case: "When I tell you to open my business, open the url business.facebook.com on
+    firefox" sat in memory, got read out, and Nova said it was opening the site."""
+    from assistant.brain import lessons as L
+    from assistant.core.memory import MemoryStore
+    store = MemoryStore(tmp_path / "m.db")
+    for f in FACTS:
+        store.add(f)
+    ctx.services["memory"] = store
+    brain, _ = make(local_settings, [text_reply("Fine, sir.")])
+    await collect(brain, Conversation(), "how are things going today", ctx)
+    assert not any("business.facebook" in m.text for m in store.all()) and len(store.all()) == 4
+    lesson = L.get_lessons().match("open my business")
+    assert lesson and "business.facebook.com" in lesson.means

@@ -82,6 +82,8 @@ Branch: `claude/jarvis-voice-assistant-lhnfza` (commit and push there after ever
 - "You didn't X" complaints: past tense to base verb (`_BASE`), fillers dropped, extra sentences run too (`_complaint`).
 - **Claude's hand-off never gets file tools or WebFetch** (`AGENT_TOOLS`, `Agent.command`): it reads web pages and the screen, so private data + a way out = exfiltration. `registry.REMOTE_NEVER` is enforced before the configurable remote list. tests/test_hardening.py guards these.
 - **The model can copy its <context> block into the reply** (owner's phone screenshot: time, window, remembered facts, then the answer). `local.ContextFilter` strips it from the stream in `_model_round`; the context also lists the timers/reminders set (`LocalBrain._upcoming`), since Nova said it saw no reminder that Up next showed.
+- **Memories go to the model only when the request is about them** (`MemoryStore.for_turn`, FTS search, filler words in `_STOP`): all of them every turn made the 4B model recite them (owner's case). Shortcut-shaped memories ("when I tell you to X, Y") are moved to taught shortcuts (`LocalBrain._move_shortcuts`, `lessons._TEACH`).
+- **Every sentence is checked, not just the first** (`_rescued` `sentences()`): a later "Opening X" (`_DOING_CLAIM`) with no tool is dropped; a later "I can't" to an instruction goes to Claude. Owner: "if I tell it to do something it does it": any refusal phrasing (`_CANT`, `_refuses`) to an instruction gets the nudge, then Claude.
 - "Cancel" in game chat must not do anything: it only counts with the name, in the follow-up window, while Nova is busy, or while the grid, dictation or a lesson is active.
 
 ## Status (end of this session)

@@ -20,7 +20,12 @@ from pathlib import Path
 
 _STOP = set("a an the and or but if of to in on at for with about is are was were be been am i me my "
             "mine you your it its this that what whats when whens where who whose how do does did "
-            "can could would will should please tell remember know nova sir s".split())
+            "can could would will should please tell remember know nova sir s "
+            # everyday filler: matching a memory on these just makes Nova bring it up out of nowhere
+            "sure said say saying yes no ok okay just get got go going want need now then there here "
+            "they them we us our he she him her has have had not dont don im ive ill id youre right really "
+            "one some any all so too very much more up out again still thing things make made let lets see "
+            "look think thanks thank hi hey hello good yeah yep nope well also called named".split())
 _SECRET = re.compile(
     r"\b(pass ?word|passcode|pin(?: code| number)?|security code|cvv|cvc|seed phrase|recovery (?:code|phrase)|"
     r"2fa|one.time code|private key|api key|secret key|social security|ssn|bank account|routing number|"
@@ -133,12 +138,12 @@ class MemoryStore:
             hits = [(sum(w in m.text.lower() for w in words), m) for m in self._all()]
             return [m for s, m in sorted(hits, key=lambda p: -p[0]) if s][:limit]
 
-    def for_turn(self, user_text: str, limit: int = 5, all_if_under: int = 8) -> list[str]:
-        """What to show the model this turn: everything when there's little, else what's relevant."""
-        mems = self.all()
-        chosen = list(reversed(mems)) if len(mems) <= all_if_under else self.search(user_text, limit)
-        # "Used" (for the HUD's pulses) = the ones that actually match this request.
-        used = [m.id for m in self.search(user_text, limit)] if len(mems) <= all_if_under else [m.id for m in chosen]
+    def for_turn(self, user_text: str, limit: int = 3) -> list[str]:
+        """What to show the model this turn: only the memories this request is about. (It used to
+        get all of them while there were few, and the small model recited them all in answer to
+        anything: owner's case, "are you sure you said it?" got his town, business, dog and PC.)"""
+        chosen = self.search(user_text, limit)
+        used = [m.id for m in chosen]                     # for the HUD's pulses
         for fn in list(self.used_listeners):
             try:
                 fn(used)

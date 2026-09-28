@@ -224,7 +224,10 @@ def correction(text: str) -> tuple[bool, str]:
     return True, fix
 
 
-_TEACH = re.compile(r"^(?:from now on,?\s+)?(?:when(?:ever)?|if) i say\s+(?:"
+# "When I say X, Y", also "remember: when I tell you to X, Y" (owner's case: that went into memory
+# as a fact, and Nova then read it out and claimed to be opening the site).
+_TEACH = re.compile(r"^(?:(?:please\s+)?remember(?: that)?[,:]?\s+)?(?:from now on,?\s+)?(?:when(?:ever)?|if) "
+                    r"i (?:say|tell you(?: to)?|ask you(?: to)?)\s+(?:"
                     r"[\"“'](?P<quoted>[^\"”']+)[\"”'],?\s+|(?P<phrase>[^,]+),\s*|(?P<bare>.+?)\s+(?=(?:i mean|that means|it means|you should|then)\s))"
                     r"(?:(?:i mean|that means|it means|you should|please|do|then)\s+)?(?P<means>.+)$", re.I)
 

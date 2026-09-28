@@ -237,3 +237,19 @@ async def test_normal_replies_are_not_delayed_or_changed(local_settings, ctx):
     with_agent(brain, FakeAgent())
     events = await collect(brain, Conversation(), "tell me about paris", ctx)
     assert said(events) == "Paris is the capital of France. It's lovely in spring."
+
+
+@pytest.mark.parametrize("reply", [
+    "Certainly, sir. Unfortunately, that's not something I'm able to do.",
+    "I'm afraid that's beyond my capabilities, sir.",
+    "Of course. I don't have permission to change that setting.",
+])
+async def test_told_to_do_something_it_never_just_says_it_cant(local_settings, ctx, reply):
+    """Owner: "if I tell it to do something then it's not gonna tell me oh sir I can't do that,
+    if I tell it to do something it does it". Every way of saying no (even in a later sentence)
+    goes to Claude, who works it out on the PC."""
+    brain, fake = make(local_settings, [text_reply(reply), text_reply(reply)])
+    agent = with_agent(brain, FakeAgent(steps=[]))
+    events = await collect(brain, Conversation(), "turn on night light in windows settings", ctx)
+    text = said(events)
+    assert agent.calls and text.startswith("Let me work that out") and "not something" not in text

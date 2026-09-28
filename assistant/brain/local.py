@@ -277,10 +277,49 @@ class LocalBrain:
         def verdict(text: str) -> str | None:
             if asks and (_STUCK in text or _CANT.search(text)):
                 return "stuck"
-            if not did and not question and (_DONE_CLAIM.search(text)
-                                             or ((asks or _ABOUT_NOVA.search(request)) and _STATE_CLAIM.search(text))):
+            if not did and not question and (
+                    _DOING_CLAIM.search(text.strip()) or _DONE_CLAIM.search(text)
+                    or ((asks or _ABOUT_NOVA.search(request)) and _STATE_CLAIM.search(text))):
                 return "claim"
             return None
+
+        def made_up(sentence: str) -> bool:
+            """A later sentence claiming an action nothing did (owner's case: a question got a list
+            of remembered facts, then "Opening business.facebook.com in your browser, sir.")."""
+            s = sentence.strip()
+            return not did and bool(_DOING_CLAIM.search(s) or (not question and _DONE_CLAIM.search(s)))
+
+        pending = ""                             # the sentence being streamed, after the first
+        dropped: list[str] = []
+        shown = False                            # any text reached the user
+
+        def sentences(final: bool) -> list[TextDelta]:
+            nonlocal pending, shown, failing, failed_why
+            out = []
+            while pending:
+                m = re.search(r"[.!?](?:\s+|$)", pending)
+                if m and (m.end() < len(pending) or final):
+                    end = m.end()
+                elif final:
+                    end = len(pending)
+                else:
+                    break                        # the sentence isn't finished yet
+                sent, pending = pending[:end], pending[end:]
+                if made_up(sent):
+                    log.info("dropped a made-up claim: %s", sent.strip()[:120])
+                    dropped.append(sent)
+                    continue
+                if asks and not did and (_STUCK in sent or _CANT.search(sent)):
+                    # "Certainly, sir. Unfortunately I can't close that.": the rest is held and the
+                    # job goes to Claude (or is said as it is, when Claude is off).
+                    failing, failed_why = True, failed_why or f"Nova's everyday model said: {sent.strip()[:150]}"
+                    held.append(TextDelta(sent + pending))
+                    pending = ""
+                    break
+                if sent.strip():
+                    shown = True
+                out.append(TextDelta(sent))
+            return out
 
         def judge(text: str) -> None:
             nonlocal failing, claimed, failed_why
@@ -302,7 +341,10 @@ class LocalBrain:
                         first = [TextDelta(clean)] if clean.strip() else []
                     if failing:
                         held.extend(first)
+                    elif made_up(clean):             # e.g. a question answered with "Opening X."
+                        dropped.append(clean)
                     else:
+                        shown = shown or bool(clean.strip())
                         for e in first:
                             yield e
                     first = []
@@ -313,9 +355,26 @@ class LocalBrain:
                 if failing:
                     held.extend(first)
                 else:
-                    for e in first:
-                        yield e
+                    pending += "".join(e.text for e in first)
                 first, classified = [], True
+            if isinstance(ev, TextDelta) and not failing and classified:
+                pending += ev.text
+                for e in sentences(False):
+                    yield e
+                continue
+            if not isinstance(ev, TextDelta) and pending and not failing:
+                for e in sentences(True):
+                    yield e
+            if isinstance(ev, TurnComplete) and not failing and dropped:
+                for d in dropped:                     # neither shown nor remembered as said
+                    ev.text = ev.text.replace(d.strip(), "").strip()
+                    last = conv.messages[-1] if conv.messages else {}
+                    if last.get("role") == "assistant" and isinstance(last.get("content"), str):
+                        last["content"] = last["content"].replace(d.strip(), "").strip()
+                if not shown:
+                    honest = f"Sorry{sir}, I haven't actually done that. Could you say it another way?"
+                    yield TextDelta(honest)
+                    ev.text = honest
             if isinstance(ev, ToolFinished) and not ev.is_error and ev.name != "work_it_out":
                 did = True
             if isinstance(ev, ToolFinished) and ev.name in _RESCUABLE:
@@ -765,7 +824,7 @@ class LocalBrain:
                             and _acts_without_tools(said_text, user_text)):
                         nudged = True
                         conv.messages.append({"role": "user", "nudge": True, "content":
-                                              NUDGE_CAN if _REFUSES.search(said_text) else
+                                              NUDGE_CAN if _refuses(said_text, user_text) else
                                               NUDGE_CLAIM if _CLAIM.search(said_text) else NUDGE})
                         continue
                     break
@@ -817,11 +876,28 @@ class LocalBrain:
         timings["total_ms"] = _ms(t0)
         yield TurnComplete("".join(spoken).strip(), timings, usage, "end_turn")
 
+    @staticmethod
+    def _move_shortcuts(store) -> None:
+        """Memories that are really shortcuts ("when I tell you to open my business, open
+        business.facebook.com") become taught shortcuts: as a fact the model read them out and
+        claimed to be acting on them (owner's case)."""
+        from assistant.brain import lessons as L
+        moved = []
+        for m in store.all():
+            taught = L.teaching(m.text)
+            if taught and L.get_lessons().learn_meaning(taught[0], taught[1], m.text):
+                moved.append(m.id)
+        if moved:
+            store.delete(moved)
+            log.info("moved %d shortcut(s) from memory to taught shortcuts", len(moved))
+
     def _memories(self, user_text: str, ctx: ToolContext) -> list[str]:
         """Remembered facts relevant to this request (all of them while there are few)."""
         from assistant.core.memory import get_store
         try:
             store = ctx.services.get("memory") or get_store(self.settings)
+            if store:
+                self._move_shortcuts(store)
             return store.for_turn(user_text, self.settings.memory.per_turn) if store else []
         except Exception:
             log.exception("memory lookup failed")
@@ -1064,7 +1140,14 @@ _DELIBERATE = ("You told me never", "The user declined", "I don't type into a co
                "Where to?", "Click what?", "Type what?", "Find what?")
 _CANT = re.compile(r"\b(?:i|nova) (?:can ?not|can'?t|couldn'?t|could not|am unable|'?m unable|am not able|'?m not able|"
                    r"wasn'?t able|was not able|don'?t have (?:the )?(?:ability|access|a way)|do not have (?:the )?(?:ability|access))\b"
-                   r"|\bnot a valid action\b|\bisn'?t (?:possible|something i can)\b", re.I)
+                   r"|\bnot a valid action\b|\bisn'?t (?:possible|something i can)\b"
+                   # the ways a small model says no without "I can't" (owner: "if I tell it to do
+                   # something it does it, not 'oh sir I can't do that'")
+                   r"|\b(?:not|isn'?t|is not) something i(?:'m| am)? (?:able|allowed|permitted|designed|equipped)\b"
+                   r"|\bbeyond (?:what i can|my (?:abilities|capabilities|reach|control))\b|\boutside (?:of )?my (?:abilities|capabilities)\b"
+                   r"|\bi (?:don'?t|do not) have (?:the )?(?:capability|permission|tools?|means|option)\b"
+                   r"|\b(?:there'?s|there is) no way (?:for me )?to\b|\bi(?:'m| am) (?:not|unable) (?:allowed|permitted)\b"
+                   r"|\bi(?:'m| am) afraid (?:i|that|that's|this)\b|\bunfortunately,? (?:i|that|this|it)\b", re.I)
 # "Done" said about the PC: only true if a tool actually did it this turn.
 _LEAKED_CALL = re.compile(r"^\s*(?:>\s*[a-z_]+(?:\s+[a-z_]+){0,3}\s*(?:\n+|$))+", re.I)
 _SAID_THIS = re.compile(r"\b(?:this|that|it|the window|this window|that window|the app|this app|current)\b", re.I)
@@ -1089,6 +1172,11 @@ _DONE_CLAIM = re.compile(      # "Skipped the song.", "I've closed Spotify.": a 
     r"started|stopped|muted|unmuted|minimi[sz]ed|maximi[sz]ed|full[- ]?screened|moved|typed|pressed|clicked|"
     r"searched|navigated|brought|quit|killed|loaded|went|took)\b"
     r"|\b(?:took|taken) you\b|\bskipped to\b", re.I)
+_DOING_CLAIM = re.compile(     # "Opening business.facebook.com in your browser, sir.": said as it happens
+    r"^(?:(?:ok|okay|sure|certainly|right|alright|all right|very well|of course)[,.!]?\s+)?(?:sir[,.]?\s+)?"
+    r"(?:i'?m\s+|i am\s+)?(?:now\s+)?(?:re)?(?:opening|closing|launching|skipping|pausing|resuming|switching|"
+    r"typing|clicking|navigating|taking you|bringing up|pulling up|loading|muting|unmuting|minimi[sz]ing|"
+    r"maximi[sz]ing|quitting|stopping|playing|putting on|turning (?:up|down|on|off))\b", re.I)
 _STATE_CLAIM = re.compile(     # "Firefox is reopened", "Now on YouTube": only a claim when an action was asked
     r"\b(?:is|are|has been|have been)\s+(?:now\s+)?(?:re)?(?:open(?:ed)?|closed|loaded|playing|paused|skipped|"
     r"muted|minimi[sz]ed|maximi[sz]ed|stopped|launched)\b"
@@ -1158,12 +1246,23 @@ _ACTION_REQUEST = re.compile(
     r"full\s?screen|start|stop|switch|launch|cancel|volume|skip|show|hide|search|remind|put|make|go|"
     r"fire|get|pull|bring|load|run|kill|shut|change|give|take|send|type|click|press|find|move|delete|"
     r"create|write|save|add|remove|raise|lower|increase|decrease|crank|boost|max|minimi[sz]e|restore|"
-    r"quit|exit|reopen|refresh|reload|record|clip|watch)\b", re.I)
+    r"quit|exit|reopen|refresh|reload|record|clip|watch|scroll|zoom|email|text|message|call|buy|order|"
+    r"download|install|uninstall|update|empty|clear|sort|organi[sz]e|rename|edit|fix|join|leave|connect|"
+    r"disconnect|enable|disable|toggle|select|highlight|copy|paste|undo|redo|print|share|upload|screenshot|"
+    r"capture|translate|dim|brighten|sleep|restart|reboot|log ?in|log ?out|sign ?in|sign ?out|reply|accept|"
+    r"decline|mark|read|try|use)\b", re.I)
 _QUESTION = re.compile(r"^\W*(?:is|are|was|were|does|do|did|when|what|where|why|how|which|who)\b", re.I)
 
 
 def _is_action_request(request: str) -> bool:
     return bool(_ACTION_REQUEST.search(request)) and not _QUESTION.match(request)
+
+
+def _refuses(text: str, request: str | None = None) -> bool:
+    """Said it can't. For an instruction, any "I can't" / "I'm afraid" / "unfortunately" counts:
+    it has tools for the whole PC and gets nudged to use one (owner: "if I tell it to do something
+    it does it")."""
+    return bool(_REFUSES.search(text) or (request and _is_action_request(request) and _CANT.search(text)))
 
 
 def _acts_without_tools(text: str, request: str | None = None) -> bool:
@@ -1172,7 +1271,7 @@ def _acts_without_tools(text: str, request: str | None = None) -> bool:
     on Sundays" is just an answer)."""
     if _PROMISE.search(text):
         return True
-    if _REFUSES.search(text):
+    if _refuses(text, request):
         return True
     if not _CLAIM.search(text):
         return False

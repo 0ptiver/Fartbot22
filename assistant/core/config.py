@@ -203,7 +203,7 @@ class ServerConfig(BaseModel):
 class MemoryConfig(BaseModel):
     enabled: bool = True
     path: str = "data/memory.db"        # on this PC only
-    per_turn: int = 5                   # relevant memories shown to the model per request
+    per_turn: int = 3                   # memories matching the request shown to the model
 
 
 class HudConfig(BaseModel):
