@@ -71,6 +71,36 @@ class UIABackend:
         return out
 
 
+    def tabs(self, hwnd: int) -> list[tuple[str, Region, bool]]:
+        """A browser's tab strip: (title, where, selected) for each tab, left to right."""
+        if sys.platform != "win32":
+            return []
+        _dpi_aware()
+        import comtypes
+        import comtypes.client
+        try:
+            comtypes.CoInitializeEx(comtypes.COINIT_MULTITHREADED)
+        except OSError:
+            pass
+        mod = comtypes.client.GetModule("UIAutomationCore.dll")
+        uia = comtypes.client.CreateObject(mod.CUIAutomation, interface=mod.IUIAutomation)
+        cache = uia.CreateCacheRequest()
+        for pid in (_NAME, _RECT, 30079):                          # 30079: SelectionItem.IsSelected
+            cache.AddProperty(pid)
+        found = uia.ElementFromHandle(hwnd).FindAllBuildCache(
+            _DESCENDANTS, uia.CreatePropertyCondition(_CTYPE, 50019), cache)   # TabItem
+        out = []
+        for i in range(min(found.Length, 200)):
+            e = found.GetElement(i)
+            r = e.CachedBoundingRectangle
+            left, top, right, bottom = ((r.left, r.top, r.right, r.bottom) if hasattr(r, "left") else r)
+            try:
+                selected = bool(e.GetCachedPropertyValue(30079))
+            except Exception:
+                selected = False
+            out.append(((e.CachedName or "").strip(), Region(left, top, right - left, bottom - top), selected))
+        return out
+
     def edit_values(self, hwnd: int) -> list[str]:
         """The text in each box of a window (a browser's address bar among them)."""
         if sys.platform != "win32":

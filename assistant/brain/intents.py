@@ -538,6 +538,15 @@ def match_intent(text: str, grid_visible: bool = False, labels: bool = False,
                          front=browser_active and not (grid_visible or labels) and BROWSER.in_front())
     if web:
         return web
+    # Your own browser's tabs, and "click X in <app>" / "type X into the search box".
+    from assistant.tools.apps import app_intent
+    from assistant.tools.mybrowser import tab_intent
+    tabs = None if (grid_visible or labels) else tab_intent(t)
+    if tabs:
+        return tabs
+    in_app = None if (grid_visible or labels) else app_intent(text, t)
+    if in_app:
+        return in_app
     grid = grid_intent(t, grid_visible, labels)
     if grid:
         return grid

@@ -87,3 +87,10 @@ def _no_waiting_for_app_windows(monkeypatch):
 def _no_waiting_for_windows_to_close(monkeypatch):
     from assistant.tools import pc
     monkeypatch.setattr(pc, "CLOSE_WAIT_S", 0)
+
+
+@pytest.fixture(autouse=True)
+def _no_waiting_in_the_browser(monkeypatch):
+    """The browser control re-reads the tabs a few times on the PC; not in tests."""
+    from assistant.tools import mybrowser
+    monkeypatch.setattr(mybrowser, "STEP_S", 0)

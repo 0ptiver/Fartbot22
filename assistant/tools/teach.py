@@ -38,7 +38,7 @@ MOD_VKS = {0x10: "shift", 0x11: "ctrl", 0x12: "alt", 0x5B: "win", 0x5C: "win"}
 _SKIP_VKS = set(range(0x01, 0x07)) | {0x10, 0x11, 0x12, 0x5B, 0x5C, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5,
                                       0xE7, 0xFF}          # mouse buttons, modifiers, VK_PACKET
 # Things Nova did on request during a lesson that are worth repeating as-is.
-REPEATABLE_TOOLS = {"open_app", "open_website", "window", "volume", "video", "music_control", "play_music",
+REPEATABLE_TOOLS = {"open_app", "open_website", "window", "my_browser", "app", "volume", "video", "music_control", "play_music",
                     "media_key", "type_text", "set_voice", "subtitles", "press_key"}
 
 

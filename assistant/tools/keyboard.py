@@ -92,10 +92,20 @@ class KeyboardBackend:
             arr[i].u.ki = KEYBDINPUT(vk, scan, flags, 0, 0)
         ctypes.windll.user32.SendInput(len(events), arr, ctypes.sizeof(INPUT))  # type: ignore[attr-defined]
 
+    @staticmethod
+    def _scan(vk: int) -> int:
+        """The key's hardware scan code: some apps (and games) look at that, not the key code."""
+        import ctypes
+        return ctypes.windll.user32.MapVirtualKeyW(vk, 0) & 0xFF   # type: ignore[attr-defined]
+
     def combo(self, vks: list[int]) -> None:
-        down = [(v, 0, 1 if v in _EXTENDED else 0) for v in vks]
-        up = [(v, 0, (1 if v in _EXTENDED else 0) | 2) for v in reversed(vks)]
-        self._send(down + up)
+        if sys.platform != "win32":
+            raise ToolError("Keyboard control only works on Windows.")
+        down = [(v, self._scan(v), 1 if v in _EXTENDED else 0) for v in vks]
+        up = [(v, self._scan(v), (1 if v in _EXTENDED else 0) | 2) for v in reversed(vks)]
+        self._send(down)
+        time.sleep(0.02)            # let the app see the keys held (fast combos get dropped otherwise)
+        self._send(up)
 
     def type(self, text: str) -> None:
         events = []
@@ -162,6 +172,14 @@ def app_label(w) -> str:
             "explorer": "File Explorer", "code": "VS Code"}.get(proc, proc.capitalize() if proc else (w.title[:30] or "that window"))
 
 
+def _front_window():
+    from assistant.tools import pc
+    try:
+        return pc.WINDOWS.active()
+    except ToolError:
+        return None
+
+
 def _front_title() -> tuple[int, str] | None:
     from assistant.tools import pc
     try:
@@ -205,6 +223,13 @@ async def press_keys(args: dict, ctx: ToolContext) -> str:
     from assistant.tools import browser
     if combo in browser.SHORTCUTS and await asyncio.to_thread(browser.BROWSER.in_front):
         return await browser.shortcut(combo)
+    # In your own browser, tab and page shortcuts go through the browser control, which checks them
+    # by the tab strip and the address bar (owner: "he still struggles to open a new tab").
+    from assistant.tools import mybrowser
+    if times == 1 and combo in mybrowser.ACTION_FOR:
+        front = await asyncio.to_thread(_front_window)
+        if mybrowser.is_browser(front) and not await asyncio.to_thread(mybrowser._is_nova, front):
+            return await mybrowser.my_browser({"action": mybrowser.ACTION_FOR[combo]}, ctx)
     # Enter (or a shortcut with no modifiers other than shift) into a terminal runs what's typed.
     risky = vks[-1] == 0x0D or VK["win"] in vks and vks[-1] == VK["r"]
     await _guard(ctx, "press_keys", args, risky=risky)

@@ -22,6 +22,19 @@ def _window() -> str | None:
     return f"{app_label(w)}: {w.title[:90]}"
 
 
+def _user_browser() -> str | None:
+    """The user's own browser when it isn't the window in front ('close this tab' still means it)."""
+    try:
+        from assistant.tools import mybrowser, pc
+        front = pc.WINDOWS.active()
+        if mybrowser.is_browser(front):
+            return None
+        w = mybrowser.find_browser()
+    except Exception:
+        return None
+    return f"{mybrowser.label(w)}: {mybrowser._page_title(w.title)[:80]}"
+
+
 def _browser() -> str | None:
     from assistant.tools.browser import BROWSER
     page = BROWSER.page
@@ -40,6 +53,9 @@ async def situation() -> dict[str, str]:
     w = await asyncio.to_thread(_window)
     if w:
         out["window in front (keys and typing go here)"] = w
+    ub = await asyncio.to_thread(_user_browser)
+    if ub:
+        out["the user's browser (my_browser), behind"] = ub
     b = _browser()
     if b:
         out["your own browser (browser tool) shows"] = b

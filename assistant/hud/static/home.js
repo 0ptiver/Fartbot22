@@ -68,6 +68,15 @@ const NovaHome = (() => {
     browser: ["i-globe", "blue", (a) => ({ open: `Opening ${a.site || "a page"}`, search: `Searching ${a.site ? a.site + " " : ""}for ${q(a.text)}`,
       click: `Clicking ${q(a.target)}`, type: `Typing ${q(a.text)}`, select: `Picking ${q(a.text)}`, press: `Pressing ${a.text || "a key"}`,
       scroll: `Scrolling ${a.text || "down"}`, back: "Going back a page", read: "Reading the page", look: "Looking at the page" })[a.action] || "Using the browser"],
+    my_browser: ["i-globe", "blue", (a) => ({ new_tab: a.go ? `New tab: ${a.go}` : "Opening a new tab", go: `Going to ${a.go || "a page"}`,
+      switch_tab: a.tab ? `Switching to the ${a.tab} tab` : `Switching to tab ${a.number}`, close_tab: a.tab ? `Closing the ${a.tab} tab` : "Closing the tab",
+      next_tab: "Next tab", previous_tab: "Previous tab", reopen_tab: "Reopening the tab", back: "Going back", forward: "Going forward",
+      reload: "Reloading the page", list_tabs: "Reading your tabs", find: `Finding ${q(a.text)}`, click: `Clicking ${q(a.text)}` })[a.action] || "Using your browser"],
+    app: ["i-cursor", "blue", (a) => {
+      const where = a.app ? ` in ${cap(a.app)}` : "";
+      return ({ look: `Looking at ${a.app ? cap(a.app) : "the app"}`, click: `Clicking ${q(a.target)}${where}`, double_click: `Double-clicking ${q(a.target)}${where}`,
+        right_click: `Right-clicking ${q(a.target)}${where}`, type: `Typing ${q(a.text)}${where}`, press: `Pressing ${a.keys || "keys"}${where}` })[a.action] || "Using an app";
+    }],
     weather: ["i-globe", "blue", (a) => a.tomorrow ? "Checking tomorrow's weather" : `Checking the weather${a.place ? " in " + cap(a.place) : ""}`],
     calculate: ["i-spark", "violet", (a) => `Working out ${a.expression || "a sum"}`],
     set_location: ["i-globe", "pink", (a) => `Remembering you're in ${cap(a.city || "")}`],

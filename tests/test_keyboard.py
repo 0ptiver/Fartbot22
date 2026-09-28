@@ -105,8 +105,8 @@ def test_nova_hud_is_never_the_active_window():
     ("press 3", False, ("press_keys", {"keys": "3"})),
     ("press 3", True, ("mouse", {"action": "click", "cell": 3})),
     ("copy that", False, ("press_keys", {"keys": "ctrl+c"})),
-    ("new tab", False, ("press_keys", {"keys": "ctrl+t"})),
-    ("close this tab", False, ("press_keys", {"keys": "ctrl+w"})),
+    ("new tab", False, ("my_browser", {"action": "new_tab"})),
+    ("close this tab", False, ("my_browser", {"action": "close_tab"})),
     ("go back", False, ("press_keys", {"keys": "alt+left"})),
     ("go back", True, ("mouse_grid", {"action": "back"})),
     ("refresh the page", False, ("press_keys", {"keys": "f5"})),
@@ -171,4 +171,4 @@ async def test_a_shortcut_that_did_nothing_is_not_reported_as_done(settings, reg
     monkeypatch.setattr(pc, "WINDOWS", TitleWindows(pc.Win(7, "YouTube — Mozilla Firefox", "firefox.exe")))
     monkeypatch.setattr(K, "CHECK_S", 0)
     res = await registry.execute("press_keys", {"keys": "ctrl+t"}, ToolContext(settings))
-    assert res.is_error and "nothing changed" in res.content and "Firefox" in res.content
+    assert res.is_error and "no new tab appeared" in res.content and "Firefox" in res.content
