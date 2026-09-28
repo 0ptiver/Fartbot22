@@ -20,11 +20,12 @@ import time
 from typing import Any
 
 PROTOCOL = "2025-06-18"
-# Nova's tools Claude may use (only if they're SAFE in this configuration).
+# Nova's tools Claude may use (only if they're SAFE in this configuration). Deliberately no file
+# tools (find/read/open): Claude reads web pages and the screen, and a page could try to talk it
+# into reading the owner's documents and sending them somewhere. It drives apps; it doesn't need files.
 AGENT_TOOLS = ["my_browser", "app", "window", "open_app", "open_website", "video", "media", "volume",
                "brightness", "click_element", "press_keys", "type_text", "play_music", "music_control",
-               "now_playing", "system_status", "get_time", "find_files", "open_file", "read_file",
-               "weather", "calculate", "convert"]
+               "now_playing", "system_status", "get_time", "weather", "calculate", "convert"]
 # Things that only look: not worth learning as steps.
 LOOK_ONLY = {"screenshot", "now_playing", "system_status", "get_time", "find_files", "read_file", "weather",
              "calculate", "convert", "summarize_page"}

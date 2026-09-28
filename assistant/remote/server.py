@@ -137,6 +137,7 @@ class PhoneChat:
         self.session.ctx.services.update(services)
         self.speaker = speaker                 # text -> base64 WAV in Nova's voice (or None)
         self.speak_next = False                # the request was spoken: answer out loud
+        self.hearing = False                   # a voice message is being turned into words
         self._speaking: asyncio.Task | None = None
         self._said: list[str] = []             # what this turn showed, to say out loud
 
@@ -223,7 +224,11 @@ def create_phone_app(settings: Settings, auth: PhoneAuth, loop, hub, scheduler=N
                                         f"connect-src 'self' ws://{host} wss://{host}; "
                                         "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"),
             "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
-            "Cache-Control": "no-store", "X-Frame-Options": "DENY"})
+            "Cache-Control": "no-store", "X-Frame-Options": "DENY",
+            "Permissions-Policy": "microphone=(self), camera=(), geolocation=(), payment=(), usb=()",
+            "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Resource-Policy": "same-origin"})
+        if request.url.scheme == "https":
+            resp.headers["Strict-Transport-Security"] = "max-age=31536000"
         return resp
 
     for path, (name, media) in _FILES.items():
@@ -247,8 +252,14 @@ def create_phone_app(settings: Settings, auth: PhoneAuth, loop, hub, scheduler=N
     async def login(request: Request):
         if not origin_ok(request.headers):
             return JSONResponse({"error": "forbidden"}, status_code=403)
+        body = None
         try:
-            body = await request.json()
+            raw = bytearray()
+            async for part in request.stream():      # nobody is signed in yet: read at most 4 KB
+                raw += part
+                if len(raw) > 4096:
+                    raise ValueError("too big")
+            body = json.loads(bytes(raw))
         except Exception:
             body = None
         if not isinstance(body, dict):
@@ -264,7 +275,8 @@ def create_phone_app(settings: Settings, auth: PhoneAuth, loop, hub, scheduler=N
         log.warning("phone signed in: %s (%s)", name, client_ip(request))
         notify_pc(f"Sir, a new device just signed in to Nova remotely: {name.replace(' · ', ' on ')}.", speak=True)
         resp = JSONResponse({"ok": True})
-        resp.set_cookie(COOKIE, token, max_age=auth.session_s, httponly=True, samesite="strict", path="/")
+        resp.set_cookie(COOKIE, token, max_age=auth.session_s, httponly=True, samesite="strict", path="/",
+                        secure=request.url.scheme == "https")
         return resp
 
     @app.post("/api/logout")
@@ -319,16 +331,29 @@ def create_phone_app(settings: Settings, auth: PhoneAuth, loop, hub, scheduler=N
         device = auth.device_for(request.cookies.get(COOKIE))
         if device is None:
             return JSONResponse({"error": "signed out"}, status_code=401)
-        data = await request.body()
         from assistant.remote import voice as phone_voice
-        if len(data) > phone_voice.MAX_BYTES:
-            return JSONResponse({"error": "That message is too long."}, status_code=413)
-        chat = chat_for(device)
+        too_long = JSONResponse({"error": "That message is too long."}, status_code=413)
         try:
-            text = await phone_voice.transcribe(loop, data)
+            if int(request.headers.get("content-length") or 0) > phone_voice.MAX_BYTES:
+                return too_long                  # said up front: don't even read it
+        except ValueError:
+            return JSONResponse({"error": "bad request"}, status_code=400)
+        chat = chat_for(device)
+        if chat.hearing:                          # one voice message at a time (Whisper runs on the GPU)
+            return JSONResponse({"error": "Still listening to the last one."}, status_code=429)
+        chat.hearing = True
+        try:
+            data = bytearray()
+            async for part in request.stream():  # and counted while reading, in case it lied
+                data += part
+                if len(data) > phone_voice.MAX_BYTES:
+                    return too_long
+            text = await phone_voice.transcribe(loop, bytes(data))
         except Exception as e:
             log.warning("phone voice message failed: %s", e)
             return JSONResponse({"error": "I couldn't hear that one. Try again?"}, status_code=500)
+        finally:
+            chat.hearing = False
         text = " ".join(text.split())[:2000]
         if not text:
             await chat.send({"type": "sys", "text": "I didn't catch that."})

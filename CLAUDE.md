@@ -80,6 +80,7 @@ Branch: `claude/jarvis-voice-assistant-lhnfza` (commit and push there after ever
 - **Media with Windows' list empty/stuck is checked through Spotify** (`video._spotify_checked`), else the key press is reported as unchecked; never "Skipped." on faith. The owner's PC hits this path (the 4.0 s Media chips); after one hang the list isn't asked again for 60 s (`MediaBackend.stuck()`), and `music.hear_spotify` then trusts Spotify's own check.
 - **The model may not close/quit/minimise "this" unless the user said this/it/that** (`_wrong_target`): "close Spotify" closed Firefox.
 - "You didn't X" complaints: past tense to base verb (`_BASE`), fillers dropped, extra sentences run too (`_complaint`).
+- **Claude's hand-off never gets file tools or WebFetch** (`AGENT_TOOLS`, `Agent.command`): it reads web pages and the screen, so private data + a way out = exfiltration. `registry.REMOTE_NEVER` is enforced before the configurable remote list. tests/test_hardening.py guards these.
 - "Cancel" in game chat must not do anything: it only counts with the name, in the follow-up window, while Nova is busy, or while the grid, dictation or a lesson is active.
 
 ## Status (end of this session)

@@ -21,7 +21,15 @@ _BLOCKED_PARTS = {"appdata", "application data", "$recycle.bin", "system volume 
 # Opening these runs code, so it needs a confirmation.
 EXECUTABLE_EXT = {".exe", ".bat", ".cmd", ".com", ".ps1", ".psm1", ".vbs", ".vbe", ".js", ".jse",
                   ".wsf", ".wsh", ".msi", ".msp", ".scr", ".pif", ".reg", ".lnk", ".url", ".jar",
-                  ".py", ".pyw", ".hta", ".cpl", ".dll", ".sys"}
+                  ".py", ".pyw", ".hta", ".cpl", ".dll", ".sys",
+                  # Also run code or settings when opened on Windows, or mount a disk image whose
+                  # files skip the "downloaded from the internet" warning.
+                  ".msc", ".appref-ms", ".application", ".settingcontent-ms", ".search-ms", ".library-ms",
+                  ".chm", ".scf", ".inf", ".ins", ".isp", ".xll", ".xlam", ".ppam", ".gadget", ".diagcab",
+                  ".ws", ".wsc", ".sct", ".vb", ".psd1", ".ps1xml", ".psc1", ".mst", ".msix", ".msixbundle",
+                  ".appx", ".appxbundle", ".ocx", ".job", ".mde", ".ade", ".adp", ".crt", ".der",
+                  ".iso", ".img", ".vhd", ".vhdx", ".theme", ".themepack", ".desktopthemepack",
+                  ".website", ".jnlp", ".cab"}
 
 
 class PathNotAllowed(Exception):

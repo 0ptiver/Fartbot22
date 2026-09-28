@@ -187,6 +187,8 @@ class ToolRegistry:
         tool = self._tools[name]
         override = self.settings.safety.risk_overrides.get(name)
         risk = Risk(override) if override else tool.risk
+        if remote and name in REMOTE_NEVER:
+            return Risk.BLOCKED                  # whatever the settings say
         if remote and name in self.settings.safety.remote_blocked_tools:
             # PC control from the phone (owner's choice): allowed, but always asked on the phone
             # first. A few need someone at the PC and are never done remotely.

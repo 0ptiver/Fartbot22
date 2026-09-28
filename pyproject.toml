@@ -7,6 +7,15 @@ dependencies = [
     "anthropic>=1.8",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
+    # Floors past known security fixes (update.ps1 only upgrades what's below these): the web
+    # servers the phone talks to, and what reads images, web pages and downloads.
+    "starlette>=0.49.1",
+    "h11>=0.16",
+    "pillow>=11.3",
+    "urllib3>=2.5",
+    "requests>=2.32.4",
+    "protobuf>=5.29.5",
+    "certifi>=2024.7.4",
     "websockets>=13",
     "pydantic>=2.7",
     "pyyaml>=6",
