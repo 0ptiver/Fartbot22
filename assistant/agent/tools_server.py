@@ -25,7 +25,8 @@ PROTOCOL = "2025-06-18"
 # into reading the owner's documents and sending them somewhere. It drives apps; it doesn't need files.
 AGENT_TOOLS = ["my_browser", "app", "window", "open_app", "open_website", "video", "media", "volume",
                "brightness", "click_element", "press_keys", "type_text", "play_music", "music_control",
-               "now_playing", "system_status", "get_time", "weather", "calculate", "convert"]
+               "now_playing", "system_status", "get_time", "weather", "calculate", "convert",
+               "look_at_screen"]           # the text on screen, read locally: quicker than a screenshot
 # Things that only look: not worth learning as steps.
 LOOK_ONLY = {"screenshot", "now_playing", "system_status", "get_time", "find_files", "read_file", "weather",
              "calculate", "convert", "summarize_page"}

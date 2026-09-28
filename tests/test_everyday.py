@@ -259,6 +259,9 @@ def test_brightness_is_checked(monkeypatch):
 
 
 @pytest.mark.parametrize("said,focus", [("what's on my screen", "what's on my screen"),
-                                        ("what does this error say", "what does this error say")])
+                                        ("what does this error say", "what does this error say"),
+                                        ("read my screen", "read my screen"),
+                                        ("read this to me", "read this to me"),
+                                        ("what does it say", "what does it say")])
 def test_screen_questions_go_straight_to_the_screen(said, focus):
     assert match_intent(said) == ("look_at_screen", {"focus": focus})

@@ -425,7 +425,10 @@ def everyday_intent(t: str) -> tuple[str, dict] | None:
     if re.fullmatch(r"what(?:'?s| is) on (?:my |the |this )?(?:screen|monitor|display)|what am i looking at|"
                     r"(?:look|have a look|take a look) at (?:my |the |this )?(?:screen|monitor)|what do you see|"
                     r"can you see (?:my |the )?screen|what does (?:this|that|the) (?:error|message|popup|pop up|box|window) say|"
-                    r"read (?:me )?(?:this|that|the) (?:error|message|popup|pop up|dialog|box)|what(?:'?s| is) (?:this|that) (?:error|popup|pop up|message)", t):
+                    r"read (?:me )?(?:this|that|the) (?:error|message|popup|pop up|dialog|box)|what(?:'?s| is) (?:this|that) (?:error|popup|pop up|message)"
+                    r"|read (?:me )?(?:my |the |this )?(?:screen|window)(?: to me| out| for me)?|read (?:this|it|that)(?: to me| out| for me)"
+                    r"|what does (?:it|this|that|my screen|the screen|this window|the window) say"
+                    r"|what(?:'?s| is) (?:it|this|that) say(?:ing)?", t):
         return "look_at_screen", {"focus": t}
     page = r"(?:this|the|that) (?:page|article|site|website|web page|post|thread|video|story)"
     if re.fullmatch(r"(?:summari[sz]e|sum up|give me (?:a )?(?:summary|tl ?dr|rundown|quick summary) of|tl ?dr"

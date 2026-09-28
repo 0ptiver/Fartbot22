@@ -54,6 +54,10 @@ dependencies = [
     "winrt-Windows.Foundation.Collections>=3.1; sys_platform == 'win32'",
     "winrt-Windows.Media>=3.1; sys_platform == 'win32'",
     "winrt-Windows.Storage.Streams>=3.1; sys_platform == 'win32'",
+    # Nova reading the screen itself: Windows' built-in text recognition (tools/ocr.py).
+    "winrt-Windows.Media.Ocr>=3.1; sys_platform == 'win32'",
+    "winrt-Windows.Graphics.Imaging>=3.1; sys_platform == 'win32'",
+    "winrt-Windows.Globalization>=3.1; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

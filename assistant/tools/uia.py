@@ -9,6 +9,7 @@ grid there.)
 from __future__ import annotations
 
 import difflib
+import logging
 import re
 import sys
 from dataclasses import dataclass
@@ -16,6 +17,8 @@ from functools import reduce
 
 from assistant.tools.grid import Region, _dpi_aware, controller
 from assistant.tools.registry import Risk, ToolContext, ToolError, ToolRegistry
+
+log = logging.getLogger(__name__)
 
 # UI Automation ids (UIAutomationClient.h)
 _NAME, _CTYPE, _RECT, _OFFSCREEN, _ENABLED = 30005, 30003, 30001, 30022, 30010
@@ -207,6 +210,13 @@ def click_element(args: dict, ctx: ToolContext) -> str:
     label, elements = _window_elements()
     hits = best_matches(elements, args["name"])
     if not hits:
+        # Games, web pages and custom apps often don't list their buttons for Windows: find the
+        # words on the screen itself and click them, then look again (tools/ocr.py).
+        from assistant.tools import ocr
+        try:
+            return ocr.click_text(args["name"], g.mouse, args.get("action", "click"))
+        except Exception as e:                   # not written anywhere, or no OCR: say so as before
+            log.info("clicking '%s' by its text failed: %s", args["name"], e)
         raise ToolError(f"I can't see '{args['name']}' in {label}. Say 'show numbers' to see what I "
                         "can click, or 'show the grid'.")
     if len(hits) > 1:

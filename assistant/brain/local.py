@@ -958,6 +958,22 @@ class LocalBrain:
         started = time.perf_counter()
         res = await self.registry.execute(name, args, ctx)
         timings["tools_ms"] = _ms(started)
+        if name == "look_at_screen" and isinstance(res.content, str) and not res.is_error:
+            # Nova read the screen's text itself: answer from it in a sentence or two, rather than
+            # reading a whole page aloud.
+            yield ToolFinished(cid, name, False, _summarize_content(res.content, 200), _ms(started))
+            conv.messages.append({"role": "assistant", "content": "",
+                                  "tool_calls": [{"function": {"name": name, "arguments": args}}]})
+            conv.messages.append({"role": "tool", "tool_name": name, "content": res.content})
+            out = _Round()
+            async for ev in self._model_round(conv, False, out, timings, {"input_tokens": 0, "output_tokens": 0}, t0):
+                yield ev
+            answer = "".join(out.text).strip()
+            conv.messages.append({"role": "assistant", "content": answer})
+            conv.trim()
+            timings["total_ms"] = _ms(t0)
+            yield TurnComplete(answer, timings, {"input_tokens": 0, "output_tokens": 0}, "screen")
+            return
         # A screenshot is described first (the fast path speaks the result, it can't show a picture).
         text = res.content if isinstance(res.content, str) else \
             (await self._result_text(res, args)).replace("Screen description: ", "")

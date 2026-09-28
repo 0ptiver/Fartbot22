@@ -215,6 +215,18 @@ async def check(full: bool) -> int:
         except Exception as e:
             line(WARN, "video control limited (play/pause falls back to the media key)",
                  f"{type(e).__name__}: {e}. Run scripts\\update.ps1")
+        try:
+            import asyncio
+            import time as _time
+
+            from assistant.tools import ocr
+            started = _time.perf_counter()
+            _, lines = await asyncio.to_thread(ocr.read_screen, "screen", 1)
+            line(OK, f"Nova reads the screen itself ({len(lines)} lines of text on screen 1, "
+                     f"{(_time.perf_counter() - started) * 1000:.0f} ms)")
+        except Exception as e:
+            line(WARN, "Nova can't read the screen itself (Claude looks instead)",
+                 f"{type(e).__name__}: {str(e)[:120]}")
 
     from assistant.voice.voiceprint import WEIGHTS_FILE, VoiceLock
     lock = VoiceLock()
