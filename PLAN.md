@@ -261,6 +261,12 @@ scripts/           # install, run, register-startup
 - [x] Owner: "when I tell him to full screen my video or things like that he doesn't". Causes: Windows blocks background programs from switching windows, so F went to whichever window was in front; and F only works when the page (not YouTube's search box) has the keyboard; and Nova reported success without checking. Now: WindowBackend.focus (Alt tap + AttachThreadInput + minimise/restore fallback, verified); video full screen clicks the player's own "Full screen" button (UI Automation) with F as backup and checks the window really covers the screen (says so if not); mute clicks "Mute"; "switch to X" reports when Windows refuses; typing/keys first return the keyboard to your window if Nova's window is in front
 - [x] Grid/numbers instructions spoken once per session, then just "Grid on." / "Numbers on."
 
+### Wake word + browser slips (owner: "he answers everything I say when I don't say his name"; "I asked it to close a tab and it closed the browser ... now the hud is not moving")
+- [x] Follow-up window, talking over Nova and pause-and-continue no longer bypass the name for chat (see CLAUDE.md lesson); stand down needs the name (the "frozen" window was stand-down mode, triggered by "stand down!" from GTA RP)
+- [x] "Close Gmail" closes the Gmail tab (was: the whole of Firefox, matched by window title); switch to a tab name switches tabs; no browser open -> new tab/go/reopen start the default browser
+- [x] "type in X" types X; "press the Instagram" clicks it; app names capitalised
+- [ ] Not yet tried on the PC
+
 ### Your browser and any app (owner: "he still struggles doing simple tasks like open a new tab on my browser, I want him to control and navigate my browser and any app effortlessly")
 - [x] Causes: "open a new tab on my browser" wasn't understood (went to the model); shortcuts went to whichever window was in front (Discord, the game, Nova's window)
 - [x] `my_browser` (tools/mybrowser.py): finds the user's browser (front, else last used), brings it forward (checked), then new tab (+ site/search), go, switch/close tab by name or number, next/previous, reopen, back/forward, reload, list tabs, find on page, click a link. Verified by the tab strip (UIA TabItems, top row/left column only), window title, address bar. Without a tab list: Ctrl+Tab through the tabs reading titles. press_keys with a browser in front takes the same path

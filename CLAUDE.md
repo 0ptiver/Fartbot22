@@ -70,6 +70,8 @@ Branch: `claude/jarvis-voice-assistant-lhnfza` (commit and push there after ever
 - pytest sometimes prints a Rust "panic in a function that cannot unwind" after all tests pass (a livekit tokio thread at interpreter exit, sandbox only). The results above it are what count.
 - **An API saying "OK" or even "playing" is not proof.** Check the local truth: Windows' media list (`video.MEDIA`, GSMTC) for play/pause and Spotify, window style + rect for full screen. Only then say it happened (owner's case, three times).
 - A maximised window covers a taskbar-less monitor: full screen also needs no caption/thick frame.
+- **Speech without the name must be clearly for Nova** (owner: "he answers everything I say"): follow-ups need a command / follow-on / answer to Nova's question (`VoiceLoop._for_me`, `wake.follows_on`); over Nova's voice only name/stop/command; merges only when `wake.unfinished`/`continues`; stand down needs the name ("stand down!" is GTA RP talk).
+- **"Close X" where X is a browser tab closes the tab** (`mybrowser.has_tab`); window titles contain the tab name (owner's case: "close Gmail" closed Firefox).
 - "Cancel" in game chat must not do anything: it only counts with the name, in the follow-up window, while Nova is busy, or while the grid, dictation or a lesson is active.
 
 ## Status (end of this session)
