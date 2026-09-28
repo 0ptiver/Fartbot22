@@ -187,6 +187,16 @@ class LocalBrain:
         original: str | None = None
         learn = True
         request = user_text
+        told_off = _prohibition(user_text)
+        if told_off is not None:
+            # "Stop taking me to that website", "don't do that again": never an action. The small
+            # model re-ran its last call for each of these (owner: "it opened this scam website
+            # like 50 times").
+            conv.awaiting_fix = None
+            conv.last_action = None
+            async for ev in self._say(conv, user_text, told_off.format(sir=sir)):
+                yield ev
+            return
         is_fix, fix = L.correction(user_text)
         if awaiting:
             if _NEVER_MIND.match(user_text):
@@ -318,6 +328,10 @@ class LocalBrain:
             calls.append({"tool": it[0], "args": it[1]})
         if whole and whole[0] == "video" and all(c["tool"] in ("video", "media") for c in calls):
             return None                                  # "full screen the video and play it": one video command
+        # "Open a new tab for me? Can you open Kelley Blue Book?": one new tab with the site in it.
+        if (len(calls) == 2 and calls[0]["tool"] == "my_browser" and calls[0]["args"] == {"action": "new_tab"}
+                and calls[1]["tool"] == "open_website" and calls[1]["args"].get("site")):
+            return [{"tool": "my_browser", "args": {"action": "new_tab", "go": calls[1]["args"]["site"]}}]
         return calls
 
     def _complaint(self, text: str, ctx: ToolContext) -> list[dict] | None:
@@ -693,6 +707,8 @@ def _small_talk(text: str, sir: str, owner: str = "", name: str = "Nova") -> str
     t = re.sub(r"[^\w\s']", "", text.lower()).strip()
     t = re.sub(r"\b(?:nova|sir|mate|buddy)\b", "", t)
     t = re.sub(r"\s+", " ", t).strip()
+    if not t and re.search(r"\bnova\b", text, re.I):
+        return f"Yes{sir}?"                      # just the name (it used to repeat the last reply)
     for pat, reply in _SMALL_TALK:
         if re.fullmatch(pat, t):
             h = time.localtime().tm_hour
@@ -705,7 +721,7 @@ def _small_talk(text: str, sir: str, owner: str = "", name: str = "Nova") -> str
 
 _DIDNT = re.compile(r"\byou (?:didn'?t|did not|never|haven'?t|have not|still haven'?t|forgot to)\s+(.+?)"
                     r"(?=\s*(?:[,.!?;]|\band\b|\bbut\b)\s*(?:you\b|$|and\b|but\b)|$)", re.I)
-_SPLIT = re.compile(r"\s*,?\s*\b(?:and then|and also|and|then|also)\b\s*|\s*,\s*", re.I)
+_SPLIT = re.compile(r"\s*,?\s*\b(?:and then|and also|and|then|also)\b\s*|\s*,\s*|(?<=[?.!])\s+", re.I)
 
 _OPEN_BROWSER = re.compile(
     r"^(?:(?:but|so|then|ok|okay|can you|could you|why don'?t you|just|please|go ahead and|nova)[, ]+)*"
@@ -727,6 +743,33 @@ def _open_browser_followup(text: str, last_query: str | None) -> dict | None:
 def _browser_active() -> bool:
     from assistant.tools.browser import BROWSER
     return BROWSER.active
+
+
+_PROHIBIT = re.compile(r"^\W*(?:no+\b[\s,.!]*|nova\b[\s,.!]*)*(?:please\s+)?(?:stop|don'?t|do not|never(?! ?mind)|quit|cut it out|"
+                       r"enough|you keep|why do you keep|why are you)\b", re.I)
+_ABOUT_SITE = re.compile(r"\b(?:website|site|page|url|link|there|that place)\b|\b(?:take|taking|send|sending|open|opening|go|going|"
+                         r"load|loading|bring|bringing)\b.*\b(?:that|it|there)\b", re.I)
+
+
+def _prohibition(text: str) -> str | None:
+    """What to say to 'stop taking me to that website' / 'don't do that again' (no action), or
+    None when it's a normal request ('stop the music' is a command)."""
+    if not _PROHIBIT.match(text):
+        return None
+    from assistant.brain.intents import match_intent
+    try:
+        if match_intent(text) is not None:
+            return None
+    except Exception:
+        pass
+    if _ABOUT_SITE.search(text):
+        from assistant.tools import sitecheck
+        host = sitecheck.LAST_OPENED.get("host")
+        if host:
+            sitecheck.block(host)
+            return (f"Understood{{sir}}. I won't open {host} again; it's blocked. "
+                    f"Say \"unblock {host}\" if you ever want it back.")
+    return "Understood{sir}. I won't."
 
 
 _NEVER_MIND = re.compile(r"^\W*(?:never ?mind|forget it|nothing|cancel|it'?s fine|no|nah|don'?t worry)\b", re.I)

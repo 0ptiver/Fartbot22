@@ -94,3 +94,11 @@ def _no_waiting_in_the_browser(monkeypatch):
     """The browser control re-reads the tabs a few times on the PC; not in tests."""
     from assistant.tools import mybrowser
     monkeypatch.setattr(mybrowser, "STEP_S", 0)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_blocked_sites(tmp_path, monkeypatch):
+    """Nor the owner's blocked websites (data/blocked-sites.json)."""
+    from assistant.tools import sitecheck
+    monkeypatch.setattr(sitecheck, "BLOCKED_FILE", tmp_path / "blocked-sites.json")
+    monkeypatch.setattr(sitecheck, "LAST_OPENED", {"host": ""})

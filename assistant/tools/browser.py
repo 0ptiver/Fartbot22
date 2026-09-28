@@ -333,17 +333,19 @@ async def browser(args: dict, ctx: ToolContext) -> str:
     b.last_used = time.time()
     try:
         if action == "open":
-            url = resolve(args.get("site") or args.get("text") or "")
+            from assistant.tools import sitecheck
+            url, note = sitecheck.check(resolve(args.get("site") or args.get("text") or ""))
             await page.goto(url, wait_until="domcontentloaded")
             await _settle(page)
             await page.bring_to_front()
-            return await page_report(page, details)
+            return (note + " " if note else "") + await page_report(page, details)
         if action == "search":
             query = (args.get("text") or "").strip()
             if not query:
                 raise ToolError("What should I search for?")
             if args.get("site"):
-                await page.goto(resolve(args["site"]), wait_until="domcontentloaded")
+                from assistant.tools import sitecheck
+                await page.goto(sitecheck.check(resolve(args["site"]))[0], wait_until="domcontentloaded")
                 await _settle(page, 3000)
             if page.url in ("about:blank", ""):
                 await page.goto("https://duckduckgo.com/?q=" + quote_plus(query), wait_until="domcontentloaded")

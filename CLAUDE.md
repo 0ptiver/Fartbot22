@@ -73,6 +73,8 @@ Branch: `claude/jarvis-voice-assistant-lhnfza` (commit and push there after ever
 - A maximised window covers a taskbar-less monitor: full screen also needs no caption/thick frame.
 - **Speech without the name must be clearly for Nova** (owner: "he answers everything I say"): follow-ups need a command / follow-on / answer to Nova's question (`VoiceLoop._for_me`, `wake.follows_on`); over Nova's voice only name/stop/command; merges only when `wake.unfinished`/`continues`; stand down needs the name ("stand down!" is GTA RP talk).
 - **"Close X" where X is a browser tab closes the tab** (`mybrowser.has_tab`); window titles contain the tab name (owner's case: "close Gmail" closed Firefox).
+- **Every address is fact-checked before opening** (`tools/sitecheck.py`, used by my_browser, open_website and Nova's browser): lookalikes of known sites (one letter off, doubled letters, digits for letters, .co for .com) open the real site with a note; banned sites (data/blocked-sites.json) never open; unknown site *names* become a search, never a guessed address. Owner's case: kbbb.com (scam lookalike of kbb.com) opened ~50 times.
+- **"Don't"/"stop" messages never act** (`local._prohibition`): the 4B model re-ran its last tool call for "stop taking me to that website". About a site, they ban the last opened one. A bare "Nova" gets "Yes, sir?".
 - "Cancel" in game chat must not do anything: it only counts with the name, in the follow-up window, while Nova is busy, or while the grid, dictation or a lesson is active.
 
 ## Status (end of this session)

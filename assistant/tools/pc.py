@@ -5,6 +5,8 @@ Windows calls go through small backend functions so the logic is testable anywhe
 
 from __future__ import annotations
 
+import re
+
 import shutil
 import subprocess
 import sys
@@ -519,14 +521,29 @@ def open_website(args: dict, ctx: ToolContext, _open=None) -> str:
         base = engines.get(target.lower(), "https://www.google.com/search?q=")
         opener(base + quote_plus(query))
         return f"Searching {'Google' if base.startswith('https://www.google.com/search') else target.title()} for {query}."
-    url = SITES.get(target.lower().removesuffix(".com"), target)
+    low = target.lower().strip(" .").removeprefix("the ")
+    url = SITES.get(low.removesuffix(".com"))
+    if url is None:
+        from assistant.tools.browser import NAMES
+        if low in NAMES:
+            url = "https://" + NAMES[low]
+        elif target.strip() and ":" not in target and \
+                not re.fullmatch(r"(?:https?://)?[\w-]+(?:\.[\w-]+)+(?:[/?#]\S*)?", target.strip(), re.I):
+            # A name Nova doesn't know: search for it rather than guess an address (a guess can be
+            # a scam lookalike; owner's case).
+            opener("https://www.google.com/search?q=" + quote_plus(target))
+            return f"I searched for {target}; pick the official site from the results."
+        else:
+            url = target.strip()
     if "://" not in url:
         url = "https://" + url
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https") or not parsed.netloc or " " in parsed.netloc:
         raise ToolError("I only open normal web addresses (http or https).")
+    from assistant.tools import sitecheck
+    url, note = sitecheck.check(url)              # lookalikes -> the real site; banned sites refused
     opener(url)
-    return f"Opened {parsed.netloc.removeprefix('www.')}."
+    return note or f"Opened {urlparse(url).netloc.removeprefix('www.')}."
 
 
 def register(reg: ToolRegistry) -> None:

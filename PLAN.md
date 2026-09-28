@@ -261,6 +261,12 @@ scripts/           # install, run, register-startup
 - [x] Owner: "when I tell him to full screen my video or things like that he doesn't". Causes: Windows blocks background programs from switching windows, so F went to whichever window was in front; and F only works when the page (not YouTube's search box) has the keyboard; and Nova reported success without checking. Now: WindowBackend.focus (Alt tap + AttachThreadInput + minimise/restore fallback, verified); video full screen clicks the player's own "Full screen" button (UI Automation) with F as backup and checks the window really covers the screen (says so if not); mute clicks "Mute"; "switch to X" reports when Windows refuses; typing/keys first return the keyboard to your window if Nova's window is in front
 - [x] Grid/numbers instructions spoken once per session, then just "Grid on." / "Numbers on."
 
+### Scam lookalike (owner: "make it fact check what the real url is before it goes to it, it just opened this scam website like 50 times")
+- [x] sitecheck: lookalikes -> real site with a note; banned sites never open (block/unblock/list by voice); unknown names searched, not guessed; in all three website paths
+- [x] "Stop taking me to that website" / "don't ... again": no model, no tool; bans the site just opened
+- [x] "Open a new tab for me? Can you open Kelly Blue Book?" -> one new tab with kbb.com (sentences split; "for me" isn't a place); "open the website X"; "Nova" alone -> "Yes, sir?"
+- [ ] Not yet tried on the PC
+
 ### Wake word + browser slips (owner: "he answers everything I say when I don't say his name"; "I asked it to close a tab and it closed the browser ... now the hud is not moving")
 - [x] Follow-up window, talking over Nova and pause-and-continue no longer bypass the name for chat (see CLAUDE.md lesson); stand down needs the name (the "frozen" window was stand-down mode, triggered by "stand down!" from GTA RP)
 - [x] "Close Gmail" closes the Gmail tab (was: the whole of Firefox, matched by window title); switch to a tab name switches tabs; no browser open -> new tab/go/reopen start the default browser

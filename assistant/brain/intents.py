@@ -355,6 +355,8 @@ def memory_intent(raw: str, t: str) -> tuple[str, dict] | None:
 _SITES = {"youtube", "google", "netflix", "twitch", "reddit", "gmail", "amazon", "twitter", "facebook",
           "instagram", "tiktok", "wikipedia", "github", "chatgpt", "claude", "google maps", "maps",
           "outlook", "prime video", "disney plus", "hulu", "ebay"}
+# Names in Nova's site list that are (also) apps on the PC: "open Spotify" means the app.
+_APP_FIRST = {"spotify", "steam", "discord", "claude", "chatgpt", "x", "weather", "target", "maps", "google maps"}
 _NOT_AN_APP = re.compile(r"\b(?:news|file|folder|document|documents|downloads|pictures|photo|tab|window|link|"
                          r"grid|numbers|settings for|and|then|with|it|that|this|routine|timer|video|movie|music|song|playlist|"
                          r"dictation|recording|lesson|mode|watching|over|again)\b")
@@ -434,6 +436,9 @@ def everyday_intent(t: str) -> tuple[str, dict] | None:
                          r"|what does " + page + r" say about (?P<about>.+)", t):
         q = f"what does it say about {m.group('about')}" if m.group("about") else t
         return "summarize_page", {"question": q}
+    from assistant.tools.sitecheck import block_intent
+    if blocked := block_intent(t):
+        return blocked
     if re.fullmatch(r"(?:empty|clear|clean out|clean) (?:out )?(?:the |my )?(?:recycle bin|recycling bin|bin|trash)", t):
         return "empty_recycle_bin", {}
     # Folders: "open my downloads (folder)"
@@ -483,6 +488,9 @@ def everyday_intent(t: str) -> tuple[str, dict] | None:
         return "window", {"action": "focus", "app": "the game" if what in ("game", "gta") else "back"}
     if re.fullmatch(r"(?:switch|go|take me) to (?:the |my )game|open (?:the |my )game back up", n):
         return "window", {"action": "focus", "app": "the game"}
+    if m := re.fullmatch(r"(?:open|go to|pull up|bring up|load|take me to) (?:up )?(?:the )?(?:website|web site|site|page)"
+                         r"(?: for| called| of)? (.+)", t):
+        return "open_website", {"site": m.group(1)}
     if re.fullmatch(r"(?:close|quit|exit) " + _THIS, n):
         return "window", {"action": "close", "app": "this"}
     if m := (re.fullmatch(r"(?:fully close|completely close|force close|kill|shut down) (?:the |my )?(.+?)(?: app)?", n)
@@ -495,8 +503,11 @@ def everyday_intent(t: str) -> tuple[str, dict] | None:
                      r"(?: app| application| program)?", n)
     if m and len(m.group(2).split()) <= 3 and not _NOT_AN_APP.search(m.group(2)):
         verb, what = m.group(1), m.group(2)
-        if verb in ("open", "launch", "go to") and what in _SITES:
-            return "open_website", {"site": what}
+        from assistant.tools.browser import NAMES
+        site = re.sub(r"^(?:the )?(?:website |site )?", "", what).removesuffix(" website").removesuffix(" site")
+        web_name = site in NAMES and site not in _APP_FIRST
+        if verb in ("open", "launch", "go to", "bring up") and (what in _SITES or web_name):
+            return "open_website", {"site": what if what in _SITES else site}   # "open kelley blue book": a site
         if verb in ("open", "launch", "start"):
             return "open_app", {"name": what}
         if verb in ("close", "quit", "exit"):

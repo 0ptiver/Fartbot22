@@ -6,11 +6,11 @@ import logging
 
 from assistant.core.config import Settings
 from assistant.tools import (apps, browser, expert, files, grid, hudnav, keyboard, learn, memory, music, mybrowser,
-                             pc, quick, routines, screen, system, teach, timers, uia, video, voice, watch, web)
+                             pc, quick, routines, screen, sitecheck, system, teach, timers, uia, video, voice, watch, web)
 from assistant.tools.registry import AuditLog, ToolRegistry
 
 TOOL_MODULES = [system, screen, expert, music, files, timers, pc, grid, video, keyboard, uia, memory, watch, voice, teach,
-                hudnav, learn, browser, quick, mybrowser, apps]
+                hudnav, learn, browser, quick, mybrowser, apps, sitecheck]
 
 
 # Hidden from the model (still run by the fast path, routines and the window). The small local
@@ -19,7 +19,7 @@ TOOL_MODULES = [system, screen, expert, music, files, timers, pc, grid, video, k
 MODEL_HIDDEN = {"dictation", "cancel_shutdown", "cancel_watch", "list_watches", "lessons", "set_location",
                 "show_page", "subtitles", "set_voice", "voice_lock", "teach", "queue_song", "mouse", "mouse_grid",
                 "show_numbers", "press_key", "now_playing", "recall", "music_control", "lock_pc", "power",
-                "delete_file", "move_file", "days_until", "empty_recycle_bin", "summarize_page", "brightness", "click_element", "type_text", "press_keys", "convert"}
+                "delete_file", "move_file", "days_until", "empty_recycle_bin", "summarize_page", "brightness", "click_element", "type_text", "press_keys", "convert", "block_site"}
 
 
 def build_registry(settings: Settings, audit: AuditLog | None = None) -> ToolRegistry:

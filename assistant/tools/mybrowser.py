@@ -207,7 +207,11 @@ async def _click(ctx: ToolContext, rect) -> None:
 
 
 async def _navigate(w, text: str, new_tab: bool) -> str:
+    from assistant.tools import sitecheck
     url, is_site = destination(text)
+    note = ""
+    if is_site:
+        url, note = sitecheck.check(url)          # lookalikes -> the real site; banned sites refused
     before = await _read(w.hwnd)
     if new_tab:
         await _keys("ctrl+t")
@@ -227,7 +231,7 @@ async def _navigate(w, text: str, new_tab: bool) -> str:
         raise ToolError(f"I typed it into {label(w)}'s address bar, but the page didn't change. "
                         "Click on the browser once, then ask again.")
     if is_site:
-        return f"Opened {_nice(url)}{where} in {label(w)}."
+        return note or f"Opened {_nice(url)}{where} in {label(w)}."
     return f"Searched for {text}{where} in {label(w)}."
 
 
@@ -491,7 +495,7 @@ def tab_intent(t: str) -> tuple[str, dict] | None:
         return "my_browser", {"action": "new_tab"}
     m = (re.fullmatch(r"(?:open|pull up|bring up|load|go to|put) (.+?) (?:in|on) (?:a )?(?:new|another|separate) tab" + _BR, t)
          or re.fullmatch(r"(?:(?:open|make) )?(?:a )?new tab(?: and| then|,)? (?:go to|open|with|for|to|search(?: for)?|"
-                         r"and search(?: for)?|look up|google) (.+?)" + _BR, t))
+                         r"and search(?: for)?|look up|google) (?!me\b|us\b)(.+?)" + _BR, t))
     if m:
         return "my_browser", {"action": "new_tab", "go": m.group(1)}
     if m := re.fullmatch(r"(?:go to|open|load|search(?: for)?) (.+?) in (?:this|the same|the current) tab", t):
