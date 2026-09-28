@@ -225,6 +225,19 @@ async def check(full: bool) -> int:
     else:
         line(OK, "voice lock ready (say \"Nova, learn my voice\" to turn it on)")
 
+    try:
+        from assistant.brain.agent import Agent
+        agent = Agent(s)
+        if not s.brain.agent.enabled:
+            line(OK, "work it out (Claude with Nova's tools): off")
+        elif agent.available():
+            line(OK, "work it out ready: when Nova is stuck, Claude does it with Nova's tools"
+                 + ("" if s.brain.agent.on_failure else " (only when you say \"figure it out\")"))
+        else:
+            line(WARN, "work it out unavailable", "needs Claude Code installed and signed in (run `claude` once)")
+    except Exception as e:
+        line(WARN, "work it out check failed", str(e)[:120])
+
     from assistant.integrations.spotify import Spotify
     line(OK if Spotify.linked() else WARN, "Spotify " + ("linked" if Spotify.linked() else "not linked"),
          "" if Spotify.linked() else "for music control: python -m assistant spotify login")
