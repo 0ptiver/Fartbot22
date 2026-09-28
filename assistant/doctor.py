@@ -207,8 +207,11 @@ async def check(full: bool) -> int:
             importlib.import_module("winrt.windows.foundation.collections")   # get_sessions needs it
             from winrt.windows.media.control import (
                 GlobalSystemMediaTransportControlsSessionManager as Media)
-            n = len(list((await Media.request_async()).get_sessions()))
+            n = len(list((await asyncio.wait_for(Media.request_async(), 5)).get_sessions()))
             line(OK, f"video control ready (Windows lists {n} media session{'s' if n != 1 else ''})")
+        except asyncio.TimeoutError:
+            line(WARN, "Windows' media list isn't answering (an app's media controls are stuck)",
+                 "restart the browser or Spotify; Nova carries on without it")
         except Exception as e:
             line(WARN, "video control limited (play/pause falls back to the media key)",
                  f"{type(e).__name__}: {e}. Run scripts\\update.ps1")

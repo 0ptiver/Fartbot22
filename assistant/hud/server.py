@@ -412,6 +412,7 @@ def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=Non
             last_timers = 0.0
             last_vitals = 0.0
             last_media, media_sent = 0.0, None
+            media_job: asyncio.Task | None = None
             while True:
                 try:
                     ev = await asyncio.wait_for(queue.get(), STATUS_EVERY_S)
@@ -425,10 +426,15 @@ def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=Non
                 if now - last_timers >= 1.0:
                     last_timers = now
                     await send(timers(scheduler, settings, watchers))
-                if now - last_media >= MEDIA_EVERY_S:
+                if now - last_media >= MEDIA_EVERY_S and (media_job is None or media_job.done()):
                     last_media = now
-                    items = await now_playing_items()
-                    if items != media_sent:
+                    # Asked on the side with a time limit: if Windows' media list hangs, the rest
+                    # of the window keeps moving (owner: "now the hud is not moving").
+                    media_job = asyncio.create_task(asyncio.wait_for(now_playing_items(), 3.0))
+                if media_job is not None and media_job.done():
+                    job, media_job = media_job, None
+                    items = None if job.cancelled() or job.exception() else job.result()
+                    if items is not None and items != media_sent:
                         media_sent = items
                         await send({"type": "media", "items": items})
                 if now - last_vitals >= VITALS_EVERY_S:

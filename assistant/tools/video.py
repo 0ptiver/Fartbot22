@@ -22,6 +22,7 @@ MUSIC_APPS = ("spotify",)
 # YouTube-style keys; also work on most players (Netflix, Twitch, Prime use f/space/m).
 KEY_ACTIONS = {"fullscreen": "f", "exit_fullscreen": "escape", "mute": "m", "forward": "l", "back": "j",
                "skip_ad": ""}
+ASK_S = 2.0                # longest wait for Windows' media list (it can hang)
 SETTLE_S = 0.25            # between checks that play/pause really happened
 ACTIONS = ["play", "pause", "toggle", "fullscreen", "exit_fullscreen", "mute", "forward", "back",
            "next", "previous", "skip_ad"]
@@ -45,6 +46,7 @@ class MediaBackend:
 
     def __init__(self):
         self._sessions: list = []
+        self._manager = None
 
     async def list(self) -> list[Media]:
         if sys.platform != "win32":
@@ -52,17 +54,23 @@ class MediaBackend:
         try:
             from winrt.windows.media.control import (
                 GlobalSystemMediaTransportControlsSessionManager as Manager)
-            mgr = await Manager.request_async()
-            self._sessions = list(mgr.get_sessions())
+            # Windows can stop answering (one app's media controls stuck): never wait forever.
+            # That froze the whole window and the update's check (owner's case).
+            if self._manager is None:
+                self._manager = await asyncio.wait_for(Manager.request_async(), ASK_S)
+            self._sessions = list(self._manager.get_sessions())
         except ImportError as e:   # a winrt piece missing: carry on with keys and the media key
             log.warning("media sessions unavailable (%s): run scripts\\update.ps1", e)
+            return []
+        except asyncio.TimeoutError:
+            log.warning("Windows' media list didn't answer within %.0f s", ASK_S)
             return []
         out = []
         for i, s in enumerate(self._sessions):
             try:
-                props = await s.try_get_media_properties_async()
+                props = await asyncio.wait_for(s.try_get_media_properties_async(), ASK_S)
                 status = int(s.get_playback_info().playback_status)
-            except Exception:
+            except Exception:                        # incl. a player that doesn't answer
                 continue
             out.append(Media(i, s.source_app_user_model_id or "", (props.title if props else "") or "",
                              (props.artist if props else "") or "",
@@ -84,7 +92,10 @@ class MediaBackend:
         fn = {"play": s.try_play_async, "pause": s.try_pause_async,
               "toggle": s.try_toggle_play_pause_async, "next": s.try_skip_next_async,
               "previous": s.try_skip_previous_async}[action]
-        return bool(await fn())
+        try:
+            return bool(await asyncio.wait_for(fn(), ASK_S))
+        except asyncio.TimeoutError:
+            return False
 
 
 MEDIA = MediaBackend()

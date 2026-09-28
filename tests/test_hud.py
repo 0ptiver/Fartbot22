@@ -295,3 +295,38 @@ def test_timers_carry_their_start_for_the_progress_bar(settings, tmp_path):
     r = sched.add("timer", time.time() + 60, "tea")
     [item] = hud.timers(sched, settings)["items"]
     assert item["created"] == r.created and item["due"] - item["created"] == pytest.approx(60, abs=2)
+
+
+def test_a_hung_media_list_doesnt_freeze_the_window(rig, monkeypatch):
+    """Owner: 'now the hud is not moving'. Windows' media list can stop answering; the Now
+    playing question is asked on the side, so status and events keep coming."""
+    async def hang():
+        await asyncio.Event().wait()
+    monkeypatch.setattr(hud, "now_playing_items", hang)
+    monkeypatch.setattr(hud, "MEDIA_EVERY_S", 0)
+    client, fake, hub, _ = rig
+    ws = connect(client)
+    t0 = time.monotonic()
+    got = [ws.receive_json()["type"] for _ in range(40)]
+    assert got.count("status") >= 10 and time.monotonic() - t0 < 10
+    ws.close()
+
+
+async def test_media_list_that_never_answers_gives_up(monkeypatch):
+    """The same hang stopped the update's health check (owner's screenshot)."""
+    from assistant.tools import video as V
+
+    class Stuck:
+        def request_async(self):
+            return asyncio.Event().wait()
+    b = V.MediaBackend()
+    monkeypatch.setattr(V, "ASK_S", 0.05)
+    monkeypatch.setattr(V.sys, "platform", "win32")
+    import sys as _s
+    import types
+    mods = {"winrt": types.ModuleType("winrt"), "winrt.windows": types.ModuleType("winrt.windows"),
+            "winrt.windows.media": types.ModuleType("winrt.windows.media"),
+            "winrt.windows.media.control": types.ModuleType("winrt.windows.media.control")}
+    mods["winrt.windows.media.control"].GlobalSystemMediaTransportControlsSessionManager = Stuck()
+    monkeypatch.setattr(_s, "modules", {**_s.modules, **mods})
+    assert await asyncio.wait_for(b.list(), 2) == []
