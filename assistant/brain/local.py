@@ -13,7 +13,9 @@ import json
 import re
 import tempfile
 import time
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from typing import Any, AsyncIterator
 
 import logging
@@ -81,6 +83,61 @@ class ThinkFilter:
         if self.state == "in":
             return ""                           # unterminated reasoning: never speak it
         return out.replace(self.OPEN, "").replace(self.CLOSE, "").strip() if self.state != "pass" else out
+
+
+class ContextFilter:
+    """Never shows or says the <context> block. The small model sometimes copies its notes (the
+    time, the window in front, remembered facts) into its reply (owner's case on the phone).
+    Works on a stream: text that could be the start of a tag is held until it's clear."""
+
+    OPEN, CLOSE = "<context>", "</context>"
+
+    def __init__(self):
+        self.buf, self.inside, self._lstrip = "", False, False
+
+    def feed(self, text: str) -> str:
+        self.buf += text
+        out = []
+        while True:
+            if self.inside:
+                i = self.buf.find(self.CLOSE)
+                if i < 0:
+                    self.buf = self.buf[-(len(self.CLOSE) - 1):]    # keep only what could be the close
+                    break
+                self.buf, self.inside, self._lstrip = self.buf[i + len(self.CLOSE):], False, True
+                continue
+            i = self.buf.find(self.OPEN)
+            j = self.buf.find(self.CLOSE)
+            if j >= 0 and (i < 0 or j < i):                        # a stray close: drop what came before
+                self.buf, self._lstrip = self.buf[j + len(self.CLOSE):], True
+                out.clear()
+                continue
+            if i >= 0:
+                out.append(self.buf[:i])
+                self.buf, self.inside = self.buf[i + len(self.OPEN):], True
+                continue
+            keep = self._partial()
+            out.append(self.buf[:len(self.buf) - keep])
+            self.buf = self.buf[len(self.buf) - keep:]
+            break
+        text = "".join(out)
+        if self._lstrip:
+            text = text.lstrip()
+            self._lstrip = not text
+        return text
+
+    def _partial(self) -> int:
+        """How much of the end could be the start of a tag."""
+        for n in range(min(len(self.buf), len(self.CLOSE) - 1), 0, -1):
+            tail = self.buf[-n:]
+            if self.OPEN.startswith(tail) or self.CLOSE.startswith(tail):
+                return n
+        return 0
+
+    def flush(self) -> str:
+        out, self.buf = ("" if self.inside else self.buf), ""
+        self.inside = False
+        return out.lstrip() if self._lstrip else out
 
 
 class LocalBrain:
@@ -604,6 +661,9 @@ class LocalBrain:
         checkpoint = conv.checkpoint()
         from assistant.brain.situation import situation
         now = await situation()                          # which window is in front, the browser, media
+        up = self._upcoming(ctx)
+        if up:
+            now["timers and reminders set"] = up
         conv.messages.append({"role": "user", "content": turn_context(
             self.settings, {**now, **(extra_context or {})}, self._memories(user_text, ctx)) + "\n" + user_text})
         rounds = 0
@@ -789,16 +849,36 @@ class LocalBrain:
         timings["total_ms"] = _ms(t0)
         yield TurnComplete(spoken, timings, {"input_tokens": 0, "output_tokens": 0}, "fast_command")
 
+    def _upcoming(self, ctx: ToolContext) -> str:
+        """The timers and reminders that are set, for the model's context. Owner's case: the phone
+        showed "junk job at 10am" under Up next, and Nova said it saw no such reminder."""
+        sched = ctx.services.get("scheduler")
+        if sched is None:
+            return ""
+        try:
+            items = sched.upcoming()[:5]
+        except Exception:
+            return ""
+        tz = ZoneInfo(self.settings.assistant.timezone)
+        out = []
+        for r in items:
+            left = max(0, int(r.due - time.time()))
+            h, m = divmod(left // 60, 60)
+            when = datetime.fromtimestamp(r.due, tz).strftime("%H:%M")
+            out.append(f"{r.kind} '{r.text or r.kind}' at {when} (in {f'{h} h ' if h else ''}{m} min)")
+        return "; ".join(out)
+
     async def _model_round(self, conv: Conversation, allow_tools: bool, out: "_Round",
                            timings: dict, usage: dict, t0: float) -> AsyncIterator[TextDelta]:
         """One streamed model response: yields speakable text, collects tool calls in `out`."""
         think = ThinkFilter(hold=self._hold_think)
+        notes = ContextFilter()
         async for chunk in self._stream(self._body(self._fitted(conv.messages, allow_tools), tools=allow_tools)):
             msg = chunk.get("message") or {}
-            # msg["thinking"] (separated reasoning) is never spoken.
-            text = think.feed(msg.get("content") or "")
+            # msg["thinking"] (separated reasoning) is never spoken, nor a copied <context> block.
+            text = notes.feed(think.feed(msg.get("content") or ""))
             if chunk.get("done"):
-                text += think.flush()
+                text += notes.feed(think.flush()) + notes.flush()
             if text:
                 timings.setdefault("first_token_ms", _ms(t0))
                 out.text.append(text)

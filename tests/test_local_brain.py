@@ -445,3 +445,35 @@ def test_answers_are_not_claims():
     from assistant.brain.local import _acts_without_tools
     assert not _acts_without_tools("Playing football is fun.", "do you like sports?")
     assert not _acts_without_tools("The capital is Paris.", "what is the capital of france")
+
+
+def test_a_copied_context_block_is_never_shown_or_said():
+    """Owner's case on the phone: the reply began with Nova's whole <context> block (time, the
+    window in front, remembered facts), then the actual answer."""
+    from assistant.brain.local import ContextFilter
+    leaked = ("<context>\ntime: Monday 28 September 2026, 09:14\nwindow in front: Windows PowerShell\n"
+              "- I'm 6'3 and 170lbs\n</context>\nYou have a junk job at 10, sir.")
+    for size in (1, 2, 3, 7, len(leaked)):              # however the stream happens to be cut up
+        f = ContextFilter()
+        out = "".join(f.feed(leaked[i:i + size]) for i in range(0, len(leaked), size)) + f.flush()
+        assert out == "You have a junk job at 10, sir.", size
+    f = ContextFilter()                                  # ordinary text with a "<" passes untouched
+    assert f.feed("3 < 5 and <b>bold</b>") + f.flush() == "3 < 5 and <b>bold</b>"
+    f = ContextFilter()                                  # never closed: none of it is said
+    assert f.feed("Sure. <context>\ntime: 9:14\n- my height") + f.flush() == "Sure. "
+
+
+async def test_the_model_is_told_the_reminders_that_are_set(local_settings, ctx, tmp_path):
+    """Owner's case: "I literally see it right above, I see junk job at 10am" (Up next)."""
+    import time as _t
+    from assistant.core.scheduler import Scheduler
+    sched = Scheduler(tmp_path / "rem.json", local_settings.assistant.timezone)
+    sched.add("reminder", _t.time() + 45 * 60 + 30, "junk job at 10am")
+    ctx.services["scheduler"] = sched
+    brain, fake = make(local_settings, [text_reply(
+        "<context> time: now </context> Yes sir, your junk job is at 10.")])
+    events = await collect(brain, Conversation(), "do I have anything coming up", ctx)
+    said = "".join(e.text for e in events if isinstance(e, TextDelta))
+    assert said == "Yes sir, your junk job is at 10." and "<context>" not in events[-1].text
+    sent = fake.requests[0][1]["messages"][-1]["content"]
+    assert "reminder 'junk job at 10am'" in sent and "(in 45 min)" in sent

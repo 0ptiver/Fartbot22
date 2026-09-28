@@ -81,6 +81,7 @@ Branch: `claude/jarvis-voice-assistant-lhnfza` (commit and push there after ever
 - **The model may not close/quit/minimise "this" unless the user said this/it/that** (`_wrong_target`): "close Spotify" closed Firefox.
 - "You didn't X" complaints: past tense to base verb (`_BASE`), fillers dropped, extra sentences run too (`_complaint`).
 - **Claude's hand-off never gets file tools or WebFetch** (`AGENT_TOOLS`, `Agent.command`): it reads web pages and the screen, so private data + a way out = exfiltration. `registry.REMOTE_NEVER` is enforced before the configurable remote list. tests/test_hardening.py guards these.
+- **The model can copy its <context> block into the reply** (owner's phone screenshot: time, window, remembered facts, then the answer). `local.ContextFilter` strips it from the stream in `_model_round`; the context also lists the timers/reminders set (`LocalBrain._upcoming`), since Nova said it saw no reminder that Up next showed.
 - "Cancel" in game chat must not do anything: it only counts with the name, in the follow-up window, while Nova is busy, or while the grid, dictation or a lesson is active.
 
 ## Status (end of this session)
