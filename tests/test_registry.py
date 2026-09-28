@@ -1,4 +1,5 @@
 import asyncio
+import json
 import threading
 
 from assistant.tools.registry import Risk, ToolContext, ToolError, ToolRegistry
@@ -85,7 +86,11 @@ async def test_errors_do_not_raise(settings):
     reg = make(settings)
     assert (await reg.execute("boom", {}, ToolContext(settings))).content == "nope"
     res = await reg.execute("crash", {}, ToolContext(settings))
-    assert res.is_error and "ZeroDivisionError" in res.content
+    # Owner's case: "OSError: [WinError ...] Cannot change thread mode" was read out. Plain words
+    # for the owner; the technical detail goes to the audit log (and nova.log).
+    assert res.is_error and "didn't work" in res.content and "ZeroDivisionError" not in res.content
+    audit = [json.loads(line) for line in open(settings.safety.audit_path())]
+    assert audit[-1]["status"] == "exception" and "ZeroDivisionError" in audit[-1]["error"]
 
 
 def test_definitions_sorted_and_eager(settings):
@@ -154,3 +159,20 @@ def test_the_prompt_only_names_tools_the_model_can_see(settings):
     named = set(_re.findall(r"\b([a-z]+(?:_[a-z]+)+|[a-z]+)\b", system_prompt(settings, local=True)))
     assert not (named & hidden - {"mouse", "subtitles", "teach", "lessons"}) , named & hidden
     assert "(mouse" not in system_prompt(settings, local=True)
+
+
+def test_com_mode_already_set_is_fine(monkeypatch):
+    """Owner's case: volume failed with "Cannot change thread mode after it is set" on a worker
+    thread that click-by-name had already set up. A thread that has a mode is used as it is."""
+    import sys
+    import types
+    from assistant.core import com
+    calls = []
+
+    def init(mode):
+        calls.append(mode)
+        raise OSError(com.RPC_E_CHANGED_MODE, "Cannot change thread mode after it is set")
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setitem(sys.modules, "comtypes", types.SimpleNamespace(CoInitializeEx=init, COINIT_MULTITHREADED=0))
+    com.com_ready()                                    # no error
+    assert calls == [0]

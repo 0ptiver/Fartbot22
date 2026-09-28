@@ -66,10 +66,10 @@ def _endpoint_volume():
     """Return the IAudioEndpointVolume for the default speakers (Windows only)."""
     if not IS_WINDOWS:
         raise ToolError("Volume control is only implemented on Windows.")
-    import comtypes
     from pycaw.pycaw import AudioUtilities
 
-    comtypes.CoInitialize()  # handlers run in worker threads; COM needs per-thread init
+    from assistant.core.com import com_ready
+    com_ready()  # handlers run on shared worker threads: the same COM mode as everything else
     speakers = AudioUtilities.GetSpeakers()
     if hasattr(speakers, "EndpointVolume"):  # pycaw >= 20240210
         return speakers.EndpointVolume

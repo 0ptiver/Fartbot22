@@ -48,10 +48,8 @@ class UIABackend:
         _dpi_aware()
         import comtypes
         import comtypes.client
-        try:
-            comtypes.CoInitializeEx(comtypes.COINIT_MULTITHREADED)   # this worker thread
-        except OSError:
-            pass
+        from assistant.core.com import com_ready
+        com_ready()                                                   # this worker thread
         mod = comtypes.client.GetModule("UIAutomationCore.dll")
         uia = comtypes.client.CreateObject(mod.CUIAutomation, interface=mod.IUIAutomation)
         root = uia.ElementFromHandle(hwnd)
@@ -81,10 +79,8 @@ class UIABackend:
         _dpi_aware()
         import comtypes
         import comtypes.client
-        try:
-            comtypes.CoInitializeEx(comtypes.COINIT_MULTITHREADED)
-        except OSError:
-            pass
+        from assistant.core.com import com_ready
+        com_ready()
         mod = comtypes.client.GetModule("UIAutomationCore.dll")
         uia = comtypes.client.CreateObject(mod.CUIAutomation, interface=mod.IUIAutomation)
         cache = uia.CreateCacheRequest()
@@ -110,10 +106,8 @@ class UIABackend:
             return []
         import comtypes
         import comtypes.client
-        try:
-            comtypes.CoInitializeEx(comtypes.COINIT_MULTITHREADED)
-        except OSError:
-            pass
+        from assistant.core.com import com_ready
+        com_ready()
         mod = comtypes.client.GetModule("UIAutomationCore.dll")
         uia = comtypes.client.CreateObject(mod.CUIAutomation, interface=mod.IUIAutomation)
         cache = uia.CreateCacheRequest()

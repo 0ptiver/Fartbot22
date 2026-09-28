@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import logging
 import threading
 import time
 from dataclasses import dataclass, field
@@ -15,6 +16,8 @@ from typing import Any, Awaitable, Callable
 import jsonschema
 
 from assistant.core.config import Settings
+
+log = logging.getLogger(__name__)
 
 
 class Risk(StrEnum):
@@ -271,7 +274,13 @@ class ToolRegistry:
             return ToolResult(str(e), is_error=True)
         except Exception as e:  # unexpected failure: report, don't crash the session
             record["status"] = "exception"
-            return ToolResult(f"{type(e).__name__}: {e}", is_error=True)
+            record["error"] = f"{type(e).__name__}: {e}"[:500]
+            # The technical text goes to the log; the owner hears a plain sentence (owner's case:
+            # "OSError: [WinError -2147417850] Cannot change thread mode..." was read out).
+            log.exception("tool %s failed", name)
+            what = name.replace("_", " ")
+            return ToolResult(f"The {what} control hit an unexpected problem, so it didn't work. "
+                              f"The details are in Nova's log.", is_error=True)
 
         record["status"] = "ok"
         if isinstance(out, ToolResult):
