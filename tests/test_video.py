@@ -107,6 +107,7 @@ async def test_play_is_exact_not_a_toggle(settings, wins):
 async def test_no_media_session_falls_back_to_media_key(settings, wins, monkeypatch):
     pressed = []
     monkeypatch.setattr(music, "press_media_key", pressed.append)
+    wins.wins = [pc.Win(1, "Nova", "msedge.exe")]                   # no browser window either
     out = await V.video({"actions": ["pause"]}, ToolContext(settings), _media=FakeMedia([SPOTIFY]))
     assert pressed == ["play_pause"] and "play/pause" in out
     with pytest.raises(ToolError, match="can't find a video"):
@@ -157,7 +158,7 @@ async def test_missing_winrt_piece_degrades_instead_of_crashing(settings, wins, 
     pressed = []
     monkeypatch.setattr(music, "press_media_key", pressed.append)
     out = await V.video({"actions": ["fullscreen", "play"]}, ToolContext(settings), _media=V.MediaBackend())
-    assert out.startswith("Full screen") and pressed == ["play_pause"]
+    assert out.startswith("Full screen") and "pressed play in Firefox" in out and pressed == []   # the player's own key
 
 
 async def test_fullscreen_clicks_the_players_button_and_checks(settings, wins, monkeypatch):
@@ -280,3 +281,24 @@ async def test_seeking_presses_youtubes_ten_second_keys(settings, wins):
     wins.calls.clear()
     out = await V.video({"actions": ["back"], "seconds": 60}, ToolContext(settings), _media=FakeMedia([YT]))
     assert [c[1] for c in wins.calls if c[0] == "press"] == [pc.KEYS["j"]] * 6 and out.startswith("Went back 1 minute")
+
+
+
+async def test_play_works_when_windows_media_list_is_stuck(settings, wins, monkeypatch):
+    """Owner: 'now my video things aren't working, it can't play the video' (Windows' media list
+    had got stuck). The player's own button is clicked, and its name says it worked."""
+    from assistant.tools import grid as G, uia
+    playing = {"on": False}
+    monkeypatch.setattr(uia, "UIA", type("U", (), {"elements": lambda s, h: [
+        uia.Element("Pause (k)" if playing["on"] else "Play (k)", "button", G.Region(100, 900, 40, 30))]})())
+    from tests.test_grid import FakeMouse, FakeOverlay
+    mouse = FakeMouse()
+    real = mouse.click
+    mouse.click = lambda button="left", double=False: (real(button, double), playing.update(on=not playing["on"]))
+    ctx = ToolContext(settings, services={"grid": G.GridController(mouse=mouse, overlay=FakeOverlay())})
+    out = await V.video({"actions": ["play"]}, ctx, _media=FakeMedia([]))
+    assert out == "Playing." and playing["on"]
+    out = await V.video({"actions": ["play"]}, ctx, _media=FakeMedia([]))
+    assert out == "Already playing."
+    out = await V.video({"actions": ["pause"]}, ctx, _media=FakeMedia([]))
+    assert out == "Paused." and not playing["on"]

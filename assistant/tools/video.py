@@ -256,11 +256,18 @@ async def video(args: dict, ctx: ToolContext, _media: MediaBackend | None = None
             done.append("mute toggled")
             continue
         if media is None:
+            if action in ("play", "pause"):
+                # Windows' media list said nothing (it can get stuck): use the player itself. Its
+                # Play/Pause button's name says what state it's in, before and after.
+                if window is None:
+                    window = await asyncio.to_thread(find_video_window, None)
+                if window is not None:
+                    done.append(await _play_by_button(window, action, ctx))
+                    continue
             if action in ("play", "pause", "toggle"):
-                # Nothing registered with Windows: fall back to the play/pause media key.
                 from assistant.tools import music
                 await asyncio.to_thread(music.press_media_key, "play_pause")
-                done.append("pressed play/pause")
+                done.append("I couldn't see the video, so I pressed the play/pause key")
                 continue
             raise ToolError("I can't find a video playing on this PC.")
         if action == "play" and media.status == "playing":
@@ -309,6 +316,49 @@ async def _seek(window, action: str, seconds: int) -> str:
     await asyncio.sleep(0.12)
     amount = f"{seconds // 60} minute{'s' if seconds >= 120 else ''}" if seconds % 60 == 0 else f"{seconds} seconds"
     return f"skipped ahead {amount}" if action == "forward" else f"went back {amount}"
+
+
+async def ui_state(window) -> str | None:
+    """'playing' / 'paused' from the player's own button (YouTube: 'Pause (k)' while playing,
+    'Play (k)' while paused), or None when the page doesn't say."""
+    from assistant.tools import uia
+    try:
+        elements = await asyncio.to_thread(uia.UIA.elements, window.hwnd)
+    except Exception:
+        return None
+    for e in elements:
+        if e.kind != "button":
+            continue
+        n = uia._norm(e.name)
+        if n in ("pause", "pause k") or n.startswith("pause k "):
+            return "playing"
+        if n in ("play", "play k") or n.startswith("play k "):
+            return "paused"
+    return None
+
+
+async def _play_by_button(window, action: str, ctx: ToolContext) -> str:
+    from assistant.tools import pc
+    want = "playing" if action == "play" else "paused"
+    label = window.process.removesuffix(".exe").capitalize() or "the browser"
+    before = await ui_state(window)
+    if before == want:
+        return f"already {'playing' if action == 'play' else 'paused'}"
+    if not await asyncio.to_thread(pc.WINDOWS.focus, window.hwnd):
+        raise ToolError(f"Windows wouldn't let me switch to {label}. Click on it once, then ask again.")
+    await asyncio.sleep(0.2)
+    await _player_button(window, action, ctx)
+    for _ in range(8):
+        await asyncio.sleep(max(SETTLE_S, 0.01))
+        now = await ui_state(window)
+        if now == want:
+            return "playing" if action == "play" else "paused"
+        if now is None and before is None:
+            break
+    if before is None:
+        return f"pressed {action} in {label}, but the page doesn't show whether it worked"
+    raise ToolError(f"I tried, but the video didn't {'start' if action == 'play' else 'pause'}. "
+                    "Click on the video once, then ask again.")
 
 
 async def _settled(api: MediaBackend, media: Media, want: str, tries: int = 6) -> bool:
