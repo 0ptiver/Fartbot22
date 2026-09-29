@@ -47,6 +47,8 @@ TASK_SYSTEM = (
     " This is a whole job for you to work out and finish on Oliver's PC without him, like a capable "
     "assistant would. 1) Find it: 'this' means what's in front (look_at_screen) or one of his browser tabs "
     "(my_browser list_tabs, then switch to the right one, e.g. the homework or assignment tab). "
+    "Nova's own window (titled Nova) may be on screen while Oliver talks to it: ignore it and never click "
+    "it; bring the window you need to the front first (my_browser, window) and check it's in front. "
     "2) Read ALL of it before starting: every instruction and requirement, scrolling to the end, and any "
     "linked page or attachment it points to. 3) Decide how the work should be handed in: in the page itself "
     "(a quiz, form or survey: select or type the answers there); or, if it asks for written answers, an essay "
@@ -61,7 +63,8 @@ TASK_SYSTEM = (
     "(click_element) and check they took. For questions about Oliver himself that nothing answers, give a "
     "sensible, ordinary answer (or 'prefer not to say'); never invent sensitive details. Never type "
     "passwords, card or bank details, ID numbers or real contact details, and never buy or pay: if the job "
-    "needs one of those, a sign-in or a CAPTCHA, stop with FAILED: and say what's needed. Finish with DONE: "
+    "needs one of those, a sign-in or a CAPTCHA, stop with FAILED: and say what's needed. After each part, "
+    "call progress with a few words on how far you've got (Oliver may ask). Finish with DONE: "
     "and one sentence on what you did and where the work is."
 )
 # Steps worth learning (the ones that change something; looking isn't a step to repeat).

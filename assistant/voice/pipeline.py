@@ -622,6 +622,10 @@ class VoiceLoop:
             await self.interrupt(reason="cancel")
             undone = await self._undo_last(max_age_s=15)       # e.g. a restart it just started
             return undone or f"Cancelled{sir}."
+        jobs = getattr(self.brain, "jobs", None)
+        if jobs is not None and jobs.running():          # a whole job in the background
+            jobs.stop()
+            return f"Stopped{sir}."
         grid = self.ctx.services.get("grid")
         if grid is not None and grid.visible:
             await asyncio.to_thread(grid.hide)

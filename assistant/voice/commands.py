@@ -34,7 +34,8 @@ def classify_yes_no(text: str) -> bool | None:
 _CANCEL = re.compile(
     r"^(?:(?:hey |ok |okay |no |wait |actually |oh |sorry |um |uh |nova )*)"
     r"(?:cancel|cancel (?:that|it|this|the last (?:one|thing)|what you just did)|never ?mind|forget (?:it|that)|abort|"
-    r"scrap that|undo that|undo|stop that|don'?t do (?:that|it)|call it off|take that back)"
+    r"scrap that|undo that|undo|stop that|don'?t do (?:that|it)|call it off|take that back|"
+    r"stop working|stop what you'?re doing|stop (?:the|that|this|my) (?:job|task|assignment|homework|work|survey))"
     r"(?: please| nova| sir| thanks| then| now)*$")
 
 

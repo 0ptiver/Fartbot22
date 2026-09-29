@@ -96,6 +96,7 @@ def timers(scheduler, settings: Settings, watchers=None) -> dict[str, Any]:
 
 
 MEDIA_EVERY_S = 2.0
+MEDIA_WAIT_S = 5.0          # longer than the media list's own limit (video.ASK_S * 2), so it decides
 _HUD_MEDIA = None           # its own reader: the tools' reader keeps a session list they index into
 
 
@@ -430,7 +431,10 @@ def create_hud_app(settings: Settings, loop, hub: Hub, token: str, scheduler=Non
                     last_media = now
                     # Asked on the side with a time limit: if Windows' media list hangs, the rest
                     # of the window keeps moving (owner: "now the hud is not moving").
-                    media_job = asyncio.create_task(asyncio.wait_for(now_playing_items(), 3.0))
+                    media_job = asyncio.create_task(asyncio.wait_for(now_playing_items(), MEDIA_WAIT_S))
+                    # Its outcome is always collected, even if this window closes first (owner's log:
+                    # "Task exception was never retrieved ... TimeoutError").
+                    media_job.add_done_callback(lambda t: t.cancelled() or t.exception())
                 if media_job is not None and media_job.done():
                     job, media_job = media_job, None
                     items = None if job.cancelled() or job.exception() else job.result()

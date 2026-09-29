@@ -257,22 +257,100 @@ async def test_told_to_do_something_it_never_just_says_it_cant(local_settings, c
 
 
 
-# --- "complete the task on my screen" ---------------------------------------------------------------
+# --- whole jobs, in the background -----------------------------------------------------------------
+class FakeVoice:
+    def __init__(self):
+        self.said, self.events = [], []
+
+    async def announce(self, text):
+        self.said.append(text)
+
+    def on_event(self, ev):
+        self.events.append(ev)
+
+
+async def started(brain):
+    for _ in range(200):                                # bounded: never hangs the tests
+        if brain.jobs.current.note:
+            return
+        await asyncio.sleep(0.005)
+    raise AssertionError("the job never started")
+
+
+class SlowAgent(FakeAgent):
+    """Works until told to finish, reporting progress like Claude would."""
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.go = asyncio.Event()
+
+    async def run(self, task, context="", on_step=None, long=False):
+        self.calls.append((task, context))
+        self.long = long
+        on_step({"tool": "look_at_screen", "args": {}, "ok": True, "ms": 100, "result": "Assignment: 5 questions"})
+        on_step({"tool": "progress", "args": {"note": "answered 3 of 5 questions"}, "ok": True, "ms": 0})
+        await self.go.wait()
+        on_step({"tool": "write_document", "args": {"title": "Answers"}, "ok": True, "ms": 50, "result": "Saved"})
+        return A.AgentResult(self.ok, self.say, [])
+
+
 @pytest.mark.parametrize("phrase", ["hey nova go ahead and complete this assignment for me right",
                                     "Nova, do my homework", "answer these questions",
-                                    "complete the task on my screen right", "Nova, fill out this survey for me",
-                                  "finish the form on my screen", "do what's on my screen"])
-async def test_a_whole_task_on_the_screen_is_seen_through(local_settings, ctx, phrase):
-    """Owner: "say complete the task on my screen and he will go through and complete the task until
-    it's finished, like a real capable JARVIS". Straight to Claude, in long mode; not a shortcut."""
+                                    "complete the task on my screen right",
+                                    "Nova, fill out this survey for me", "do what's on my screen"])
+async def test_a_whole_job_starts_in_the_background(local_settings, ctx, phrase):
     brain, fake = make(local_settings, [])
-    agent = with_agent(brain, FakeAgent(say="Survey submitted, the thank-you page is showing", steps=[
-        {"tool": "click_element", "args": {"name": "Very satisfied"}, "ok": True, "ms": 300, "result": "Clicked"},
-        {"tool": "click_element", "args": {"name": "Submit"}, "ok": True, "ms": 300, "result": "Clicked"}]))
+    agent = with_agent(brain, SlowAgent(say="All five answers are saved in Documents"))
     events = await collect(brain, Conversation(), phrase, ctx)
-    text = said(events)
-    assert text.startswith("On it, sir.") and "thank-you page is showing" in text and agent.long is True
-    assert not fake.requests and L.get_lessons().items() == []
+    assert said(events).startswith("On it, sir.") and brain.jobs.running() and not fake.requests
+    agent.go.set()
+    await brain.jobs.current.handle
+    assert agent.long is True and brain.jobs.current.status == "done" and L.get_lessons().items() == []
+
+
+async def test_nova_keeps_working_while_answering_how_far(local_settings, ctx):
+    """Owner's case: "What are you doing right now?" cancelled the job, then Nova made up "I am still
+    working on your assignment". Now the job carries on, and he answers from its real progress."""
+    brain, fake = make(local_settings, [])
+    agent = with_agent(brain, SlowAgent(say="All five answers are saved in Documents"))
+    voice = ctx.services["voice"] = FakeVoice()
+    conv = Conversation()
+    await collect(brain, conv, "go ahead and complete this assignment for me", ctx)
+    await started(brain)
+    for question in ("What are you doing right now?", "are you still working?", "how far have you gotten?"):
+        reply = said(await collect(brain, conv, question, ctx))
+        assert reply.startswith("Still on it, sir: answered 3 of 5 questions."), reply
+    assert brain.jobs.running() and not fake.requests                  # never cancelled, no model guess
+    assert any(e.get("name") == "look_at_screen" for e in voice.events)  # steps still reach the live feed
+    agent.go.set()
+    await brain.jobs.current.handle
+    assert voice.said == ["All done, sir. All five answers are saved in Documents."]
+    assert said(await collect(brain, conv, "is it done?", ctx)).startswith("All done, sir.")
+    assert "background job" in conv.messages[-3]["content"]
+
+
+async def test_stop_halts_the_job(local_settings, ctx):
+    brain, fake = make(local_settings, [])
+    with_agent(brain, SlowAgent())
+    voice = ctx.services["voice"] = FakeVoice()
+    conv = Conversation()
+    await collect(brain, conv, "do my homework", ctx)
+    await started(brain)
+    reply = said(await collect(brain, conv, "stop", ctx))
+    assert reply == "Stopped, sir. I'd got as far as: answered 3 of 5 questions."
+    await asyncio.sleep(0)
+    assert brain.jobs.running() is None and brain.jobs.current.status == "stopped" and voice.said == []
+
+
+async def test_one_job_at_a_time(local_settings, ctx):
+    brain, fake = make(local_settings, [])
+    agent = with_agent(brain, SlowAgent())
+    conv = Conversation()
+    await collect(brain, conv, "do my homework", ctx)
+    reply = said(await collect(brain, conv, "fill out this survey for me", ctx))
+    assert "still on the last one" in reply and len(agent.calls) <= 1
+    agent.go.set()
+    await brain.jobs.current.handle
 
 
 def test_long_mode_gets_time_steps_and_the_task_instructions(settings, tmp_path):

@@ -153,6 +153,8 @@ class LocalBrain:
         self._think_supported = True
         self._hold_think = False               # set for models that can't stop thinking
         self.last_vision_stats: dict = {}
+        from assistant.brain.jobs import Jobs
+        self.jobs = Jobs()                      # whole jobs, worked on in the background
 
     # --- helpers ----------------------------------------------------------------
     def tools(self) -> list[dict[str, Any]]:
@@ -232,14 +234,31 @@ class LocalBrain:
         says it can't), Claude works it out with Nova's tools and the steps are learned. 'Figure it
         out' / 'try another way' asks for that directly (owner chose automatic: "it keeps saying I
         can't do this and that ... allow it to self learn and be able to work through things")."""
+        from assistant.brain import jobs as J
         who = self.settings.assistant.address_user_as
         sir = f", {who}" if who else ""
-        if _SCREEN_TASK.match(user_text.strip()):
-            # "Complete the task on my screen": the whole job, start to finish (owner: "like a real
-            # capable JARVIS").
+        text = user_text.strip()
+        # A job in the background: Nova keeps talking while he works (owner: "are you still working,
+        # how far have you gotten? ... keep working while responding").
+        if self.jobs.running() and J.STOP.match(text):
+            job = self.jobs.stop()
+            got = f" I'd got as far as: {job.note.rstrip('.')}." if job.note else ""
+            async for ev in self._say(conv, user_text, f"Stopped{sir}.{got}"):
+                yield ev
+            return
+        if self.jobs.recent() and J.STATUS.search(text):
+            async for ev in self._say(conv, user_text, self.jobs.recent().spoken(sir)):
+                yield ev
+            return
+        if _SCREEN_TASK.match(text):
+            # "Complete this assignment for me": the whole job, start to finish, in the background.
+            if self.jobs.running():
+                async for ev in self._say(conv, user_text, f"I'm still on the last one{sir}: "
+                                                           f"{self.jobs.running().task}. Say stop first to switch."):
+                    yield ev
+                return
             if self._can_rescue(ctx):
-                async for ev in self._work_it_out(conv, user_text.strip(), ctx, sir,
-                                                  "Oliver asked Nova to do the whole task on his screen.", long=True):
+                async for ev in self._start_job(conv, text, ctx, sir):
                     yield ev
                 return
             if not ctx.remote:
@@ -467,8 +486,72 @@ class LocalBrain:
         yield TextDelta(answer)
         yield TurnComplete(answer, {"total_ms": _ms(t0)}, {"input_tokens": 0, "output_tokens": 0}, "answered")
 
+    async def _start_job(self, conv: Conversation, task: str, ctx: ToolContext, sir: str) -> AsyncIterator[Event]:
+        """A whole job ("complete this assignment for me"), done by Claude with Nova's tools in the
+        background: this turn ends straight away, Nova keeps talking, status questions are answered
+        from the job's progress, and he says when it's finished (brain/jobs.py)."""
+        from assistant.brain.jobs import Job
+        from assistant.brain.situation import situation
+        t0 = time.perf_counter()
+        if ctx.remote and not await ctx.confirm("work_it_out", {"task": task}):
+            async for ev in self._say(conv, task, f"All right{sir}, I'll leave it."):
+                yield ev
+            return
+        voice = ctx.services.get("voice")
+
+        def on_step(entry: dict) -> None:
+            job.step(entry)
+            if voice is None or entry.get("tool") == "progress":
+                return
+            try:                                         # the live feed keeps showing each step
+                args = {k: (str(v)[:80]) for k, v in (entry.get("args") or {}).items() if k != "text"}
+                voice.on_event({"type": "tool", "name": entry.get("tool", "?"), "input": args})
+                voice.on_event({"type": "tool_done", "name": entry.get("tool", "?"), "ms": int(entry.get("ms") or 0),
+                                "is_error": not entry.get("ok"), "summary": str(entry.get("result", ""))[:200]})
+            except Exception:
+                pass
+
+        async def work(job: Job) -> None:
+            try:
+                try:
+                    now = await situation()
+                except Exception:
+                    now = {}
+                context = "\n".join(["Oliver asked Nova to do this whole job."] +
+                                     [f"{k}: {v}" for k, v in now.items()])
+                result = await self._agent().run(task, context, on_step, long=True)
+                job.status, job.result = ("done" if result.ok else "failed"), result.say
+            except asyncio.CancelledError:
+                job.status = "stopped"
+                raise
+            except asyncio.TimeoutError:
+                job.status, job.result = "failed", "I ran out of time on it"
+            except ExpertError as e:
+                job.status, job.result = "failed", str(e)
+            except Exception as e:
+                log.exception("background job failed")
+                job.status, job.result = "failed", f"something went wrong ({type(e).__name__})"
+            finally:
+                job.ended = time.monotonic()
+            said = job.spoken(sir)
+            conv.messages.append({"role": "assistant", "content": f"(The background job '{task}' ended.) {said}"})
+            conv.trim()
+            if voice is not None and hasattr(voice, "announce"):
+                await voice.announce(said)
+
+        job = self.jobs.start(Job(task), work)
+        conv.last_action = {"text": task, "at": time.time()}
+        say = f"On it{sir}. I'll work through it while we talk; ask how it's going any time, or say stop."
+        conv.messages.append({"role": "user", "content": task})
+        conv.messages.append({"role": "assistant", "content": say})
+        conv.trim()
+        yield ToolStarted("job", "work_it_out", {"task": task})
+        yield ToolFinished("job", "work_it_out", False, "working in the background", _ms(t0))
+        yield TextDelta(say)
+        yield TurnComplete(say, {"total_ms": _ms(t0)}, {"input_tokens": 0, "output_tokens": 0}, "job")
+
     async def _work_it_out(self, conv: Conversation, task: str, ctx: ToolContext, sir: str,
-                           note: str = "", long: bool = False) -> AsyncIterator[Event]:
+                           note: str = "") -> AsyncIterator[Event]:
         from assistant.brain import lessons as L
         from assistant.brain.agent import AgentResult, learnable
         from assistant.brain.situation import situation
@@ -480,8 +563,7 @@ class LocalBrain:
                 yield TextDelta(say)
                 yield TurnComplete(say, {"total_ms": _ms(t0)}, {"input_tokens": 0, "output_tokens": 0}, "agent")
                 return
-        yield TextDelta(f"On it{sir}. I'll see it through; say stop to halt me. " if long
-                        else f"Let me work that out{sir}. ")
+        yield TextDelta(f"Let me work that out{sir}. ")
         yield ToolStarted("agent", "work_it_out", {"task": task})
         try:
             now = await situation()
@@ -489,8 +571,7 @@ class LocalBrain:
             now = {}
         context = "\n".join([note] + [f"{k}: {v}" for k, v in now.items()]).strip()
         steps: asyncio.Queue = asyncio.Queue()
-        job = asyncio.ensure_future(self._agent().run(task, context, steps.put_nowait, long=True) if long
-                                    else self._agent().run(task, context, steps.put_nowait))
+        job = asyncio.ensure_future(self._agent().run(task, context, steps.put_nowait))
         n = 0
         try:
             while True:
@@ -519,7 +600,7 @@ class LocalBrain:
                 job.cancel()
         yield ToolFinished("agent", "work_it_out", not result.ok, result.say[:200], _ms(t0))
         say = result.say.rstrip(".") + "."
-        if result.ok and self.settings.brain.agent.learn and not long:     # a whole task isn't a shortcut
+        if result.ok and self.settings.brain.agent.learn:
             calls = learnable(result.steps)
             if calls and L.get_lessons().learn_calls(task, calls, "worked out by Claude"):
                 say += " I've learned how, so next time it's instant."
@@ -785,6 +866,8 @@ class LocalBrain:
         up = self._upcoming(ctx)
         if up:
             now["timers and reminders set"] = up
+        if self.jobs.recent():
+            now["your background job"] = self.jobs.recent().context()
         conv.messages.append({"role": "user", "content": turn_context(
             self.settings, {**now, **(extra_context or {})}, self._memories(user_text, ctx)) + "\n" + user_text})
         rounds = 0

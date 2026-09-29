@@ -83,6 +83,11 @@ class NovaTools:
                                   "description": "file name without extension, e.g. 'Biomechanics answers'"},
                         "text": {"type": "string", "minLength": 1, "maxLength": 200000}},
                         "required": ["title", "text"]}})
+        out.append({"name": "progress", "description": "Tell Oliver how far you've got, in a few words (e.g. "
+                    "'answered 3 of 5 questions', 'writing the essay, nearly done'). Call it after each part; "
+                    "Nova answers 'how's it going?' from it.",
+                    "inputSchema": {"type": "object", "properties": {
+                        "note": {"type": "string", "minLength": 1, "maxLength": 200}}, "required": ["note"]}})
         out.append({"name": "wait", "description": "Wait for a page or app to finish loading, then look again.",
                     "inputSchema": {"type": "object", "properties": {
                         "seconds": {"type": "number", "minimum": 0.5, "maximum": 15}}, "required": ["seconds"]}})
@@ -105,6 +110,8 @@ class NovaTools:
                 content, ok = [{"type": "text", "text": await asyncio.to_thread(self._scroll, args)}], True
             elif name == "write_document":
                 content, ok = [{"type": "text", "text": await asyncio.to_thread(write_document, args)}], True
+            elif name == "progress":
+                content, ok = [{"type": "text", "text": "Noted."}], True
             elif name == "wait":
                 secs = min(15.0, max(0.5, float(args.get("seconds") or 2)))
                 await asyncio.sleep(secs)

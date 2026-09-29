@@ -126,6 +126,12 @@ class MediaBackend:
             return []                               # it hung a moment ago: don't wait 4 s again
         try:
             return await WINRT.run(self._list(), ASK_S * 2)
+        except asyncio.CancelledError:
+            # The caller gave up first (the window's own time limit): still a hang, so rest the
+            # list too; otherwise it was asked again every 2 s and hung each time (owner's log).
+            self._stuck_until = time.monotonic() + self.STUCK_S
+            self._manager = None
+            raise
         except ImportError as e:   # a winrt piece missing: carry on with keys and the media key
             log.warning("media sessions unavailable (%s): run scripts\\update.ps1", e)
             return []
