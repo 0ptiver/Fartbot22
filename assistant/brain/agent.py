@@ -41,6 +41,19 @@ AGENT_SYSTEM = (
     "Finish with a final line for Nova to say out loud: 'DONE: <one short sentence of what you did>' "
     "or 'FAILED: <one short sentence of what's in the way>'."
 )
+# "Complete the task on my screen": a whole job, not a quick fix (owner: "like say I wanted to do a
+# survey ... he will go through and complete the task until it's finished, like a real JARVIS").
+TASK_SYSTEM = (
+    " This is a whole task on Oliver's screen, to be done start to finish without him. First find out "
+    "what it is (look_at_screen, then a screenshot). Then work through it page after page: answer every "
+    "question (scroll down for more; the scroll tool), then press Next / Continue / Submit, wait for the "
+    "new page and look again. It's finished only when the screen says so (a thank-you, completed or "
+    "submitted page); keep going until then. Choose options by clicking their text (click_element) and "
+    "check they took. For questions about Oliver himself that the screen and task don't answer, give a "
+    "sensible, ordinary answer (or 'prefer not to say' when offered); never invent sensitive details. "
+    "Never type passwords, card or bank details, ID numbers or real contact details, and never buy or "
+    "pay: if the task needs one of those, a sign-in or a CAPTCHA, stop with FAILED: and say what's needed."
+)
 # Steps worth learning (the ones that change something; looking isn't a step to repeat).
 _NOT_LEARNED = {"screenshot", "now_playing", "system_status", "get_time", "find_files", "read_file",
                 "weather", "calculate", "convert"}
@@ -69,7 +82,7 @@ class Agent:
         except ExpertError:
             return False
 
-    def command(self, mcp_file: Path) -> list[str]:
+    def command(self, mcp_file: Path, long: bool = False) -> list[str]:
         cmd = [self.expert.executable(), "-p", "Complete the task given on standard input.",
                "--output-format", "json",
                "--permission-mode", "dontAsk",                     # only what's allowed below
@@ -79,8 +92,8 @@ class Agent:
                "--allowedTools", "WebSearch,mcp__nova",             # + Nova's lent tools
                "--mcp-config", str(mcp_file), "--strict-mcp-config",
                "--no-session-persistence",
-               "--max-turns", str(self.cfg.max_turns),
-               "--append-system-prompt", AGENT_SYSTEM]
+               "--max-turns", str(self.cfg.task_max_turns if long else self.cfg.max_turns),
+               "--append-system-prompt", AGENT_SYSTEM + (TASK_SYSTEM if long else "")]
         if self.cfg.model:
             cmd += ["--model", self.cfg.model]
         return cmd
@@ -91,8 +104,9 @@ class Agent:
             "command": str(exe), "args": ["-m", "assistant.agent.tools_server"], "cwd": str(ROOT),
             "env": {"NOVA_AGENT_LOG": str(log), "PYTHONPATH": str(ROOT), "PYTHONIOENCODING": "utf-8"}}}}
 
-    async def run(self, task: str, context: str = "", on_step=None) -> AgentResult:
-        """Run Claude on the task; on_step(entry) is called for each tool it uses, as it happens."""
+    async def run(self, task: str, context: str = "", on_step=None, long: bool = False) -> AgentResult:
+        """Run Claude on the task; on_step(entry) is called for each tool it uses, as it happens.
+        long: a whole task on the screen (a survey, a form), with far more time and steps."""
         self.workspace.mkdir(parents=True, exist_ok=True)
         run_id = secrets.token_hex(4)
         log = self.workspace / f"run-{run_id}.jsonl"
@@ -100,13 +114,13 @@ class Agent:
         mcp_file.write_text(json.dumps(self.mcp_config(log)), encoding="utf-8")
         prompt = (f"{context}\n\n" if context else "") + f"Oliver asked Nova: {task}"
         proc = await asyncio.create_subprocess_exec(
-            *self.command(mcp_file), stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+            *self.command(mcp_file, long), stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE, cwd=str(self.workspace), env=self.expert.env(),
             **({"creationflags": 0x08000000} if sys.platform == "win32" else {}))
         steps: list[dict] = []
         seen = 0
         done = asyncio.ensure_future(proc.communicate(prompt.encode("utf-8")))
-        deadline = time.monotonic() + self.cfg.timeout_s
+        deadline = time.monotonic() + (self.cfg.task_timeout_s if long else self.cfg.timeout_s)
         try:
             while True:
                 finished = await asyncio.wait({done}, timeout=0.4)

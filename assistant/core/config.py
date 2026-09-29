@@ -65,6 +65,9 @@ class AgentConfig(BaseModel):
     timeout_s: float = 240
     max_turns: int = 30
     learn: bool = True                  # save what worked as a lesson, so next time is instant
+    # "Complete the task on my screen" (a survey, a form...): worked through to the end.
+    task_timeout_s: float = 1800
+    task_max_turns: int = 250
 
 
 class ExpertConfig(BaseModel):

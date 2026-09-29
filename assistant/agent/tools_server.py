@@ -67,6 +67,17 @@ class NovaTools:
                     "Use it to check what happened after each step.",
                     "inputSchema": {"type": "object", "properties": {"monitor": {"type": "integer", "minimum": 1,
                                                                                  "maximum": 4}}}})
+        out.append({"name": "scroll", "description": "Scroll the window in front (or the spot x,y on the last "
+                    "screenshot) up or down, to reach questions and buttons further along a page.",
+                    "inputSchema": {"type": "object", "properties": {
+                        "direction": {"type": "string", "enum": ["down", "up"]},
+                        "amount": {"type": "integer", "minimum": 1, "maximum": 30,
+                                   "description": "mouse-wheel notches, 5 = about half a page"},
+                        "x": {"type": "integer", "minimum": 0}, "y": {"type": "integer", "minimum": 0}},
+                        "required": ["direction"]}})
+        out.append({"name": "wait", "description": "Wait for a page or app to finish loading, then look again.",
+                    "inputSchema": {"type": "object", "properties": {
+                        "seconds": {"type": "number", "minimum": 0.5, "maximum": 15}}, "required": ["seconds"]}})
         out.append({"name": "screen_click", "description": "Click a spot on the last screenshot, in that image's "
                     "pixels (x from the left, y from the top). For things an app doesn't name (games, pictures). "
                     "Prefer app/click_element by name when possible.",
@@ -82,6 +93,12 @@ class NovaTools:
         try:
             if name == "screenshot":
                 content, ok = await asyncio.to_thread(self._screenshot, int(args.get("monitor") or 1)), True
+            elif name == "scroll":
+                content, ok = [{"type": "text", "text": await asyncio.to_thread(self._scroll, args)}], True
+            elif name == "wait":
+                secs = min(15.0, max(0.5, float(args.get("seconds") or 2)))
+                await asyncio.sleep(secs)
+                content, ok = [{"type": "text", "text": f"Waited {secs:g} s."}], True
             elif name == "screen_click":
                 content, ok = [{"type": "text", "text": await asyncio.to_thread(self._screen_click, args)}], True
             elif name in self.names:
@@ -129,6 +146,22 @@ class NovaTools:
         button = args.get("button") or "left"
         g.mouse.click("right" if button == "right" else "left", button == "double")
         return f"Clicked at {x},{y}."
+
+    def _scroll(self, args: dict) -> str:
+        """Over the spot asked for, else the middle of the window in front, so the wheel reaches it."""
+        g = self.ctx.services["grid"]
+        if "x" in args and "y" in args and self.shot:
+            px = self.shot["left"] + round(int(args["x"]) / self.shot["scale"])
+            py = self.shot["top"] + round(int(args["y"]) / self.shot["scale"])
+        else:
+            from assistant.tools import pc
+            left, top, w, h = pc.WINDOWS.rect(pc.active_window().hwnd)
+            px, py = left + w // 2, top + h // 2
+        g.mouse.move(px, py)
+        time.sleep(0.05)
+        n = int(args.get("amount") or 5)
+        g.mouse.scroll(-n if args.get("direction", "down") == "down" else n)
+        return f"Scrolled {args.get('direction', 'down')} {n}."
 
     def _log(self, entry: dict) -> None:
         if not self.log_path:

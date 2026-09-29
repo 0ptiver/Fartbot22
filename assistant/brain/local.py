@@ -234,6 +234,19 @@ class LocalBrain:
         can't do this and that ... allow it to self learn and be able to work through things")."""
         who = self.settings.assistant.address_user_as
         sir = f", {who}" if who else ""
+        if _SCREEN_TASK.match(user_text.strip()):
+            # "Complete the task on my screen": the whole job, start to finish (owner: "like a real
+            # capable JARVIS").
+            if self._can_rescue(ctx):
+                async for ev in self._work_it_out(conv, user_text.strip(), ctx, sir,
+                                                  "Oliver asked Nova to do the whole task on his screen.", long=True):
+                    yield ev
+                return
+            if not ctx.remote:
+                async for ev in self._say(conv, user_text, f"I need Claude Code signed in on this PC for whole "
+                                                           f"tasks like that{sir}. Run: claude login"):
+                    yield ev
+                return
         if _WORK_IT_OUT.match(user_text.strip()) and self._can_rescue(ctx):
             task = getattr(conv, "last_request", None) or user_text
             async for ev in self._work_it_out(conv, task, ctx, sir, "Oliver asked Nova to work it out itself."):
@@ -455,7 +468,7 @@ class LocalBrain:
         yield TurnComplete(answer, {"total_ms": _ms(t0)}, {"input_tokens": 0, "output_tokens": 0}, "answered")
 
     async def _work_it_out(self, conv: Conversation, task: str, ctx: ToolContext, sir: str,
-                           note: str = "") -> AsyncIterator[Event]:
+                           note: str = "", long: bool = False) -> AsyncIterator[Event]:
         from assistant.brain import lessons as L
         from assistant.brain.agent import AgentResult, learnable
         from assistant.brain.situation import situation
@@ -467,7 +480,8 @@ class LocalBrain:
                 yield TextDelta(say)
                 yield TurnComplete(say, {"total_ms": _ms(t0)}, {"input_tokens": 0, "output_tokens": 0}, "agent")
                 return
-        yield TextDelta(f"Let me work that out{sir}. ")
+        yield TextDelta(f"On it{sir}. I'll see it through; say stop to halt me. " if long
+                        else f"Let me work that out{sir}. ")
         yield ToolStarted("agent", "work_it_out", {"task": task})
         try:
             now = await situation()
@@ -475,7 +489,8 @@ class LocalBrain:
             now = {}
         context = "\n".join([note] + [f"{k}: {v}" for k, v in now.items()]).strip()
         steps: asyncio.Queue = asyncio.Queue()
-        job = asyncio.ensure_future(self._agent().run(task, context, steps.put_nowait))
+        job = asyncio.ensure_future(self._agent().run(task, context, steps.put_nowait, long=True) if long
+                                    else self._agent().run(task, context, steps.put_nowait))
         n = 0
         try:
             while True:
@@ -504,7 +519,7 @@ class LocalBrain:
                 job.cancel()
         yield ToolFinished("agent", "work_it_out", not result.ok, result.say[:200], _ms(t0))
         say = result.say.rstrip(".") + "."
-        if result.ok and self.settings.brain.agent.learn:
+        if result.ok and self.settings.brain.agent.learn and not long:     # a whole task isn't a shortcut
             calls = learnable(result.steps)
             if calls and L.get_lessons().learn_calls(task, calls, "worked out by Claude"):
                 say += " I've learned how, so next time it's instant."
@@ -1264,6 +1279,16 @@ _WORK_IT_OUT = re.compile(
     r"try (?:harder|again|another way|a different way)|use your (?:brain|head)|think about it)\b", re.I)
 
 
+# "Complete the task on my screen", "fill out this survey", "finish the form for me".
+_SCREEN_TASK = re.compile(
+    r"^(?:nova[, ]+)?(?:(?:hey|ok|okay|so|now|right|please|can you|could you|will you|go ahead and|i want you to|"
+    r"i need you to)[, ]+)*"
+    r"(?:complete|finish|do|fill (?:out|in)|answer|take|work through|go through|get through|handle|sort out|"
+    r"take care of)\s+(?:the|this|that|my|these|all (?:the|of the|these))\s+"
+    r"(?:task|survey|form|quiz|questionnaire|application|questions|test|poll|sign ?up|checklist|job|thing)s?"
+    r"(?:\s+(?:on|in) (?:my|the) (?:screen|browser|monitor))?(?:\s+for me)?(?:\s+please)?"
+    r"(?:\s+(?:until|till) (?:it'?s|it is) (?:done|finished))?(?:[, ]+(?:right|please|thanks|sir|now))?[.!?]*$"
+    r"|^(?:nova[, ]+)?(?:(?:please|can you|could you)[, ]+)*(?:do|finish|complete|handle) what'?s on my screen[.!]*$", re.I)
 _NEVER_MIND = re.compile(r"^\W*(?:never ?mind|forget it|nothing|cancel|it'?s fine|no|nah|don'?t worry)\b", re.I)
 _CORRECTION = re.compile(r"^\s*(?:no[,.!]?\s+|nope[,.!]?\s+|sorry[,.!]?\s+|actually[,.!]?\s+)*"
                          r"(?:i meant|i said|i mean)\s+(.+?)\s*$", re.I)

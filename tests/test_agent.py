@@ -120,8 +120,9 @@ class FakeAgent:
     def available(self):
         return True
 
-    async def run(self, task, context="", on_step=None):
+    async def run(self, task, context="", on_step=None, long=False):
         self.calls.append((task, context))
+        self.long = long
         for s in self.steps:
             on_step(s)
             await asyncio.sleep(0)
@@ -253,3 +254,48 @@ async def test_told_to_do_something_it_never_just_says_it_cant(local_settings, c
     events = await collect(brain, Conversation(), "turn on night light in windows settings", ctx)
     text = said(events)
     assert agent.calls and text.startswith("Let me work that out") and "not something" not in text
+
+
+
+# --- "complete the task on my screen" ---------------------------------------------------------------
+@pytest.mark.parametrize("phrase", ["complete the task on my screen right", "Nova, fill out this survey for me",
+                                  "finish the form on my screen", "do what's on my screen"])
+async def test_a_whole_task_on_the_screen_is_seen_through(local_settings, ctx, phrase):
+    """Owner: "say complete the task on my screen and he will go through and complete the task until
+    it's finished, like a real capable JARVIS". Straight to Claude, in long mode; not a shortcut."""
+    brain, fake = make(local_settings, [])
+    agent = with_agent(brain, FakeAgent(say="Survey submitted, the thank-you page is showing", steps=[
+        {"tool": "click_element", "args": {"name": "Very satisfied"}, "ok": True, "ms": 300, "result": "Clicked"},
+        {"tool": "click_element", "args": {"name": "Submit"}, "ok": True, "ms": 300, "result": "Clicked"}]))
+    events = await collect(brain, Conversation(), phrase, ctx)
+    text = said(events)
+    assert text.startswith("On it, sir.") and "thank-you page is showing" in text and agent.long is True
+    assert not fake.requests and L.get_lessons().items() == []
+
+
+def test_long_mode_gets_time_steps_and_the_task_instructions(settings, tmp_path):
+    fake = type("E", (), {"executable": lambda self: "claude", "env": lambda self: {}})()
+    agent = A.Agent(settings, expert=fake)
+    quick, whole = agent.command(tmp_path / "m.json"), agent.command(tmp_path / "m.json", long=True)
+    turns = lambda c: int(c[c.index("--max-turns") + 1])
+    prompt = lambda c: c[c.index("--append-system-prompt") + 1]
+    assert turns(whole) == settings.brain.agent.task_max_turns > turns(quick)
+    assert "page after page" in prompt(whole) and "page after page" not in prompt(quick)
+    assert "never buy or pay" in prompt(whole) and "passwords" in prompt(whole)
+
+
+async def test_claude_can_scroll_and_wait(settings, registry, monkeypatch):
+    from assistant.tools import pc
+    monkeypatch.setattr(pc, "WINDOWS", type("W", (), {"active": lambda s: pc.Win(3, "Survey - Firefox", "firefox.exe"),
+                                                       "rect": lambda s, h: (0, 0, 1000, 800),
+                                                       "list": lambda s: [], "foreground": lambda s: 3})())
+    tools = TS.NovaTools(settings, registry)
+    names = {t["name"] for t in tools.list()}
+    assert {"scroll", "wait", "look_at_screen"} <= names
+    moves, wheel = [], []
+    tools.ctx.services["grid"].mouse = type("M", (), {"move": lambda s, x, y: moves.append((x, y)),
+                                                      "scroll": lambda s, n: wheel.append(n)})()
+    content, ok = await tools.call("scroll", {"direction": "down", "amount": 6})
+    assert ok and moves == [(500, 400)] and wheel == [-6]
+    content, ok = await tools.call("wait", {"seconds": 0.5})
+    assert ok and "Waited" in content[0]["text"]
