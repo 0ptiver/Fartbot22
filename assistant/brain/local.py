@@ -300,9 +300,20 @@ class LocalBrain:
                                                            f"tasks like that{sir}. Run: claude login"):
                     yield ev
                 return
-        if _WORK_IT_OUT.match(user_text.strip()) and self._can_rescue(ctx):
-            task = getattr(conv, "last_request", None) or user_text
-            async for ev in self._work_it_out(conv, task, ctx, sir, "Oliver asked Nova to work it out itself."):
+        wants_claude = _claude_task(text, getattr(conv, "last_request", None))
+        if wants_claude is not None:
+            # "Work it out", "use Claude to ...", "Claude, open ...", "figure out how to ...": Claude with
+            # Nova's hands, on what was actually asked (owner: "I'm saying things like work it out but it
+            # keeps just using Nova instead of contacting Claude").
+            why = None
+            if not self._can_rescue(ctx):
+                why = ("PC control from the phone is switched off" if ctx.remote
+                       else getattr(self._agent(), "why_not", lambda: None)() or "Claude isn't available")
+            if why:
+                async for ev in self._say(conv, user_text, f"I can't hand that to Claude right now{sir}: {why}."):
+                    yield ev
+                return
+            async for ev in self._work_it_out(conv, wants_claude, ctx, sir, "Oliver asked for Claude to do this."):
                 yield ev
             return
         conv.last_request = user_text
@@ -1440,6 +1451,34 @@ _SCREEN_TASK = re.compile(
     r"(?:done|finished)))*(?:[, ]+(?:right|please|thanks|sir|now|yeah))?[.!?]*$"
     r"|^(?:nova[, ]+)?(?:(?:please|can you|could you)[, ]+)*(?:do|finish|complete|handle) what'?s on my screen[.!]*$",
     re.I)
+# Asking for Claude (with Nova's hands) to do something.
+_USE_CLAUDE = re.compile(
+    r"^(?:(?:hey|ok|okay|so|nova)[, ]+)*(?:(?:can you|could you|please|just|go ahead and|i want you to)[, ]+)*"
+    r"(?:(?:use|get|have|let|make|tell) claude(?: to)?|claude[,:]|ask claude to|"
+    r"figure out how to|work out how to|find a way to)\s+(?P<task>.+)$", re.I | re.S)
+_AFTER_WORK_IT_OUT = re.compile(r"^[\s,.:;-]*(?:and|then|to|so|by|for me)?[\s,:]*(?:please\s+)?", re.I)
+
+
+def _claude_task(text: str, last_request: str | None) -> str | None:
+    """What to hand to Claude with Nova's hands, if the user asked for that; else None.
+    "Work it out" alone means the last request; with words after it, those words."""
+    m = _WORK_IT_OUT.match(text)
+    if m:
+        rest = _AFTER_WORK_IT_OUT.sub("", text[m.end():], count=1).strip(" .!?")
+        rest = re.sub(r"^(?:yourself|for me|please|with claude|using claude)\b[\s,]*", "", rest, flags=re.I).strip(" .!?")
+        return rest if len(rest.split()) >= 2 else (last_request or text)
+    m = _USE_CLAUDE.match(text)
+    if m:
+        task = m.group("task").strip(" .!?")
+        if re.fullmatch(r"(?:do )?(?:it|that|this)(?: for me)?|do it", task, re.I):
+            return last_request or text
+        # "Ask Claude to explain X" is a question for the answering Claude, not a PC job.
+        if text.lower().lstrip("hey ok,").startswith(("ask claude", "nova, ask claude")) and not _is_action_request(task):
+            return None
+        return task
+    return None
+
+
 _NEVER_MIND = re.compile(r"^\W*(?:never ?mind|forget it|nothing|cancel|it'?s fine|no|nah|don'?t worry)\b", re.I)
 _CORRECTION = re.compile(r"^\s*(?:no[,.!]?\s+|nope[,.!]?\s+|sorry[,.!]?\s+|actually[,.!]?\s+)*"
                          r"(?:i meant|i said|i mean)\s+(.+?)\s*$", re.I)

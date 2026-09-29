@@ -87,13 +87,19 @@ class Agent:
         self.workspace = ROOT / "data" / "agent"
 
     def available(self) -> bool:
-        if not self.cfg.enabled or self.settings.brain.expert.backend != "claude_code":
-            return False
+        return self.why_not() is None
+
+    def why_not(self) -> str | None:
+        """Why Claude can't take a job right now, in plain words (None = it can)."""
+        if not self.cfg.enabled:
+            return "handing jobs to Claude is switched off (brain.agent.enabled in config/local.yaml)"
+        if self.settings.brain.expert.backend != "claude_code":
+            return "Claude Code isn't set as Claude's backend (brain.expert.backend)"
         try:
             self.expert.executable()
-            return True
-        except ExpertError:
-            return False
+            return None
+        except ExpertError as e:
+            return str(e).rstrip(".")
 
     def command(self, mcp_file: Path, long: bool = False) -> list[str]:
         cmd = [self.expert.executable(), "-p", "Complete the task given on standard input.",

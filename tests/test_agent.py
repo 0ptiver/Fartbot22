@@ -493,3 +493,39 @@ async def test_a_refused_pc_action_goes_to_claude_with_hands(local_settings, ctx
     agent = with_agent(brain, FakeAgent(say="Done", steps=[]))
     events = await collect(brain, Conversation(), "open a new tab and open a paper trading", ctx)
     assert agent.calls and said(events).startswith("Let me work that out")
+
+
+@pytest.mark.parametrize("phrase,task", [
+    ("work it out and open a new tab with paper trading", "open a new tab with paper trading"),
+    ("use claude to open a new tab", "open a new tab"),
+    ("Claude, open a new tab", "open a new tab"),
+    ("get claude to open paper trading", "open paper trading"),
+    ("figure out how to open paper trading", "open paper trading"),
+    ("ask claude to open a new tab", "open a new tab"),
+])
+async def test_asking_for_claude_gets_claude_with_hands_on_what_was_said(local_settings, ctx, phrase, task):
+    """Owner: "I'm saying things like work it out but it keeps just using Nova instead of contacting
+    Claude". "Work it out and X" used the previous request; "use Claude to X" / "Claude, X" weren't
+    caught; "ask Claude to open X" went to the Claude that can't see the screen."""
+    brain, fake = make(local_settings, [])
+    agent = with_agent(brain, FakeAgent(say="Done", steps=[]))
+    events = await collect(brain, Conversation(), phrase, ctx)
+    assert agent.calls and agent.calls[0][0] == task and not fake.requests
+    assert said(events).startswith("Let me work that out")
+
+
+async def test_questions_for_claude_still_go_to_the_answering_claude(local_settings, ctx):
+    expert = FakeExpert("Because of Rayleigh scattering.")
+    brain, fake = make(local_settings, [text_reply("It's Rayleigh scattering, sir.")], expert)
+    agent = with_agent(brain, FakeAgent(steps=[]))
+    await collect(brain, Conversation(), "ask claude why the sky is blue", ctx)
+    assert expert.calls and not agent.calls
+
+
+async def test_says_why_when_claude_cant_take_it(local_settings, ctx):
+    """Never quietly carry on as Nova when Claude was asked for."""
+    brain, fake = make(local_settings, [])
+    local_settings.brain.agent.enabled = False
+    events = await collect(brain, Conversation(), "use claude to open a new tab", ctx)
+    assert "I can't hand that to Claude right now, sir: handing jobs to Claude is switched off" in said(events)
+    assert not fake.requests
