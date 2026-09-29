@@ -14,6 +14,27 @@ from pathlib import Path
 
 DEFAULT_FOLDERS = ["~/Desktop", "~/Documents", "~/Downloads", "~/Music", "~/Pictures", "~/Videos"]
 
+
+def documents_folder() -> Path:
+    """The real Documents folder (Windows often moves it into OneDrive), else ~/Documents."""
+    import sys
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class GUID(ctypes.Structure):
+                _fields_ = [("a", wintypes.DWORD), ("b", wintypes.WORD), ("c", wintypes.WORD), ("d", ctypes.c_ubyte * 8)]
+            docs = GUID(0xFDD39AD0, 0x238F, 0x46AF, (ctypes.c_ubyte * 8)(0xAD, 0xB4, 0x6C, 0x85, 0x48, 0x03, 0x69, 0xC7))
+            out = ctypes.c_wchar_p()
+            if ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(docs), 0, None, ctypes.byref(out)) == 0:
+                path = Path(out.value)
+                ctypes.windll.ole32.CoTaskMemFree(out)
+                return path
+        except Exception:
+            pass
+    return Path.home() / "Documents"
+
 _SECRET_NAME = re.compile(
     r"(passw|secret|credential|token|private[-_ ]?key|id_rsa|id_ed25519|wallet|seed[-_ ]?phrase"
     r"|recovery[-_ ]?code|2fa|otp|\.kdbx$|\.pem$|\.key$|\.pfx$|\.p12$|\.ppk$|\.env$|keychain)", re.I)

@@ -173,3 +173,25 @@ async def test_a_shortcut_that_did_nothing_is_not_reported_as_done(settings, reg
     monkeypatch.setattr(K, "CHECK_S", 0)
     res = await registry.execute("press_keys", {"keys": "ctrl+t"}, ToolContext(settings))
     assert res.is_error and "no new tab appeared" in res.content and "Firefox" in res.content
+
+
+class PastingKeyboard(FakeKeyboard):
+    def __init__(self):
+        super().__init__()
+        self.pasted = []
+
+    def paste(self, text):
+        self.pasted.append(text)
+
+
+async def test_longer_text_is_pasted_not_typed_key_by_key(settings, registry, monkeypatch):
+    """Owner's case: typing a long answer into Notepad came out as "cccccccccc" and rows of "?";
+    pasting came out right. More than a few words (or several lines) is pasted."""
+    fake = PastingKeyboard()
+    monkeypatch.setattr(K, "KEYBOARD", fake)
+    use(monkeypatch, NOTEPAD)
+    answer = "In a bicep curl, the elbow is the fulcrum and the forearm is the lever."
+    assert not (await registry.execute("type_text", {"text": answer}, ToolContext(settings))).is_error
+    assert not (await registry.execute("type_text", {"text": "one\ntwo"}, ToolContext(settings))).is_error
+    assert not (await registry.execute("type_text", {"text": "hello there"}, ToolContext(settings))).is_error
+    assert fake.pasted == [answer, "one\ntwo"] and fake.typed == ["hello there"]

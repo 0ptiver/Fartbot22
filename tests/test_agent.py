@@ -311,3 +311,20 @@ async def test_claude_can_scroll_and_wait(settings, registry, monkeypatch):
 def test_everyday_requests_are_not_whole_tasks(phrase):
     from assistant.brain.local import _SCREEN_TASK
     assert not _SCREEN_TASK.match(phrase)
+
+
+def test_written_work_is_saved_as_a_file_never_typed(tmp_path, monkeypatch, settings, registry):
+    """Owner's case: typing a long answer into Notepad came out jumbled. Claude saves written work
+    with write_document: a new .txt in Documents\\Nova, opened in Notepad, never overwriting."""
+    from assistant.core import paths
+    monkeypatch.setattr(paths, "documents_folder", lambda: tmp_path)
+    opened = []
+    first = TS.write_document({"title": "Biomechanics answers", "text": "1. Levers\n2. Fulcrums"}, opened.append)
+    again = TS.write_document({"title": "Biomechanics answers", "text": "other"}, opened.append)
+    sneaky = TS.write_document({"title": "..\\..\\Windows\\evil", "text": "x"}, opened.append)
+    folder = tmp_path / "Nova"
+    assert (folder / "Biomechanics answers.txt").read_bytes() == b"1. Levers\r\n2. Fulcrums"
+    assert (folder / "Biomechanics answers (2).txt").read_text() == "other"
+    assert [p.parent for p in opened] == [folder] * 3 and "Notepad" in first and "(2)" in again
+    assert opened[2].name == "Windowsevil.txt" and opened[2].parent == folder and "Saved" in sneaky
+    assert "write_document" in {t["name"] for t in TS.NovaTools(settings, registry).list()}

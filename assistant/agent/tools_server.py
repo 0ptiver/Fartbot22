@@ -75,6 +75,14 @@ class NovaTools:
                                    "description": "mouse-wheel notches, 5 = about half a page"},
                         "x": {"type": "integer", "minimum": 0}, "y": {"type": "integer", "minimum": 0}},
                         "required": ["direction"]}})
+        out.append({"name": "write_document", "description": "Save written work (answers, an essay, notes) as a "
+                    "text file in Documents\\Nova and open it in Notepad for Oliver. Use this for any written work "
+                    "instead of typing it into Notepad. Never overwrites: a new name is picked if it exists.",
+                    "inputSchema": {"type": "object", "properties": {
+                        "title": {"type": "string", "minLength": 1, "maxLength": 80,
+                                  "description": "file name without extension, e.g. 'Biomechanics answers'"},
+                        "text": {"type": "string", "minLength": 1, "maxLength": 200000}},
+                        "required": ["title", "text"]}})
         out.append({"name": "wait", "description": "Wait for a page or app to finish loading, then look again.",
                     "inputSchema": {"type": "object", "properties": {
                         "seconds": {"type": "number", "minimum": 0.5, "maximum": 15}}, "required": ["seconds"]}})
@@ -95,6 +103,8 @@ class NovaTools:
                 content, ok = await asyncio.to_thread(self._screenshot, int(args.get("monitor") or 1)), True
             elif name == "scroll":
                 content, ok = [{"type": "text", "text": await asyncio.to_thread(self._scroll, args)}], True
+            elif name == "write_document":
+                content, ok = [{"type": "text", "text": await asyncio.to_thread(write_document, args)}], True
             elif name == "wait":
                 secs = min(15.0, max(0.5, float(args.get("seconds") or 2)))
                 await asyncio.sleep(secs)
@@ -171,6 +181,29 @@ class NovaTools:
                 f.write(json.dumps({"at": time.time(), **entry}) + "\n")
         except OSError:
             pass
+
+
+def write_document(args: dict, _open=None) -> str:
+    """Written work as a file (owner's case: typing a long answer into Notepad came out jumbled).
+    Only ever a new .txt in Documents\\Nova: nothing else can be written or overwritten."""
+    import re
+    from assistant.core.paths import documents_folder
+    folder = documents_folder() / "Nova"
+    folder.mkdir(parents=True, exist_ok=True)
+    name = re.sub(r"[^\w .,()'-]+", "", str(args.get("title") or "")).strip(" .")[:80] or "Nova document"
+    path, n = folder / f"{name}.txt", 2
+    while path.exists():
+        path, n = folder / f"{name} ({n}).txt", n + 1
+    path.write_text(str(args["text"]).replace("\r\n", "\n"), encoding="utf-8", newline="\r\n")
+    try:
+        if _open is not None:
+            _open(path)
+        elif sys.platform == "win32":
+            from assistant.core.launch import launch_command
+            launch_command(["notepad.exe", str(path)])
+    except Exception as e:
+        return f"Saved {path}, but couldn't open it ({e})."
+    return f"Saved and opened in Notepad: {path}"
 
 
 def _content(content: Any) -> list[dict]:

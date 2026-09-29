@@ -108,18 +108,114 @@ class KeyboardBackend:
         self._send(up)
 
     def type(self, text: str) -> None:
-        events = []
-        for ch in text:
+        """One character at a time, as real key presses (Shift when needed), like a person typing.
+        Hundreds of 'unicode packet' keys at once came out jumbled in Notepad (owner's case: rows of
+        "?" and "cccc"); those packets are now only for characters that aren't on the keyboard."""
+        if sys.platform != "win32":
+            raise ToolError("Keyboard control only works on Windows.")
+        import ctypes
+        scan_for = ctypes.windll.user32.VkKeyScanW                  # type: ignore[attr-defined]
+        scan_for.argtypes, scan_for.restype = [ctypes.c_wchar], ctypes.c_short   # -1 = not on this keyboard
+        for ch in text.replace("\r\n", "\n"):
             if ch == "\n":
-                events += [(0x0D, 0, 0), (0x0D, 0, 2)]
-                continue
-            data = ch.encode("utf-16-le")
-            for i in range(0, len(data), 2):                       # emoji etc. are two units
-                unit = int.from_bytes(data[i:i + 2], "little")
-                events += [(0, unit, 4), (0, unit, 4 | 2)]         # KEYEVENTF_UNICODE (+ KEYUP)
-        for i in range(0, len(events), 200):                       # modest batches
-            self._send(events[i:i + 200])
-            time.sleep(0.01)
+                events = [(0x0D, self._scan(0x0D), 0), (0x0D, self._scan(0x0D), 2)]
+            else:
+                code = scan_for(ch) if len(ch.encode("utf-16-le")) == 2 else -1
+                vk, mods = code & 0xFF, (code >> 8) & 0xFF
+                if code != -1 and vk != 0xFF and mods in (0, 1):   # on this keyboard, at most Shift
+                    key = [(vk, self._scan(vk), 0), (vk, self._scan(vk), 2)]
+                    events = ([(0x10, self._scan(0x10), 0)] + key + [(0x10, self._scan(0x10), 2)]) if mods else key
+                else:
+                    data = ch.encode("utf-16-le")
+                    events = []
+                    for i in range(0, len(data), 2):               # emoji etc. are two units
+                        unit = int.from_bytes(data[i:i + 2], "little")
+                        events += [(0, unit, 4), (0, unit, 4 | 2)]  # KEYEVENTF_UNICODE (+ KEYUP)
+            self._send(events)
+            time.sleep(TYPE_GAP_S)
+
+
+    def paste(self, text: str) -> None:
+        """Put text in with Ctrl+V: exact and instant. Typing long text key by key garbled it in
+        Notepad (owner's case: a paragraph, then "cccccccccc" and rows of "?"). The clipboard's old
+        text is put back afterwards, and this text is kept out of clipboard history and cloud sync."""
+        previous = _set_clipboard(text)
+        try:
+            self.combo([VK["ctrl"], VK["v"]])
+            time.sleep(PASTE_SETTLE_S)                 # the app reads the clipboard as it pastes
+        finally:
+            if previous is not None:
+                try:
+                    _set_clipboard(previous)
+                except Exception:
+                    pass
+
+
+PASTE_OVER = 20              # more than a few words (or several lines) is pasted, not typed key by key
+PASTE_SETTLE_S = 0.4
+TYPE_GAP_S = 0.004           # between typed characters
+
+
+def _set_clipboard(text: str) -> str | None:
+    """Replace the clipboard's text; returns what was there (None if it held no text)."""
+    if sys.platform != "win32":
+        raise ToolError("Pasting only works on Windows.")
+    import ctypes
+    from ctypes import wintypes
+    u = ctypes.WinDLL("user32", use_last_error=True)
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    u.OpenClipboard.argtypes = [wintypes.HWND]
+    u.OpenClipboard.restype = wintypes.BOOL
+    u.GetClipboardData.argtypes = [wintypes.UINT]
+    u.GetClipboardData.restype = wintypes.HANDLE
+    u.SetClipboardData.argtypes = [wintypes.UINT, wintypes.HANDLE]
+    u.SetClipboardData.restype = wintypes.HANDLE
+    u.RegisterClipboardFormatW.argtypes = [wintypes.LPCWSTR]
+    u.RegisterClipboardFormatW.restype = wintypes.UINT
+    k.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
+    k.GlobalAlloc.restype = wintypes.HGLOBAL
+    k.GlobalLock.argtypes = [wintypes.HGLOBAL]
+    k.GlobalLock.restype = ctypes.c_void_p
+    k.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
+    CF_UNICODETEXT, GMEM_MOVEABLE = 13, 0x0002
+
+    def global_copy(raw: bytes):
+        h = k.GlobalAlloc(GMEM_MOVEABLE, len(raw))
+        p = k.GlobalLock(h)
+        ctypes.memmove(p, raw, len(raw))
+        k.GlobalUnlock(h)
+        return h
+
+    for _ in range(20):                                # another app may have it open for a moment
+        if u.OpenClipboard(None):
+            break
+        time.sleep(0.05)
+    else:
+        raise ToolError("The clipboard is busy; try again.")
+    try:
+        previous = None
+        h = u.GetClipboardData(CF_UNICODETEXT)
+        if h:
+            p = k.GlobalLock(h)
+            if p:
+                previous = ctypes.wstring_at(p)
+                k.GlobalUnlock(h)
+        u.EmptyClipboard()
+        data = text.replace("\r\n", "\n").replace("\n", "\r\n")
+        if not u.SetClipboardData(CF_UNICODETEXT, global_copy((data + "\0").encode("utf-16-le"))):
+            raise ToolError("Couldn't put the text on the clipboard.")
+        # Keep it out of Windows' clipboard history and cloud clipboard (Win+V).
+        zero = (0).to_bytes(4, "little")
+        for name in ("CanIncludeInClipboardHistory", "CanUploadToCloudClipboard"):
+            fmt = u.RegisterClipboardFormatW(name)
+            if fmt:
+                u.SetClipboardData(fmt, global_copy(zero))
+        fmt = u.RegisterClipboardFormatW("ExcludeClipboardContentFromMonitorProcessing")
+        if fmt:
+            u.SetClipboardData(fmt, global_copy(zero))
+        return previous
+    finally:
+        u.CloseClipboard()
 
 
 KEYBOARD = KeyboardBackend()
@@ -210,7 +306,11 @@ async def type_text(args: dict, ctx: ToolContext) -> str:
         raise ToolError(f"That's too long to type ({len(text)} characters).")
     await _guard(ctx, "type_text", args, risky=True)
     await asyncio.to_thread(_keys_to_user_window)
-    await asyncio.to_thread(KEYBOARD.type, text)
+    paste = getattr(KEYBOARD, "paste", None)
+    if paste is not None and (len(text) > PASTE_OVER or "\n" in text.strip()):
+        await asyncio.to_thread(paste, text)
+    else:
+        await asyncio.to_thread(KEYBOARD.type, text)
     return "Typed." if len(text) > 40 else f"Typed: {text}"
 
 
