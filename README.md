@@ -170,6 +170,12 @@ Speech stack (all switchable in `config/config.yaml` → `voice`):
 | "Brightness up" / "dim the screen" / "set brightness to 60" | the laptop screen's brightness, checked |
 | "Repeat this song" / "turn off repeat" | Spotify, checked |
 | "Empty the recycle bin" | asks first; not from the phone |
+| "Snap Firefox to the left" / "put Discord on the right" | half the screen it's on, flush like Windows' own snap |
+| "Move Spotify to my other screen" / "to screen 2" | stays maximised if it was |
+| "Put Spotify and Discord side by side" | "cancel" / "undo that" puts them back |
+| (an error box pops up) | Nova reads it and tells you once; "fix it", "what does it say", "ignore it" |
+| (an app freezes) | "Discord isn't responding": "close it" ends it; quiet during a full-screen game |
+| "Fix this error" | Claude looks at the screen and sorts it out |
 | "Who are you?" / "what can you do?" | instant answers |
 | "Gaming mode" / "movie time" / "I'm heading out" / "goodnight" | routines (see below) |
 | "Work out the monthly payment on a $20k loan at 6% over 5 years" | `escalate` → Claude Opus 5 |

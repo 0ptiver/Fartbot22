@@ -24,7 +24,8 @@ log = logging.getLogger(__name__)
 PROBLEM = re.compile(
     r"\b(?:error|failed|failure|fatal|cannot|can'?t|couldn'?t|could not|unable|not responding|stopped working|"
     r"crash(?:ed)?|exception|denied|missing|not found|invalid|corrupt(?:ed)?|problem|warning|unexpected)\b", re.I)
-RECENT_S = 180              # "fix it" means the last alert for three minutes
+RECENT_S = 180              # "fix it" means the last alert for three minutes (while it's still there)
+REPEAT_S = 120              # the same message again within this is not announced again
 HUNG_CHECKS = 3             # checks in a row before an app counts as frozen (loading screens hiccup)
 
 
@@ -70,12 +71,30 @@ class ScreenWatch:
         self.last: Alert | None = None
         self._seen: set[tuple[int, str]] = set()
         self._hung: dict[int, int] = {}
+        self._told: dict[str, float] = {}          # message -> when it was last announced
         self._first = True
         self.on = True
 
     def recent(self) -> Alert | None:
+        """The last alert, while it's recent and still on the screen: an error box that was closed,
+        or an app that came back to life, isn't what "fix it" or "close it" means any more."""
         a = self.last
-        return a if a is not None and self.clock() - a.at < RECENT_S else None
+        if a is None or self.clock() - a.at >= RECENT_S:
+            return None
+        if not self.still_there(a):
+            self.last = None
+            return None
+        return a
+
+    @staticmethod
+    def still_there(a: Alert) -> bool:
+        from assistant.tools import pc
+        try:
+            if a.kind == "frozen":
+                return bool(pc.WINDOWS.hung(a.hwnd))
+            return any(d.hwnd == a.hwnd for d in pc.WINDOWS.dialogs())
+        except Exception:
+            return True                              # can't tell: keep it
 
     def dismiss(self) -> None:
         self.last = None
@@ -85,7 +104,9 @@ class ScreenWatch:
         from assistant.tools import pc
         found: list[Alert] = []
         dialogs = getattr(pc.WINDOWS, "dialogs", None)
-        for d in (dialogs() if dialogs else []):
+        now_open = dialogs() if dialogs else []
+        self._seen &= {(d.hwnd, d.title) for d in now_open}      # forget closed ones
+        for d in now_open:
             key = (d.hwnd, d.title)
             if key in self._seen:
                 continue
@@ -119,6 +140,11 @@ class ScreenWatch:
     async def check(self) -> None:
         alerts = await asyncio.to_thread(self.scan)
         for a in alerts:
+            key = f"{a.kind}:{a.app}:{(a.text or a.title)[:120]}"
+            if self.clock() - self._told.get(key, -1e9) < REPEAT_S:
+                continue                             # the same error again: once is enough
+            self._told = {k: t for k, t in self._told.items() if self.clock() - t < REPEAT_S}
+            self._told[key] = self.clock()
             self.last = a
             if await asyncio.to_thread(_game_in_front):
                 log.info("screen alert held during a game: %s", a.describe())

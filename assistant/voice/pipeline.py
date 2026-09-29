@@ -600,9 +600,12 @@ class VoiceLoop:
 
     # --- "cancel": stop or undo whatever is going on, like a person would --------------------
     UNDOABLE = {"set_timer", "set_reminder", "set_alarm", "power", "watch", "subtitles", "remember",
-                "mouse_grid", "show_numbers", "dictation"}
+                "mouse_grid", "show_numbers", "dictation", "window"}
+    ARRANGE = {"snap_left", "snap_right", "other_screen", "side_by_side"}
 
     def _note_action(self, name: str, args, ok: bool) -> None:
+        if name == "window" and isinstance(args, dict) and args.get("action") not in self.ARRANGE:
+            return                                      # only window moves can be put back
         if ok and name in self.UNDOABLE and isinstance(args, dict):
             self._last_action = (name, dict(args), time.perf_counter())
 
@@ -682,6 +685,9 @@ class VoiceLoop:
             elif name == "dictation" and self.dictation:
                 self.set_dictation(False)
                 return "Dictation off."
+            elif name == "window" and args.get("action") in self.ARRANGE:
+                from assistant.tools import pc
+                return await asyncio.to_thread(pc.undo_arrange)     # windows back where they were
         except Exception:
             log.exception("undo failed")
         return None

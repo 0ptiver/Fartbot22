@@ -378,8 +378,15 @@ def everyday_intent(t: str) -> tuple[str, dict] | None:
         if m.group("app") not in ("mouse", "the mouse", "cursor", "the cursor", "pointer", "the pointer"):
             return "window", {"action": f"snap_{m.group('side')}", "app": m.group("app")}
     if m := re.fullmatch(r"(?:move|put|send|throw|drag|stick) (?P<app>[a-z0-9 .'-]+?) (?:to|on|onto|over to) "
-                         r"(?:my |the )?(?:other|second|2nd|next|another|second|other) (?:screen|monitor|display)", t):
+                         r"(?:my |the )?(?:other|next|another) (?:screen|monitor|display)", t):
         return "window", {"action": "other_screen", "app": m.group("app")}
+    if m := re.fullmatch(r"(?:move|put|send|throw|drag|stick) (?P<app>[a-z0-9 .'-]+?) (?:to|on|onto|over to) "
+                         r"(?:my |the )?(?:screen|monitor|display) (?P<n>one|two|three|1|2|3)"
+                         r"|(?:move|put|send|throw|drag|stick) (?P<app2>[a-z0-9 .'-]+?) (?:to|on|onto|over to) "
+                         r"(?:my |the )?(?P<n2>first|second|third|main) (?:screen|monitor|display)", t):
+        n = m.group("n") or m.group("n2")
+        num = {"one": 1, "two": 2, "three": 3, "first": 1, "main": 1, "second": 2, "third": 3}.get(n) or int(n)
+        return "window", {"action": "other_screen", "app": m.group("app") or m.group("app2"), "screen": num}
     if re.fullmatch(r"(?:what(?:'?s| is) the time(?: now)?|what time is it(?: now)?|tell me the time"
                     r"|what(?:'?s| is) (?:the date|today'?s date|the day)(?: today)?|what day is it(?: today)?"
                     r"|what(?:'?s| is) the date today|what date is it(?: today)?)", t):

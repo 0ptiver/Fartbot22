@@ -206,3 +206,66 @@ def test_moving_the_mouse_is_not_a_window():
     from assistant.brain.intents import match_intent
     assert match_intent("move the mouse left") is None or match_intent("move the mouse left")[0] != "window"
 
+
+
+# --- polish -----------------------------------------------------------------------------------------
+async def test_an_alert_that_went_away_is_not_what_fix_it_means(desk):
+    """Closed the error box yourself, or the app came back: "fix it" / "close it" aren't about it."""
+    out = []
+    w, _ = watcher(out)
+    await w.check()
+    desk.popups = [pc.Win(9, "Steam - Error", "steam.exe")]
+    await w.check()
+    assert w.recent() is not None
+    desk.popups = []
+    assert w.recent() is None
+
+
+async def test_close_it_after_the_app_recovered_closes_what_it_normally_would(local_settings, ctx, desk, monkeypatch):
+    out = []
+    w, _ = watcher(out)
+    await w.check()
+    desk.frozen = {2}
+    for _ in range(3):
+        await w.check()
+    desk.frozen = set()                              # Discord came back
+    ctx.services["screenwatch"] = w
+    ended = []
+    monkeypatch.setattr(pc, "end_processes", lambda exe: ended.append(exe) or 1)
+    brain, fake = make(local_settings, [])
+    await collect(brain, Conversation(), "close it", ctx)
+    assert "Discord.exe" not in ended
+
+
+async def test_the_same_error_again_is_said_once(desk):
+    out = []
+    w, clock = watcher(out)
+    w.read_text = lambda hwnd: "Disk write error."
+    await w.check()
+    for hwnd in (9, 19, 29):                         # the app keeps opening the same box
+        desk.popups = [pc.Win(hwnd, "Steam - Error", "steam.exe")]
+        await w.check()
+    assert out == ["Steam says: Disk write error. Say 'fix it' and I'll sort it out."]
+
+
+def test_move_to_a_numbered_screen(desk):
+    assert pc.window_control({"action": "other_screen", "app": "firefox", "screen": 2}, None) == "Moved Firefox to screen 2."
+    assert desk.rects[1][0] >= 1920
+    assert pc.window_control({"action": "other_screen", "app": "firefox", "screen": 2}, None) == \
+        "Firefox is already on screen 2."
+    with pytest.raises(ToolError, match="no screen 3"):
+        pc.window_control({"action": "other_screen", "app": "firefox", "screen": 3}, None)
+
+
+def test_side_by_side_with_itself_asks_which_other(desk):
+    with pytest.raises(ToolError, match="twice"):
+        pc.window_control({"action": "side_by_side", "app": "spotify", "other": "spotify"}, None)
+
+
+def test_undo_puts_windows_back(desk):
+    before = dict(desk.rects)
+    pc.window_control({"action": "side_by_side", "app": "firefox", "other": "discord"}, None)
+    assert desk.rects[1] != before[1]
+    assert pc.undo_arrange() == "Put the windows back where they were."
+    assert desk.rects[1] == before[1] and desk.rects[2] == before[2]
+    assert pc.undo_arrange() is None

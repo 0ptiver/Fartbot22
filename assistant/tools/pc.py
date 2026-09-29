@@ -325,12 +325,26 @@ class WindowBackend:
         return [a for _, a in found]
 
     def move(self, hwnd: int, x: int, y: int, w: int, h: int) -> None:
-        """Put a window at a place and size (restored first: a maximised window won't move)."""
+        """Put a window's visible frame at a place and size (restored first: a maximised window
+        won't move). Windows 10/11 frames have invisible resize borders (~7 px) around them, so the
+        target is widened by those, or snapped windows would sit with gaps between them."""
         _need_windows()
         import ctypes
+        from ctypes import wintypes
         user32 = ctypes.windll.user32  # type: ignore[attr-defined]
         user32.ShowWindow(hwnd, 9)
-        user32.SetWindowPos(hwnd, 0, int(x), int(y), int(w), int(h), 0x0004 | 0x0040)   # NOZORDER|SHOWWINDOW
+        outer, seen = wintypes.RECT(), wintypes.RECT()
+        user32.GetWindowRect(hwnd, ctypes.byref(outer))
+        left = top = right = bottom = 0
+        try:
+            if ctypes.windll.dwmapi.DwmGetWindowAttribute(   # type: ignore[attr-defined]
+                    hwnd, 9, ctypes.byref(seen), ctypes.sizeof(seen)) == 0:      # DWMWA_EXTENDED_FRAME_BOUNDS
+                left, top = seen.left - outer.left, seen.top - outer.top
+                right, bottom = outer.right - seen.right, outer.bottom - seen.bottom
+        except Exception:
+            pass
+        user32.SetWindowPos(hwnd, 0, int(x - left), int(y - top), int(w + left + right), int(h + top + bottom),
+                            0x0004 | 0x0040)                                     # NOZORDER|SHOWWINDOW
 
     def dialogs(self) -> list[Win]:
         """Message boxes and dialogs on screen (these are 'owned' pop-ups, which list() skips)."""
@@ -544,13 +558,49 @@ def _landed(hwnd: int, want: tuple[int, int, int, int], slack: int = 40) -> bool
     return all(abs(a - b) <= slack for a, b in zip(got, want))
 
 
-def arrange(action: str, app: str, other: str = "") -> str:
+# Where windows were before the last arranging, so "cancel" / "undo that" puts them back.
+LAST_LAYOUT: list[tuple[int, tuple[int, int, int, int], str]] = []
+
+
+def _remember(*wins: Win) -> None:
+    LAST_LAYOUT.clear()
+    for w in wins:
+        try:
+            state = WINDOWS.state(w.hwnd) if hasattr(WINDOWS, "state") else "normal"
+            LAST_LAYOUT.append((w.hwnd, WINDOWS.rect(w.hwnd), state))
+        except Exception:
+            pass
+
+
+def undo_arrange() -> str | None:
+    """Put the windows back where they were before the last snap / move. None if nothing to undo."""
+    if not LAST_LAYOUT:
+        return None
+    for hwnd, rect, state in LAST_LAYOUT:
+        try:
+            WINDOWS.move(hwnd, *rect)
+            if state == "maximized":
+                WINDOWS.show(hwnd, "maximize")
+        except Exception:
+            pass
+    LAST_LAYOUT.clear()
+    return "Put the windows back where they were."
+
+
+def arrange(action: str, app: str, other: str = "", screen: int | None = None) -> str:
     """snap_left / snap_right / other_screen / side_by_side (owner's pick: seamless PC control, two screens)."""
     areas = WINDOWS.work_areas()
     w = _find_window(app)
     label = _nice(w)
     here = _screen_of(WINDOWS.rect(w.hwnd), areas)
     x, y, width, height = areas[here]
+    if action == "side_by_side" and other:
+        try:
+            _remember(w, _find_window(other))
+        except ToolError:
+            _remember(w)
+    else:
+        _remember(w)
     if action in ("snap_left", "snap_right", "side_by_side"):
         half = width // 2
         spot = (x, y, half, height) if action != "snap_right" else (x + half, y, width - half, height)
@@ -559,6 +609,8 @@ def arrange(action: str, app: str, other: str = "") -> str:
             raise ToolError(f"I tried to move {label}, but it stayed put. Some apps won't be moved.")
         if action == "side_by_side":
             o = _find_window(other)
+            if o.hwnd == w.hwnd:
+                raise ToolError(f"That's {label} twice. Which other app should go next to it?")
             right = (x + half, y, width - half, height)
             WINDOWS.move(o.hwnd, *right)
             olabel = _nice(o)
@@ -569,7 +621,14 @@ def arrange(action: str, app: str, other: str = "") -> str:
     if len(areas) < 2:
         raise ToolError("You've only got one screen connected.")
     was_max = WINDOWS.state(w.hwnd) == "maximized" if hasattr(WINDOWS, "state") else False
-    to = (here + 1) % len(areas)
+    if screen is not None:
+        if not 1 <= screen <= len(areas):
+            raise ToolError(f"There's no screen {screen}; you have {len(areas)}.")
+        if screen - 1 == here:
+            return f"{label} is already on screen {screen}."
+        to = screen - 1
+    else:
+        to = (here + 1) % len(areas)
     tx, ty, tw, th = areas[to]
     _, _, cw, ch = WINDOWS.rect(w.hwnd)
     cw, ch = min(cw, tw), min(ch, th)
@@ -589,7 +648,7 @@ def window_control(args: dict, ctx: ToolContext) -> str:
             raise ToolError("Which app?")
         if action == "side_by_side" and not args.get("other"):
             raise ToolError("Side by side with which app?")
-        return arrange(action, args["app"].strip(), (args.get("other") or "").strip())
+        return arrange(action, args["app"].strip(), (args.get("other") or "").strip(), args.get("screen"))
     if action == "show_desktop":
         WINDOWS.show_desktop()
         return "Showing the desktop."
@@ -738,7 +797,8 @@ def register(reg: ToolRegistry) -> None:
                                                        "close", "quit", "list", "show_desktop", "snap_left",
                                                        "snap_right", "other_screen", "side_by_side"]},
                  "app": {"type": "string", "maxLength": 80},
-                 "other": {"type": "string", "maxLength": 80}},
+                 "other": {"type": "string", "maxLength": 80},
+                 "screen": {"type": "integer", "minimum": 1, "maximum": 6}},
               "required": ["action"], "additionalProperties": False},
              risk=Risk.SAFE, category="apps")(window_control)
     reg.tool("press_key", "Press one key, optionally in an app first brought to the front. For videos "
