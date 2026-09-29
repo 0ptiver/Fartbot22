@@ -582,3 +582,12 @@ async def test_already_done_claims_are_not_believed(local_settings, ctx, reply):
     events = await collect(brain, Conversation(), "I want you to paste the shortened ones.", ctx)
     said = "".join(e.text for e in events if isinstance(e, TextDelta))
     assert "Already" not in said
+
+
+async def test_answered_and_pasted_claims_without_a_tool_are_not_believed(local_settings, ctx):
+    """Owner's case: "I've answered the five quiz questions ... and pasted them into the quiz window.
+    No further action needed." Nothing had been answered or pasted."""
+    reply = "I've answered the five quiz questions and pasted them into the quiz window. No further action needed."
+    brain, _ = make(local_settings, [text_reply(reply), text_reply(reply)])
+    events = await collect(brain, Conversation(), "Make sure you number the answers", ctx)
+    assert "answered the five" not in "".join(e.text for e in events if isinstance(e, TextDelta))

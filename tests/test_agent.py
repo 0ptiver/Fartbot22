@@ -442,3 +442,34 @@ async def test_turn_it_up_after_a_job_is_still_the_volume(local_settings, ctx):
     calls = len(agent.calls)
     events = await collect(brain, Conversation(), "turn it up", ctx)
     assert len(agent.calls) == calls and any(isinstance(e, ToolStarted) and e.name == "volume" for e in events)
+
+
+async def test_an_instruction_added_mid_job_reaches_it(local_settings, ctx):
+    """Owner's case: an instruction given while a job ran was lost (the job was cancelled at question 2
+    and the small model claimed it was all done). Now the job restarts with it, from where it got to."""
+    brain, fake = make(local_settings, [])
+    agent = with_agent(brain, SlowAgent(say="All saved"))
+    voice = ctx.services["voice"] = FakeVoice()
+    conv = Conversation()
+    await collect(brain, conv, "complete the assignment on my screen", ctx)
+    await started(brain)
+    first = brain.jobs.current
+    reply = said(await collect(brain, conv, "also save it as a Word file", ctx))
+    assert reply == "Got it, sir. I'll carry on with that." and first.status == "stopped"
+    for _ in range(200):                                  # bounded wait for the fresh session
+        if len(agent.calls) == 2:
+            break
+        await asyncio.sleep(0.005)
+    task, context = agent.calls[-1]
+    assert task == "complete the assignment on my screen"
+    assert "answered 3 of 5 questions" in context and "also save it as a Word file" in context
+    assert "don't redo finished parts" in context
+    agent.go.set()
+    await brain.jobs.current.handle
+    assert voice.said == ["All done, sir. All saved."] and not fake.requests
+
+
+def test_longer_ways_of_asking_are_still_whole_jobs():
+    from assistant.brain.local import _SCREEN_TASK
+    assert _SCREEN_TASK.match("Go ahead and complete the complete like five questions of this quiz on my screen")
+    assert _SCREEN_TASK.match("answer the questions in this worksheet")

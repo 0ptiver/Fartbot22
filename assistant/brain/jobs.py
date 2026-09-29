@@ -37,6 +37,8 @@ class Job:
     ended: float = 0.0
     handle: asyncio.Task | None = None
     document: dict | None = None     # the last thing it wrote with write_document (title, text)
+    extra: list[str] = field(default_factory=list)   # instructions Oliver added while it ran
+    quiet: bool = False              # replaced by a restart: no "I stopped" announcement
 
     def minutes(self) -> str:
         m = int(((self.ended or time.monotonic()) - self.started) // 60)
@@ -52,6 +54,16 @@ class Job:
         if tool == "write_document" and entry.get("ok"):
             args = entry.get("args") or {}
             self.document = {"title": str(args.get("title", "")), "text": str(args.get("text", ""))}
+
+    def resume(self) -> str:
+        """For the restart that picks up an instruction added mid-job."""
+        where = self.note or (f"last step: {self.doing}" if self.doing else "just starting")
+        lines = [f"You were already doing this job ({self.steps} steps so far; {where}). Look at the screen first "
+                 "and carry on from where it is: don't redo finished parts."]
+        if self.document:
+            lines.append(f"You had saved '{self.document['title']}' in Documents\\Nova.")
+        lines.append("Oliver added, while you worked: " + " / ".join(self.extra))
+        return "\n".join(lines)
 
     def handover(self) -> str:
         """What a follow-up job needs to know about this one ("now shorten them")."""
@@ -138,3 +150,10 @@ FOLLOW_UP = re.compile(
     r"update|tweak|polish|proofread|translate|format|paste|put|copy|add to|remove|cut|make|turn)\b"
     r".*\b(?:it|them|those|these|that|the (?:answers?|essay|work|document|doc|file|notepad|questions?|responses?|"
     r"paragraphs?|assignment|homework|text|writing|shortened ones|new ones|ones|version))\b", re.I)
+
+# Said while a job runs, an extra instruction for it: "also save it as a Word file", "make sure you
+# number them", "use Word instead", "don't submit it".
+ADD_ON = re.compile(
+    r"^\W*(?:nova[, ]+)?(?:(?:oh|and|also|actually|ok|okay|wait|please|hey)[, ]+)*"
+    r"(?:make sure|remember to|don'?t|do not|also|instead|use|be sure|only|skip|leave|save it|put it|write it|"
+    r"call it|name it|number|keep it|keep them|stop after|stop at)\b", re.I)

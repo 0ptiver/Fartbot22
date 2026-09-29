@@ -265,6 +265,17 @@ class LocalBrain:
             async for ev in self._say(conv, user_text, self.jobs.recent().spoken(sir)):
                 yield ev
             return
+        running = self.jobs.running()
+        if running is not None and J.ADD_ON.match(text) and self._can_rescue(ctx):
+            # An instruction for the job in hand: restart it with that added, carrying on from where
+            # it got to (Claude's session can't take new messages mid-run).
+            running.quiet = True
+            self.jobs.stop()
+            running.extra.append(text)
+            async for ev in self._start_job(conv, running.task, ctx, sir, resume=running,
+                                            say=f"Got it{sir}. I'll carry on with that."):
+                yield ev
+            return
         last = self.jobs.recent()
         if (last is not None and last.status == "done" and J.FOLLOW_UP.search(text)
                 and not _QUESTION.match(text) and match_intent(text) is None   # "turn it up" stays volume
@@ -510,7 +521,7 @@ class LocalBrain:
         yield TurnComplete(answer, {"total_ms": _ms(t0)}, {"input_tokens": 0, "output_tokens": 0}, "answered")
 
     async def _start_job(self, conv: Conversation, task: str, ctx: ToolContext, sir: str,
-                         after=None) -> AsyncIterator[Event]:
+                         after=None, resume=None, say: str | None = None) -> AsyncIterator[Event]:
         """A whole job ("complete this assignment for me"), done by Claude with Nova's tools in the
         background: this turn ends straight away, Nova keeps talking, status questions are answered
         from the job's progress, and he says when it's finished (brain/jobs.py)."""
@@ -543,11 +554,13 @@ class LocalBrain:
                     now = {}
                 context = "\n".join(["Oliver asked Nova to do this whole job."] +
                                      ([after.handover()] if after is not None else []) +
+                                     ([resume.resume()] if resume is not None else []) +
                                      [f"{k}: {v}" for k, v in now.items()])
                 result = await self._agent().run(task, context, on_step, long=True)
                 job.status, job.result = ("done" if result.ok else "failed"), result.say
             except asyncio.CancelledError:
-                job.status = "stopped"
+                if job.status == "running":
+                    job.status = "stopped"
                 raise
             except asyncio.TimeoutError:
                 job.status, job.result = "failed", "I ran out of time on it"
@@ -564,10 +577,13 @@ class LocalBrain:
             if voice is not None and hasattr(voice, "announce"):
                 await voice.announce(said)
 
-        job = self.jobs.start(Job(task), work)
+        new = Job(task)
+        if resume is not None:                        # keep the progress so far and what was added
+            new.extra, new.steps, new.note, new.document = list(resume.extra), resume.steps, resume.note, resume.document
+        job = self.jobs.start(new, work)
         conv.last_action = {"text": task, "at": time.time()}
-        say = f"On it{sir}. I'll work through it while we talk; ask how it's going any time, or say stop."
-        conv.messages.append({"role": "user", "content": task})
+        say = say or f"On it{sir}. I'll work through it while we talk; ask how it's going any time, or say stop."
+        conv.messages.append({"role": "user", "content": task if resume is None else resume.extra[-1]})
         conv.messages.append({"role": "assistant", "content": say})
         conv.trim()
         yield ToolStarted("job", "work_it_out", {"task": task})
@@ -1357,7 +1373,7 @@ _DONE_CLAIM = re.compile(      # "Skipped the song.", "I've closed Spotify.": a 
     r"(?:just\s+|now\s+|also\s+|already\s+)?(?:re)?(?:opened|closed|skipped|paused|played|resumed|unpaused|switched|launched|"
     r"started|stopped|muted|unmuted|minimi[sz]ed|maximi[sz]ed|full[- ]?screened|moved|typed|pressed|clicked|"
     r"searched|navigated|brought|quit|killed|loaded|went|took|pasted|saved|wrote|written|rewrote|rewritten|"
-    r"shortened|updated|edited|copied|sent|submitted|filled)\b"
+    r"shortened|updated|edited|copied|sent|submitted|filled|answered|completed|finished|checked|verified)\b"
     r"|\b(?:took|taken) you\b|\bskipped to\b"
     # "Already done, sir.", "Already pasted." (owner's screenshots: nothing had been done)
     r"|(?:^|[.!?]\s+)(?:(?:it'?s|that'?s|they'?re|it is|that is|they are)\s+)?already\s+(?:done|pasted|saved|"
@@ -1406,6 +1422,7 @@ _SCREEN_TASK = re.compile(
     r"take care of|knock out|get done)\s+(?:the|this|that|my|these|those|all (?:the|of the|these|my))\s+"
     r"(?:[a-z']+\s+){0,3}?" + _TASK_NOUN +
     r"(?:\s+(?:for me|on (?:my|the) (?:screen|browser|monitor|computer|laptop|pc)|that'?s (?:open|up)|"
+    r"(?:of|in|from|on) (?:the|this|that|my) (?:[a-z']+\s+){0,2}?" + _TASK_NOUN + r"|"
     r"in (?:my|the) (?:browser|other tab|tab)|for (?:class|school|work)|please|(?:until|till) (?:it'?s|it is) "
     r"(?:done|finished)))*(?:[, ]+(?:right|please|thanks|sir|now|yeah))?[.!?]*$"
     r"|^(?:nova[, ]+)?(?:(?:please|can you|could you)[, ]+)*(?:do|finish|complete|handle) what'?s on my screen[.!]*$",
