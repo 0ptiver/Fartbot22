@@ -1279,16 +1279,24 @@ _WORK_IT_OUT = re.compile(
     r"try (?:harder|again|another way|a different way)|use your (?:brain|head)|think about it)\b", re.I)
 
 
-# "Complete the task on my screen", "fill out this survey", "finish the form for me".
+# A whole job to be worked out and done: "complete this assignment for me", "do my homework",
+# "finish the survey on my screen", "answer these questions". Owner: "he should be able to figure out
+# that he has to do that on his own".
+_TASK_NOUN = (r"(?:task|survey|form|quiz|questionnaire|application|questions?|test|poll|sign ?up|checklist|job|"
+              r"assignment|homework|worksheet|essay|report|paper|project|lab|exercises?|problems?|problem set|"
+              r"module|lesson|coursework|course ?work|reading|work|thing)s?")
 _SCREEN_TASK = re.compile(
-    r"^(?:nova[, ]+)?(?:(?:hey|ok|okay|so|now|right|please|can you|could you|will you|go ahead and|i want you to|"
-    r"i need you to)[, ]+)*"
+    r"^(?:(?:hey|ok|okay|so|now|right|alright|yo)[, ]+)?(?:nova[, ]+)?"
+    r"(?:(?:hey|ok|okay|so|now|right|please|can you|could you|will you|would you|go ahead and|i want you to|"
+    r"i need you to|just)[, ]+)*"
     r"(?:complete|finish|do|fill (?:out|in)|answer|take|work through|go through|get through|handle|sort out|"
-    r"take care of)\s+(?:the|this|that|my|these|all (?:the|of the|these))\s+"
-    r"(?:task|survey|form|quiz|questionnaire|application|questions|test|poll|sign ?up|checklist|job|thing)s?"
-    r"(?:\s+(?:on|in) (?:my|the) (?:screen|browser|monitor))?(?:\s+for me)?(?:\s+please)?"
-    r"(?:\s+(?:until|till) (?:it'?s|it is) (?:done|finished))?(?:[, ]+(?:right|please|thanks|sir|now))?[.!?]*$"
-    r"|^(?:nova[, ]+)?(?:(?:please|can you|could you)[, ]+)*(?:do|finish|complete|handle) what'?s on my screen[.!]*$", re.I)
+    r"take care of|knock out|get done)\s+(?:the|this|that|my|these|those|all (?:the|of the|these|my))\s+"
+    r"(?:[a-z']+\s+){0,3}?" + _TASK_NOUN +
+    r"(?:\s+(?:for me|on (?:my|the) (?:screen|browser|monitor|computer|laptop|pc)|that'?s (?:open|up)|"
+    r"in (?:my|the) (?:browser|other tab|tab)|for (?:class|school|work)|please|(?:until|till) (?:it'?s|it is) "
+    r"(?:done|finished)))*(?:[, ]+(?:right|please|thanks|sir|now|yeah))?[.!?]*$"
+    r"|^(?:nova[, ]+)?(?:(?:please|can you|could you)[, ]+)*(?:do|finish|complete|handle) what'?s on my screen[.!]*$",
+    re.I)
 _NEVER_MIND = re.compile(r"^\W*(?:never ?mind|forget it|nothing|cancel|it'?s fine|no|nah|don'?t worry)\b", re.I)
 _CORRECTION = re.compile(r"^\s*(?:no[,.!]?\s+|nope[,.!]?\s+|sorry[,.!]?\s+|actually[,.!]?\s+)*"
                          r"(?:i meant|i said|i mean)\s+(.+?)\s*$", re.I)

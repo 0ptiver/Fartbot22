@@ -44,15 +44,25 @@ AGENT_SYSTEM = (
 # "Complete the task on my screen": a whole job, not a quick fix (owner: "like say I wanted to do a
 # survey ... he will go through and complete the task until it's finished, like a real JARVIS").
 TASK_SYSTEM = (
-    " This is a whole task on Oliver's screen, to be done start to finish without him. First find out "
-    "what it is (look_at_screen, then a screenshot). Then work through it page after page: answer every "
-    "question (scroll down for more; the scroll tool), then press Next / Continue / Submit, wait for the "
-    "new page and look again. It's finished only when the screen says so (a thank-you, completed or "
-    "submitted page); keep going until then. Choose options by clicking their text (click_element) and "
-    "check they took. For questions about Oliver himself that the screen and task don't answer, give a "
-    "sensible, ordinary answer (or 'prefer not to say' when offered); never invent sensitive details. "
-    "Never type passwords, card or bank details, ID numbers or real contact details, and never buy or "
-    "pay: if the task needs one of those, a sign-in or a CAPTCHA, stop with FAILED: and say what's needed."
+    " This is a whole job for you to work out and finish on Oliver's PC without him, like a capable "
+    "assistant would. 1) Find it: 'this' means what's in front (look_at_screen) or one of his browser tabs "
+    "(my_browser list_tabs, then switch to the right one, e.g. the homework or assignment tab). "
+    "2) Read ALL of it before starting: every instruction and requirement, scrolling to the end, and any "
+    "linked page or attachment it points to. 3) Decide how the work should be handed in: in the page itself "
+    "(a quiz, form or survey: select or type the answers there); or, if it asks for written answers, an essay "
+    "or a document and there's nowhere on the page to write them, open Notepad (open_app), type the work "
+    "clearly with each answer numbered like the questions (type_text, up to 2000 characters per call, several "
+    "calls for longer work) and save it with Ctrl+S under a clear name in Documents; use Word or another app "
+    "only if the instructions ask for it. 4) Do every part properly and in full, following the requirements "
+    "(length, format, what to include), then check your work against them. 5) Page by page: scroll for more, "
+    "press Next / Continue, wait for pages to load and look again after each step. Don't press a final Submit "
+    "or Send for work that will be graded or sent to someone: leave it ready and say so, unless Oliver said to "
+    "submit. A survey or ordinary form can be submitted. Choose options by clicking their text "
+    "(click_element) and check they took. For questions about Oliver himself that nothing answers, give a "
+    "sensible, ordinary answer (or 'prefer not to say'); never invent sensitive details. Never type "
+    "passwords, card or bank details, ID numbers or real contact details, and never buy or pay: if the job "
+    "needs one of those, a sign-in or a CAPTCHA, stop with FAILED: and say what's needed. Finish with DONE: "
+    "and one sentence on what you did and where the work is."
 )
 # Steps worth learning (the ones that change something; looking isn't a step to repeat).
 _NOT_LEARNED = {"screenshot", "now_playing", "system_status", "get_time", "find_files", "read_file",

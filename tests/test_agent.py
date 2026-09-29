@@ -258,7 +258,9 @@ async def test_told_to_do_something_it_never_just_says_it_cant(local_settings, c
 
 
 # --- "complete the task on my screen" ---------------------------------------------------------------
-@pytest.mark.parametrize("phrase", ["complete the task on my screen right", "Nova, fill out this survey for me",
+@pytest.mark.parametrize("phrase", ["hey nova go ahead and complete this assignment for me right",
+                                    "Nova, do my homework", "answer these questions",
+                                    "complete the task on my screen right", "Nova, fill out this survey for me",
                                   "finish the form on my screen", "do what's on my screen"])
 async def test_a_whole_task_on_the_screen_is_seen_through(local_settings, ctx, phrase):
     """Owner: "say complete the task on my screen and he will go through and complete the task until
@@ -280,7 +282,10 @@ def test_long_mode_gets_time_steps_and_the_task_instructions(settings, tmp_path)
     turns = lambda c: int(c[c.index("--max-turns") + 1])
     prompt = lambda c: c[c.index("--append-system-prompt") + 1]
     assert turns(whole) == settings.brain.agent.task_max_turns > turns(quick)
-    assert "page after page" in prompt(whole) and "page after page" not in prompt(quick)
+    # Owner: "switch to the homework tab, read all of the requirements and either do the quiz or ... open a
+    # notepad and answer all the questions ... he should be able to figure out that he has to do that".
+    assert "Read ALL of it" in prompt(whole) and "Read ALL of it" not in prompt(quick)
+    assert "list_tabs" in prompt(whole) and "Notepad" in prompt(whole) and "numbered" in prompt(whole)
     assert "never buy or pay" in prompt(whole) and "passwords" in prompt(whole)
 
 
@@ -299,3 +304,10 @@ async def test_claude_can_scroll_and_wait(settings, registry, monkeypatch):
     assert ok and moves == [(500, 400)] and wheel == [-6]
     content, ok = await tools.call("wait", {"seconds": 0.5})
     assert ok and "Waited" in content[0]["text"]
+
+
+@pytest.mark.parametrize("phrase", ["do the dishes", "answer the phone", "finish the song",
+                                    "what is this assignment about"])
+def test_everyday_requests_are_not_whole_tasks(phrase):
+    from assistant.brain.local import _SCREEN_TASK
+    assert not _SCREEN_TASK.match(phrase)
