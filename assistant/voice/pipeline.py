@@ -77,6 +77,7 @@ class VoiceLoop:
         self._confirm: asyncio.Future | None = None   # waiting for a yes/no
         self.standby = False                          # after "stand down": only "wake up" works
         self._announcements: list[str] = []           # reminders waiting for a quiet moment
+        self._announcing = False                       # saying one now (it can be talked over)
         self.ctx.confirm = self._voice_confirm
         self.lock = None                               # voice lock (voiceprint.VoiceLock), set by the CLI
         self._rejected = None                          # (text, audio, when) of the last voice the lock refused
@@ -98,7 +99,7 @@ class VoiceLoop:
     @property
     def busy(self) -> bool:
         """A reply is being worked on or spoken (or an utterance is being resolved)."""
-        return any(t is not None and not t.done() for t in (self._turn, self._handler))
+        return self._announcing or any(t is not None and not t.done() for t in (self._turn, self._handler))
 
     @property
     def speaking(self) -> bool:
@@ -814,11 +815,18 @@ class VoiceLoop:
                           or self.endpointer.in_speech):
             return            # retried after the current reply, or on "Nova, wake up"
         who = self.settings.assistant.address_user_as
-        while self._announcements:
-            text = self._announcements.pop(0)
-            self.player.play(chime())
-            await self.say(f"{who.capitalize()}, {text[0].lower()}{text[1:]}" if who else text, show=False)
-            self._spoke_at = time.perf_counter()
+        # While it's said, Nova counts as speaking, so "stop" or a new question cuts it off like any
+        # reply (owner: "he isn't letting me interrupt"; a job's "All done, sir..." played to the end).
+        self._announcing = True
+        try:
+            while self._announcements:
+                text = self._announcements.pop(0)
+                self.player.play(chime())
+                await self.say(f"{who.capitalize()}, {text[0].lower()}{text[1:]}" if who else text, show=False)
+                self._spoke_at = time.perf_counter()
+        finally:
+            self._announcing = False
+            self._reply_started = False
 
     def _after_reply(self) -> None:
         if self._announcements:

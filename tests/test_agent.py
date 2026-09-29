@@ -406,3 +406,39 @@ def test_written_work_is_saved_as_a_file_never_typed(tmp_path, monkeypatch, sett
     assert [p.parent for p in opened] == [folder] * 3 and "Notepad" in first and "(2)" in again
     assert opened[2].name == "Windowsevil.txt" and opened[2].parent == folder and "Saved" in sneaky
     assert "write_document" in {t["name"] for t in TS.NovaTools(settings, registry).list()}
+
+
+async def test_follow_ups_to_a_finished_job_go_back_to_claude_with_what_it_wrote(local_settings, ctx):
+    """Owner's case: after the assignment, "rewrite them like a high schooler", "shorten the answers"
+    and "paste the shortened ones" went to the small model, which promised ("I'll rewrite them") and
+    claimed ("Already pasted, sir") without doing anything."""
+    brain, fake = make(local_settings, [])
+    agent = with_agent(brain, SlowAgent(say="Five answers saved"))
+    conv = Conversation()
+    await collect(brain, conv, "complete the assignment on my screen", ctx)
+    await started(brain)
+    agent.go.set()
+    await brain.jobs.current.handle
+    brain.jobs.current.document = {"title": "3.07 Answers", "text": "1. Levers multiply force."}
+    first = brain.jobs.current
+    agent.go = asyncio.Event()
+    reply = said(await collect(brain, conv, "Can you go ahead and shorten the answers?", ctx))
+    assert reply.startswith("On it, sir.") and brain.jobs.current is not first and not fake.requests
+    await started(brain)
+    task, context = agent.calls[-1]
+    assert task == "Can you go ahead and shorten the answers?"
+    assert "1. Levers multiply force." in context and "write_document" in context
+    agent.go.set()
+    await brain.jobs.current.handle
+
+
+async def test_turn_it_up_after_a_job_is_still_the_volume(local_settings, ctx):
+    brain, fake = make(local_settings, [])
+    agent = with_agent(brain, SlowAgent())
+    await collect(brain, Conversation(), "do my homework", ctx)
+    await started(brain)
+    agent.go.set()
+    await brain.jobs.current.handle
+    calls = len(agent.calls)
+    events = await collect(brain, Conversation(), "turn it up", ctx)
+    assert len(agent.calls) == calls and any(isinstance(e, ToolStarted) and e.name == "volume" for e in events)

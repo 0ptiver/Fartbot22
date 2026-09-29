@@ -36,6 +36,7 @@ class Job:
     result: str = ""
     ended: float = 0.0
     handle: asyncio.Task | None = None
+    document: dict | None = None     # the last thing it wrote with write_document (title, text)
 
     def minutes(self) -> str:
         m = int(((self.ended or time.monotonic()) - self.started) // 60)
@@ -48,6 +49,20 @@ class Job:
             return
         self.steps += 1
         self.doing = _DOING.get(tool, self.doing or "working on it")
+        if tool == "write_document" and entry.get("ok"):
+            args = entry.get("args") or {}
+            self.document = {"title": str(args.get("title", "")), "text": str(args.get("text", ""))}
+
+    def handover(self) -> str:
+        """What a follow-up job needs to know about this one ("now shorten them")."""
+        lines = [f"This follows the job you just finished for Oliver: '{self.task}'. Its result: {self.result}"]
+        if self.document:
+            lines.append(f"What you wrote then (saved as '{self.document['title']}' in Documents\\Nova and "
+                         f"open in Notepad), exactly:\n<<<\n{self.document['text'][:8000]}\n>>>")
+        lines.append("Work on that. Save any new version with write_document (a new file that opens in Notepad) "
+                     "unless Oliver says where else to put it; if he asks for it pasted somewhere, bring that "
+                     "window forward, click where it goes and use type_text (long text is pasted).")
+        return "\n".join(lines)
 
     def spoken(self, sir: str = "") -> str:
         """How it's going, like a person would say it."""
@@ -115,3 +130,11 @@ STOP = re.compile(
     r"^\W*(?:nova[, ]+)?(?:(?:ok|okay|please|just|actually|alright)[, ]+)*(?:stop|halt|cancel|abort|quit|pause)"
     r"(?:[, ]+(?:it|that|working|now|please|nova|sir|the (?:job|task|assignment|work|homework)|what you'?re doing))*\W*$",
     re.I)
+
+# "Rewrite them like a high schooler", "shorten the answers", "paste the shortened ones into the doc":
+# more work on what the last job made (owner's case: the small model promised and claimed instead).
+FOLLOW_UP = re.compile(
+    r"\b(?:re-?write|redo|re-?do|shorten|lengthen|expand|simplify|reword|rephrase|edit|change|fix|improve|"
+    r"update|tweak|polish|proofread|translate|format|paste|put|copy|add to|remove|cut|make|turn)\b"
+    r".*\b(?:it|them|those|these|that|the (?:answers?|essay|work|document|doc|file|notepad|questions?|responses?|"
+    r"paragraphs?|assignment|homework|text|writing|shortened ones|new ones|ones|version))\b", re.I)

@@ -562,3 +562,23 @@ async def test_a_refusal_stays_if_claude_cannot_be_reached(local_settings, ctx):
                     FakeExpert(error=ExpertError("Claude Code isn't signed in.")))
     events = await collect(brain, Conversation(), "give me a savage roast for my mate Jake", ctx)
     assert "can't help" in "".join(e.text for e in events if isinstance(e, TextDelta))
+
+
+def test_made_up_tags_are_never_shown():
+    """Owner's case: a reply began "<monitor>Notepad: *3.07 Critical Thinking Questions.txt</monitor>"."""
+    from assistant.brain.local import ContextFilter
+    leaked = "<monitor>Notepad: *3.07 Critical Thinking Questions.txt - Notepad</monitor>\nThe file is open, sir."
+    for size in (1, 4, len(leaked)):
+        f = ContextFilter()
+        out = "".join(f.feed(leaked[i:i + size]) for i in range(0, len(leaked), size)) + f.flush()
+        assert out == "The file is open, sir.", size
+
+
+@pytest.mark.parametrize("reply", ["Already done, sir. The answers are in Notepad, ready for you to see or save.",
+                                   "Already pasted, sir. The shortened answers are in Notepad."])
+async def test_already_done_claims_are_not_believed(local_settings, ctx, reply):
+    """Owner's case: "I want you to paste the shortened ones." -> "Already pasted, sir." (nothing was)."""
+    brain, _ = make(local_settings, [text_reply(reply), text_reply(reply)])
+    events = await collect(brain, Conversation(), "I want you to paste the shortened ones.", ctx)
+    said = "".join(e.text for e in events if isinstance(e, TextDelta))
+    assert "Already" not in said

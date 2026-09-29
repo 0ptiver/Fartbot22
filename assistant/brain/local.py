@@ -86,35 +86,50 @@ class ThinkFilter:
 
 
 class ContextFilter:
-    """Never shows or says the <context> block. The small model sometimes copies its notes (the
-    time, the window in front, remembered facts) into its reply (owner's case on the phone).
-    Works on a stream: text that could be the start of a tag is held until it's clear."""
+    """Never shows or says Nova's hidden notes: the <context> block and tags like it. The small model
+    sometimes copies its notes (the time, the window in front, remembered facts) into its reply
+    (owner's case on the phone), or makes up tags of its own ("<monitor>Notepad: ...</monitor>",
+    owner's case in the window). Works on a stream: text that could be a tag is held until clear."""
 
-    OPEN, CLOSE = "<context>", "</context>"
+    TAGS = ("context", "monitor", "screen", "window", "situation", "media", "memory", "system",
+            "tool_call", "tool_response", "function_call", "notes")
 
     def __init__(self):
-        self.buf, self.inside, self._lstrip = "", False, False
+        self.buf, self.inside, self._lstrip = "", None, False
+        self._opens = {f"<{t}>": t for t in self.TAGS}
+        self._closes = {f"</{t}>": t for t in self.TAGS}
+        self._longest = max(len(x) for x in self._closes)
+
+    @staticmethod
+    def _first(buf: str, marks) -> tuple[int, str]:
+        best = (-1, "")
+        for m in marks:
+            k = buf.find(m)
+            if k >= 0 and (best[0] < 0 or k < best[0]):
+                best = (k, m)
+        return best
 
     def feed(self, text: str) -> str:
         self.buf += text
         out = []
         while True:
             if self.inside:
-                i = self.buf.find(self.CLOSE)
-                if i < 0:
-                    self.buf = self.buf[-(len(self.CLOSE) - 1):]    # keep only what could be the close
+                close = f"</{self.inside}>"
+                k = self.buf.find(close)
+                if k < 0:
+                    self.buf = self.buf[-(len(close) - 1):]          # keep only what could be the close
                     break
-                self.buf, self.inside, self._lstrip = self.buf[i + len(self.CLOSE):], False, True
+                self.buf, self.inside, self._lstrip = self.buf[k + len(close):], None, True
                 continue
-            i = self.buf.find(self.OPEN)
-            j = self.buf.find(self.CLOSE)
-            if j >= 0 and (i < 0 or j < i):                        # a stray close: drop what came before
-                self.buf, self._lstrip = self.buf[j + len(self.CLOSE):], True
+            i, opener = self._first(self.buf, self._opens)
+            j, closer = self._first(self.buf, self._closes)
+            if j >= 0 and (i < 0 or j < i):                         # a stray close: drop what came before
+                self.buf, self._lstrip = self.buf[j + len(closer):], True
                 out.clear()
                 continue
             if i >= 0:
                 out.append(self.buf[:i])
-                self.buf, self.inside = self.buf[i + len(self.OPEN):], True
+                self.buf, self.inside = self.buf[i + len(opener):], self._opens[opener]
                 continue
             keep = self._partial()
             out.append(self.buf[:len(self.buf) - keep])
@@ -128,15 +143,15 @@ class ContextFilter:
 
     def _partial(self) -> int:
         """How much of the end could be the start of a tag."""
-        for n in range(min(len(self.buf), len(self.CLOSE) - 1), 0, -1):
+        for n in range(min(len(self.buf), self._longest - 1), 0, -1):
             tail = self.buf[-n:]
-            if self.OPEN.startswith(tail) or self.CLOSE.startswith(tail):
+            if any(m.startswith(tail) for m in (*self._opens, *self._closes)):
                 return n
         return 0
 
     def flush(self) -> str:
         out, self.buf = ("" if self.inside else self.buf), ""
-        self.inside = False
+        self.inside = None
         return out.lstrip() if self._lstrip else out
 
 
@@ -248,6 +263,14 @@ class LocalBrain:
             return
         if self.jobs.recent() and J.STATUS.search(text):
             async for ev in self._say(conv, user_text, self.jobs.recent().spoken(sir)):
+                yield ev
+            return
+        last = self.jobs.recent()
+        if (last is not None and last.status == "done" and J.FOLLOW_UP.search(text)
+                and not _QUESTION.match(text) and match_intent(text) is None   # "turn it up" stays volume
+                and self._can_rescue(ctx)):
+            # More work on what the last job made: Claude again, told exactly what it wrote.
+            async for ev in self._start_job(conv, text, ctx, sir, after=last):
                 yield ev
             return
         if _SCREEN_TASK.match(text):
@@ -486,7 +509,8 @@ class LocalBrain:
         yield TextDelta(answer)
         yield TurnComplete(answer, {"total_ms": _ms(t0)}, {"input_tokens": 0, "output_tokens": 0}, "answered")
 
-    async def _start_job(self, conv: Conversation, task: str, ctx: ToolContext, sir: str) -> AsyncIterator[Event]:
+    async def _start_job(self, conv: Conversation, task: str, ctx: ToolContext, sir: str,
+                         after=None) -> AsyncIterator[Event]:
         """A whole job ("complete this assignment for me"), done by Claude with Nova's tools in the
         background: this turn ends straight away, Nova keeps talking, status questions are answered
         from the job's progress, and he says when it's finished (brain/jobs.py)."""
@@ -518,6 +542,7 @@ class LocalBrain:
                 except Exception:
                     now = {}
                 context = "\n".join(["Oliver asked Nova to do this whole job."] +
+                                     ([after.handover()] if after is not None else []) +
                                      [f"{k}: {v}" for k, v in now.items()])
                 result = await self._agent().run(task, context, on_step, long=True)
                 job.status, job.result = ("done" if result.ok else "failed"), result.say
@@ -1329,10 +1354,14 @@ def _wrong_target(tool: str, args, request: str) -> str | None:
 
 _DONE_CLAIM = re.compile(      # "Skipped the song.", "I've closed Spotify.": a claim, whatever was asked
     r"(?:^|[.!?]\s+)(?:(?:ok|okay|done|right|certainly|sure|alright)[,.!]?\s+)?(?:sir[,.]?\s+)?(?:i(?:'ve| have)?\s+)?"
-    r"(?:just\s+|now\s+|also\s+)?(?:re)?(?:opened|closed|skipped|paused|played|resumed|unpaused|switched|launched|"
+    r"(?:just\s+|now\s+|also\s+|already\s+)?(?:re)?(?:opened|closed|skipped|paused|played|resumed|unpaused|switched|launched|"
     r"started|stopped|muted|unmuted|minimi[sz]ed|maximi[sz]ed|full[- ]?screened|moved|typed|pressed|clicked|"
-    r"searched|navigated|brought|quit|killed|loaded|went|took)\b"
-    r"|\b(?:took|taken) you\b|\bskipped to\b", re.I)
+    r"searched|navigated|brought|quit|killed|loaded|went|took|pasted|saved|wrote|written|rewrote|rewritten|"
+    r"shortened|updated|edited|copied|sent|submitted|filled)\b"
+    r"|\b(?:took|taken) you\b|\bskipped to\b"
+    # "Already done, sir.", "Already pasted." (owner's screenshots: nothing had been done)
+    r"|(?:^|[.!?]\s+)(?:(?:it'?s|that'?s|they'?re|it is|that is|they are)\s+)?already\s+(?:done|pasted|saved|"
+    r"there|in|open|finished|sorted|taken care of|handled|written|rewritten|shortened|updated)\b", re.I)
 # "I'm sorry, but I can't help with that": the small model being over-careful with the owner's own
 # request (owner: "it says I can't help you with that ... I want to be able to do anything with Nova").
 _HELP_REFUSAL = re.compile(
@@ -1350,7 +1379,8 @@ _DOING_CLAIM = re.compile(     # "Opening business.facebook.com in your browser,
     r"maximi[sz]ing|quitting|stopping|playing|putting on|turning (?:up|down|on|off))\b", re.I)
 _STATE_CLAIM = re.compile(     # "Firefox is reopened", "Now on YouTube": only a claim when an action was asked
     r"\b(?:is|are|has been|have been)\s+(?:now\s+)?(?:re)?(?:open(?:ed)?|closed|loaded|playing|paused|skipped|"
-    r"muted|minimi[sz]ed|maximi[sz]ed|stopped|launched)\b"
+    r"muted|minimi[sz]ed|maximi[sz]ed|stopped|launched|pasted|saved|displayed|shown|written|rewritten|"
+    r"shortened|updated|in notepad|ready)\b"
     r"|(?:^|[.!?]\s+)(?:you(?:'re| are)\s+)?(?:now|back) on \w", re.I)
 _ABOUT_NOVA = re.compile(r"\byou (?:just |still |also )?(?:didn'?t|did not|haven'?t|have not|never|forgot|closed|opened|"
                          r"broke|messed|killed|skipped|paused|stopped|lost)\b", re.I)
@@ -1435,7 +1465,8 @@ _ACTION_REQUEST = re.compile(
     r"full\s?screen|start|stop|switch|launch|cancel|volume|skip|show|hide|search|remind|put|make|go|"
     r"fire|get|pull|bring|load|run|kill|shut|change|give|take|send|type|click|press|find|move|delete|"
     r"create|write|save|add|remove|raise|lower|increase|decrease|crank|boost|max|minimi[sz]e|restore|"
-    r"quit|exit|reopen|refresh|reload|record|clip|watch|scroll|zoom|email|text|message|call|buy|order|"
+    r"quit|exit|reopen|refresh|reload|record|clip|watch|scroll|zoom|re-?write|redo|shorten|lengthen|"
+    r"reword|rephrase|proofread|email|text|message|call|buy|order|"
     r"download|install|uninstall|update|empty|clear|sort|organi[sz]e|rename|edit|fix|join|leave|connect|"
     r"disconnect|enable|disable|toggle|select|highlight|copy|paste|undo|redo|print|share|upload|screenshot|"
     r"capture|translate|dim|brighten|sleep|restart|reboot|log ?in|log ?out|sign ?in|sign ?out|reply|accept|"

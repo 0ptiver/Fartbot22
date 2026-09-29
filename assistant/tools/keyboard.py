@@ -251,9 +251,9 @@ def _keys_to_user_window():
 EFFECTS = {"ctrl+t": ("Opened a new tab", True), "ctrl+w": ("Closed the tab", True),
            "ctrl+shift+t": ("Reopened the last tab", True), "ctrl+tab": ("Went to the next tab", True),
            "ctrl+shift+tab": ("Went to the previous tab", True), "alt+left": ("Went back", True),
-           "alt+right": ("Went forward", True), "f5": ("Refreshed", False), "ctrl+c": ("Copied", False),
-           "ctrl+v": ("Pasted", False), "ctrl+x": ("Cut", False), "ctrl+z": ("Undone", False), "ctrl+y": ("Redone", False),
-           "ctrl+a": ("Selected everything", False), "ctrl+s": ("Saved", False), "alt+tab": ("Switched windows", True)}
+           "alt+right": ("Went forward", True), "f5": ("Refreshed", False), "alt+tab": ("Switched windows", True)}
+# Copy, paste, save, undo... can't be checked from outside, so they're reported as the keys pressed,
+# never as done (owner's case: "Pasted in Notepad." after Ctrl+V pasted whatever was copied last).
 _NAMES = {0x11: "ctrl", 0x10: "shift", 0x12: "alt", 0x5B: "win", 0x0D: "enter", 0x09: "tab", 0x1B: "escape",
           0x25: "left", 0x27: "right", 0x26: "up", 0x28: "down", 0x74: "f5", 0x20: "space"}
 

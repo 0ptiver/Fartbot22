@@ -132,3 +132,19 @@ def test_chime():
     from assistant.voice.pipeline import chime
     c = chime()
     assert c.dtype == np.float32 and 0.2 < len(c) / 24000 < 0.6 and np.max(np.abs(c)) <= 0.3
+
+
+async def test_an_announcement_can_be_talked_over(settings, registry):
+    """Owner: "he isn't letting me interrupt": a job's "All done, sir..." played to the end, because
+    Nova didn't count as speaking during announcements. Now he does, so barge-in and stop work."""
+    from tests.test_barge import make
+    loop, events = make(settings, registry, [], [])
+    seen = []
+    orig = loop.say
+
+    async def say(text, show=True):
+        await orig(text, show)
+        seen.append((loop.busy, loop.speaking))       # as it was while the words played
+    loop.say = say
+    await loop.announce("All done. The answers are saved.")
+    assert seen == [(True, True)] and not loop.busy and not loop._announcing
