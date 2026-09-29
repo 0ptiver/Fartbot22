@@ -370,6 +370,16 @@ def everyday_intent(t: str) -> tuple[str, dict] | None:
     from assistant.voice.textnorm import normalize_words
 
     n = " ".join(normalize_words(t))
+    # Arranging windows on two screens (owner's pick: "seamless PC control ... without needing a mouse").
+    if m := re.fullmatch(r"(?:put|place|show|have) (?P<a>[a-z0-9 .'-]+?) and (?P<b>[a-z0-9 .'-]+?) side by side", t):
+        return "window", {"action": "side_by_side", "app": m.group("a"), "other": m.group("b")}
+    if m := re.fullmatch(r"(?:snap|put|move|throw|stick) (?P<app>[a-z0-9 .'-]+?) (?:to |on |onto )?(?:the )?"
+                         r"(?P<side>left|right)(?: side| half)?(?: of (?:the|my) screen)?", t):
+        if m.group("app") not in ("mouse", "the mouse", "cursor", "the cursor", "pointer", "the pointer"):
+            return "window", {"action": f"snap_{m.group('side')}", "app": m.group("app")}
+    if m := re.fullmatch(r"(?:move|put|send|throw|drag|stick) (?P<app>[a-z0-9 .'-]+?) (?:to|on|onto|over to) "
+                         r"(?:my |the )?(?:other|second|2nd|next|another|second|other) (?:screen|monitor|display)", t):
+        return "window", {"action": "other_screen", "app": m.group("app")}
     if re.fullmatch(r"(?:what(?:'?s| is) the time(?: now)?|what time is it(?: now)?|tell me the time"
                     r"|what(?:'?s| is) (?:the date|today'?s date|the day)(?: today)?|what day is it(?: today)?"
                     r"|what(?:'?s| is) the date today|what date is it(?: today)?)", t):

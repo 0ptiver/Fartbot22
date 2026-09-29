@@ -298,6 +298,74 @@ class WindowBackend:
         ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(r))  # type: ignore[attr-defined]
         return r.left, r.top, r.right - r.left, r.bottom - r.top
 
+    def work_areas(self) -> list[tuple[int, int, int, int]]:
+        """Each screen's usable area (without the taskbar), main screen first, then left to right."""
+        _need_windows()
+        import ctypes
+        from ctypes import wintypes
+        from assistant.tools.grid import _dpi_aware
+        _dpi_aware()
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+
+        class MONITORINFO(ctypes.Structure):
+            _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
+                        ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
+        found: list[tuple[bool, tuple[int, int, int, int]]] = []
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HMONITOR, wintypes.HDC, ctypes.POINTER(wintypes.RECT), wintypes.LPARAM)
+        def cb(hmon, _hdc, _rect, _data):
+            info = MONITORINFO()
+            info.cbSize = ctypes.sizeof(MONITORINFO)
+            if user32.GetMonitorInfoW(hmon, ctypes.byref(info)):
+                r = info.rcWork
+                found.append((bool(info.dwFlags & 1), (r.left, r.top, r.right - r.left, r.bottom - r.top)))
+            return True
+        user32.EnumDisplayMonitors(None, None, cb, 0)
+        found.sort(key=lambda f: (not f[0], f[1][0]))
+        return [a for _, a in found]
+
+    def move(self, hwnd: int, x: int, y: int, w: int, h: int) -> None:
+        """Put a window at a place and size (restored first: a maximised window won't move)."""
+        _need_windows()
+        import ctypes
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+        user32.ShowWindow(hwnd, 9)
+        user32.SetWindowPos(hwnd, 0, int(x), int(y), int(w), int(h), 0x0004 | 0x0040)   # NOZORDER|SHOWWINDOW
+
+    def dialogs(self) -> list[Win]:
+        """Message boxes and dialogs on screen (these are 'owned' pop-ups, which list() skips)."""
+        _need_windows()
+        import ctypes
+        from ctypes import wintypes
+
+        import psutil
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+        found: list[Win] = []
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def cb(hwnd, _):
+            cls = ctypes.create_unicode_buffer(64)
+            user32.GetClassNameW(hwnd, cls, 64)
+            if user32.IsWindowVisible(hwnd) and cls.value == "#32770":
+                buf = ctypes.create_unicode_buffer(512)
+                user32.GetWindowTextW(hwnd, buf, 512)
+                pid = wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                try:
+                    proc = psutil.Process(pid.value).name()
+                except Exception:
+                    proc = ""
+                found.append(Win(int(hwnd or 0), buf.value, proc))
+            return True
+        user32.EnumWindows(cb, 0)
+        return found
+
+    def hung(self, hwnd: int) -> bool:
+        """Windows' own 'Not Responding' test for a window."""
+        _need_windows()
+        import ctypes
+        return bool(ctypes.windll.user32.IsHungAppWindow(hwnd))  # type: ignore[attr-defined]
+
     def at(self, x: int, y: int) -> Win | None:
         """The top-level window under a point on the screen."""
         _need_windows()
@@ -456,8 +524,72 @@ def end_processes(exe: str) -> int:
     return len(ended)
 
 
+def _screen_of(rect: tuple[int, int, int, int], areas: list[tuple[int, int, int, int]]) -> int:
+    """Which screen a window is on (by its centre)."""
+    cx, cy = rect[0] + rect[2] // 2, rect[1] + rect[3] // 2
+    for i, (x, y, w, h) in enumerate(areas):
+        if x <= cx < x + w and y <= cy < y + h:
+            return i
+    return 0
+
+
+def _nice(w: Win) -> str:
+    name = TRAY_APPS.get(w.process.lower().removesuffix(".exe")) or w.process.removesuffix(".exe") or w.title
+    return name[:1].upper() + name[1:]
+
+
+def _landed(hwnd: int, want: tuple[int, int, int, int], slack: int = 40) -> bool:
+    """Did the window really end up there? (Checked, never assumed.)"""
+    got = WINDOWS.rect(hwnd)
+    return all(abs(a - b) <= slack for a, b in zip(got, want))
+
+
+def arrange(action: str, app: str, other: str = "") -> str:
+    """snap_left / snap_right / other_screen / side_by_side (owner's pick: seamless PC control, two screens)."""
+    areas = WINDOWS.work_areas()
+    w = _find_window(app)
+    label = _nice(w)
+    here = _screen_of(WINDOWS.rect(w.hwnd), areas)
+    x, y, width, height = areas[here]
+    if action in ("snap_left", "snap_right", "side_by_side"):
+        half = width // 2
+        spot = (x, y, half, height) if action != "snap_right" else (x + half, y, width - half, height)
+        WINDOWS.move(w.hwnd, *spot)
+        if not _landed(w.hwnd, spot):
+            raise ToolError(f"I tried to move {label}, but it stayed put. Some apps won't be moved.")
+        if action == "side_by_side":
+            o = _find_window(other)
+            right = (x + half, y, width - half, height)
+            WINDOWS.move(o.hwnd, *right)
+            olabel = _nice(o)
+            if not _landed(o.hwnd, right):
+                raise ToolError(f"{label} is on the left, but {olabel} wouldn't move.")
+            return f"{label} on the left, {olabel} on the right."
+        return f"{label} is on the {'left' if action == 'snap_left' else 'right'} half."
+    if len(areas) < 2:
+        raise ToolError("You've only got one screen connected.")
+    was_max = WINDOWS.state(w.hwnd) == "maximized" if hasattr(WINDOWS, "state") else False
+    to = (here + 1) % len(areas)
+    tx, ty, tw, th = areas[to]
+    _, _, cw, ch = WINDOWS.rect(w.hwnd)
+    cw, ch = min(cw, tw), min(ch, th)
+    spot = (tx + (tw - cw) // 2, ty + (th - ch) // 2, cw, ch)
+    WINDOWS.move(w.hwnd, *spot)
+    if _screen_of(WINDOWS.rect(w.hwnd), areas) != to:
+        raise ToolError(f"I tried to move {label} to the other screen, but it didn't go.")
+    if was_max:
+        WINDOWS.show(w.hwnd, "maximize")
+    return f"Moved {label} to screen {to + 1}."
+
+
 def window_control(args: dict, ctx: ToolContext) -> str:
     action = args["action"]
+    if action in ("snap_left", "snap_right", "other_screen", "side_by_side"):
+        if not args.get("app"):
+            raise ToolError("Which app?")
+        if action == "side_by_side" and not args.get("other"):
+            raise ToolError("Side by side with which app?")
+        return arrange(action, args["app"].strip(), (args.get("other") or "").strip())
     if action == "show_desktop":
         WINDOWS.show_desktop()
         return "Showing the desktop."
@@ -599,11 +731,14 @@ def register(reg: ToolRegistry) -> None:
              risk=Risk.SAFE, category="system")(cancel_shutdown)
     reg.tool("window", "Manage app windows: focus (switch to), minimize, maximize, restore, close "
              "(the app may ask to save), quit (also ends tray apps like Spotify/Discord), list open apps, "
-             "or show_desktop. app='this' = the window in use.",
+             "show_desktop, snap_left / snap_right (half the screen), other_screen (move to the other "
+             "monitor), side_by_side (app left, other right). app='this' = the window in use.",
              {"type": "object", "properties": {
                  "action": {"type": "string", "enum": ["focus", "minimize", "maximize", "restore",
-                                                       "close", "quit", "list", "show_desktop"]},
-                 "app": {"type": "string", "maxLength": 80}},
+                                                       "close", "quit", "list", "show_desktop", "snap_left",
+                                                       "snap_right", "other_screen", "side_by_side"]},
+                 "app": {"type": "string", "maxLength": 80},
+                 "other": {"type": "string", "maxLength": 80}},
               "required": ["action"], "additionalProperties": False},
              risk=Risk.SAFE, category="apps")(window_control)
     reg.tool("press_key", "Press one key, optionally in an app first brought to the front. For videos "

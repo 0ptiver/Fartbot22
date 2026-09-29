@@ -279,6 +279,12 @@ class RoutineConfig(BaseModel):
     steps: list[RoutineStep] = Field(default_factory=list)
 
 
+class ScreenWatchConfig(BaseModel):
+    """Nova notices error boxes and frozen apps by himself (core/screenwatch.py)."""
+    enabled: bool = True
+    interval_s: float = 3.0
+
+
 class Settings(BaseModel):
     assistant: AssistantConfig = Field(default_factory=AssistantConfig)
     brain: BrainConfig = Field(default_factory=BrainConfig)
@@ -290,6 +296,7 @@ class Settings(BaseModel):
     phone: PhoneConfig = Field(default_factory=PhoneConfig)
     browser: BrowserConfig = Field(default_factory=BrowserConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
+    screen_watch: ScreenWatchConfig = Field(default_factory=ScreenWatchConfig)
     # Set a routine to null in local.yaml to switch a built-in one off.
     routines: dict[str, RoutineConfig | None] = Field(default_factory=dict)
 

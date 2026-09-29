@@ -300,6 +300,37 @@ class LocalBrain:
                                                            f"tasks like that{sir}. Run: claude login"):
                     yield ev
                 return
+        # Something Nova spotted on the screen by himself (core/screenwatch.py): "fix it", "what does it
+        # say", "close it", "ignore it" are about that. "Fix this error" with none: Claude looks.
+        watch = ctx.services.get("screenwatch")
+        alert = watch.recent() if watch is not None else None
+        if _FIX_IT.match(text) and (alert is not None or re.search(
+                r"\b(?:error|problem|issue|pop ?up|warning|crash|message|box)\b", text, re.I)):
+            if alert is not None:
+                task = (f"Fix this for Oliver: {alert.describe()} Look at it on screen first, then sort it out "
+                        "sensibly; don't delete anything or change important settings unless that's clearly the fix.")
+                watch.dismiss()
+            else:
+                task = "Fix the error or problem showing on Oliver's screen right now (look at it first)."
+            if self._can_rescue(ctx):
+                async for ev in self._work_it_out(conv, task, ctx, sir, "Oliver asked Nova to fix a problem on screen."):
+                    yield ev
+                return
+        if alert is not None:
+            said = None
+            if _READ_ALERT.search(text):
+                said = alert.describe()
+            elif _IGNORE_ALERT.match(text):
+                watch.dismiss()
+                said = f"Very good{sir}."
+            elif alert.kind == "frozen" and _CLOSE_ALERT.match(text):
+                watch.dismiss()
+                res = await self.registry.execute("window", {"action": "quit", "app": alert.app}, ctx)
+                said = str(res.content)
+            if said is not None:
+                async for ev in self._say(conv, user_text, said):
+                    yield ev
+                return
         wants_claude = _claude_task(text, getattr(conv, "last_request", None))
         if wants_claude is not None:
             # "Work it out", "use Claude to ...", "Claude, open ...", "figure out how to ...": Claude with
@@ -933,6 +964,9 @@ class LocalBrain:
             now["timers and reminders set"] = up
         if self.jobs.recent():
             now["your background job"] = self.jobs.recent().context()
+        watch = ctx.services.get("screenwatch")
+        if watch is not None and watch.recent() is not None:
+            now["problem you spotted on the screen"] = watch.recent().describe()
         conv.messages.append({"role": "user", "content": turn_context(
             self.settings, {**now, **(extra_context or {})}, self._memories(user_text, ctx)) + "\n" + user_text})
         rounds = 0
@@ -1451,6 +1485,21 @@ _SCREEN_TASK = re.compile(
     r"(?:done|finished)))*(?:[, ]+(?:right|please|thanks|sir|now|yeah))?[.!?]*$"
     r"|^(?:nova[, ]+)?(?:(?:please|can you|could you)[, ]+)*(?:do|finish|complete|handle) what'?s on my screen[.!]*$",
     re.I)
+# Replies to something Nova spotted on the screen (an error box, a frozen app).
+_FIX_IT = re.compile(
+    r"^\W*(?:nova[, ]+)?(?:(?:please|can you|could you|go ahead and|just|ok|okay|yes|yeah)[, ]+)*"
+    r"(?:fix|sort|deal with|handle|solve|get rid of|take care of|help me with|clear)"
+    r"(?: it| that| this| (?:the|this|that) (?:error|problem|issue|pop ?up|message|box|warning|crash))(?: out)?"
+    r"(?: for me)?(?: please| nova| sir)*\W*$", re.I)
+_READ_ALERT = re.compile(r"\bwhat(?:'?s| is| does) (?:it|that|the error|the message|the pop ?up|the warning) "
+                         r"(?:say|saying|about|mean)|\bread (?:it|that|the error|the message)(?: to me| out)?\b"
+                         r"|\bwhat(?:'?s| is) (?:the|that) (?:error|problem|warning)\b", re.I)
+_IGNORE_ALERT = re.compile(r"^\W*(?:nova[, ]+)?(?:ignore (?:it|that)|leave it|never ?mind|forget (?:it|that)|"
+                           r"it'?s fine|don'?t worry(?: about it)?)\W*$", re.I)
+_CLOSE_ALERT = re.compile(r"^\W*(?:nova[, ]+)?(?:close|end|kill|quit|force close|shut) (?:it|that|the app|it down)"
+                          r"(?: please| nova| sir)*\W*$", re.I)
+
+
 # Asking for Claude (with Nova's hands) to do something.
 _USE_CLAUDE = re.compile(
     r"^(?:(?:hey|ok|okay|so|nova)[, ]+)*(?:(?:can you|could you|please|just|go ahead and|i want you to)[, ]+)*"

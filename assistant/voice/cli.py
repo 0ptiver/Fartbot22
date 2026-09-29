@@ -167,6 +167,11 @@ async def run(args) -> int:
     watchers = Watchers(notify=loop.announce)
     loop.ctx.services["watchers"] = watchers
     watchers_task = asyncio.create_task(watchers.run())
+    from assistant.core.screenwatch import ScreenWatch
+    screenwatch = ScreenWatch(notify=loop.announce, interval_s=settings.screen_watch.interval_s)
+    loop.ctx.services["screenwatch"] = screenwatch
+    screenwatch_task = (asyncio.create_task(screenwatch.run())
+                        if settings.screen_watch.enabled and sys.platform == "win32" else None)
     from assistant.voice.voiceprint import VoiceLock
     loop.lock = VoiceLock()                                   # off until "Nova, learn my voice"
     loop.ctx.services["voicelock"] = loop.lock
@@ -229,6 +234,8 @@ async def run(args) -> int:
     finally:
         scheduler_task.cancel()
         watchers_task.cancel()
+        if screenwatch_task is not None:
+            screenwatch_task.cancel()
         phone_task.cancel()
         await phone.stop()
         from assistant.tools.browser import BROWSER
