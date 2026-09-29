@@ -70,8 +70,9 @@ def register(reg: ToolRegistry) -> None:
         "escalate",
         "Hand a hard task to Claude, a much stronger (but slower) model that can also browse "
         "the web: research, comparisons, analysis, writing, code, maths, planning, or when the "
-        "user says 'ask Claude'. It cannot see this conversation, so include everything it "
-        "needs in task/context. Summarize its answer briefly for speech.",
+        "user says 'ask Claude'. Answers only: it can't see or control this PC (for that, use the PC "
+        "tools). It cannot see this conversation, so include everything it needs in task/context. "
+        "Summarize its answer briefly for speech.",
         {
             "type": "object",
             "properties": {

@@ -452,8 +452,15 @@ class LocalBrain:
                     honest = f"Sorry{sir}, I haven't actually done that. Could you say it another way?"
                     yield TextDelta(honest)
                     ev.text = honest
-            if isinstance(ev, ToolFinished) and not ev.is_error and ev.name != "work_it_out":
-                did = True
+            if isinstance(ev, ToolFinished) and not ev.is_error and ev.name not in ("work_it_out", "escalate"):
+                did = True                       # asking the question-answering Claude isn't doing anything
+            if (isinstance(ev, ToolFinished) and ev.name == "escalate" and asks and not did
+                    and not ev.is_error and (_CANT.search(ev.summary) or _HELP_REFUSAL.search(ev.summary))):
+                # The small model asked the text-only Claude to *do* something on the PC, and it
+                # rightly said it can't see or touch the screen (owner's case: "open a new tab and
+                # open a paper trading" -> "I can't see your screen ... nothing was filled in").
+                # That's a job for Claude with Nova's hands.
+                failing, failed_why = True, "the question-answering Claude can't act on the PC"
             if isinstance(ev, ToolFinished) and ev.name in _RESCUABLE:
                 if ev.is_error and not ev.summary.startswith(_DELIBERATE):
                     failing, failed_why = True, ev.summary
@@ -465,6 +472,12 @@ class LocalBrain:
             if isinstance(ev, TextDelta) and failing:
                 held.append(ev)
                 continue
+            if isinstance(ev, TurnComplete) and failing and refused and asks and rescue:
+                # Said no to something to do on the PC: Claude with Nova's tools does it (the
+                # question-answering Claude can't see the screen).
+                async for e in self._work_it_out(conv, request, ctx, sir, "Nova's everyday model wouldn't do it."):
+                    yield e
+                return
             if isinstance(ev, TurnComplete) and failing and refused:
                 answered = False
                 async for e in self._answer_instead(conv, request, ctx):

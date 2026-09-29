@@ -17,7 +17,7 @@ from assistant.brain import lessons as L
 from assistant.brain.llm import TextDelta, ToolFinished, ToolStarted
 from assistant.core.conversation import Conversation
 from assistant.tools.registry import ToolContext
-from tests.test_local_brain import collect, make, text_reply, tool_reply
+from tests.test_local_brain import FakeExpert, collect, make, text_reply, tool_reply
 
 
 def said(events):
@@ -473,3 +473,23 @@ def test_longer_ways_of_asking_are_still_whole_jobs():
     from assistant.brain.local import _SCREEN_TASK
     assert _SCREEN_TASK.match("Go ahead and complete the complete like five questions of this quiz on my screen")
     assert _SCREEN_TASK.match("answer the questions in this worksheet")
+
+
+async def test_pc_jobs_never_end_at_the_claude_that_cant_see_the_screen(local_settings, ctx):
+    """Owner's case: "open a new tab and open a paper trading" -> the small model asked the
+    question-answering Claude, which said "I can't see your screen or click in Firefox from here".
+    Claude with Nova's hands takes it on instead."""
+    expert = FakeExpert("I can't see your screen or click in Firefox from here, so nothing was filled in.")
+    brain, fake = make(local_settings, [tool_reply("escalate", {"task": "open a new tab and paper trading"}),
+                                        text_reply("I can't see your screen, sir.")], expert)
+    agent = with_agent(brain, FakeAgent(say="Opened a new tab with a paper trading site", steps=[]))
+    events = await collect(brain, Conversation(), "open a new tab and open a paper trading", ctx)
+    text = said(events)
+    assert agent.calls and "can't see your screen" not in text and "paper trading site" in text
+
+
+async def test_a_refused_pc_action_goes_to_claude_with_hands(local_settings, ctx):
+    brain, fake = make(local_settings, [text_reply("I'm sorry, but I can't help with that.")])
+    agent = with_agent(brain, FakeAgent(say="Done", steps=[]))
+    events = await collect(brain, Conversation(), "open a new tab and open a paper trading", ctx)
+    assert agent.calls and said(events).startswith("Let me work that out")
