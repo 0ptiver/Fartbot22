@@ -13,6 +13,36 @@ import numpy as np
 from assistant.voice.vad import FRAME, SAMPLE_RATE
 
 
+def pick_device(wanted: str | int | None, kind: str, query=None) -> tuple[str | int | None, str | None]:
+    """The configured mic/speaker if it still works as one, else Windows' default.
+
+    Windows renumbers devices when a headset or USB mic comes and goes, so a saved number can
+    end up pointing at the speakers (owner's case: input_device 3 became "Speakers (Realtek)"
+    and Nova wouldn't start at all). Returns (device, note); note says what changed, or None."""
+    if wanted is None:
+        return None, None
+    if query is None:
+        import sounddevice as sd
+        query = sd.query_devices
+    try:
+        query(wanted, kind)
+        return wanted, None
+    except Exception:
+        pass
+    try:
+        name = query(wanted)["name"]
+        what = f"'{name}' (device {wanted})" if isinstance(wanted, int) else f"'{name}'"
+    except Exception:
+        what = f"device {wanted!r}"
+    label = "microphone" if kind == "input" else "speaker"
+    try:
+        default = query(kind=kind)["name"]
+    except Exception:
+        default = "Windows' default"
+    return None, (f"The saved {label} {what} isn't a {label} now (devices get renumbered when you "
+                  f"plug things in). Using {default} instead. To choose: python -m assistant devices")
+
+
 class MicStream:
     """Default (or chosen) microphone as 512-sample float32 frames at 16 kHz, timestamped."""
 

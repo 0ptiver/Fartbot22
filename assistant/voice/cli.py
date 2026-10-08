@@ -15,6 +15,12 @@ DIM, CYAN, GREEN, RED, RESET = "\033[2m", "\033[36m", "\033[32m", "\033[31m", "\
 def _print_devices(vcfg) -> None:
     try:
         import sounddevice as sd
+        from assistant.voice.audio import pick_device
+        for kind in ("input", "output"):
+            device, note = pick_device(getattr(vcfg, f"{kind}_device"), kind)
+            if note:
+                print(f"{RED}! {note}{RESET}")
+                setattr(vcfg, f"{kind}_device", device)
         mic = sd.query_devices(vcfg.input_device, "input")["name"]
         out = sd.query_devices(vcfg.output_device, "output")["name"]
         print(f"Mic: {mic}   |   Output: {out}")

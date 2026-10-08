@@ -188,8 +188,13 @@ async def check(full: bool) -> int:
         line(WARN, "no NVIDIA GPU found", "speech-to-text will run on the CPU (slower)")
     try:
         import sounddevice as sd
-        dev = sd.query_devices(kind="input")
-        line(OK, f"microphone: {dev['name']}")
+        from assistant.voice.audio import pick_device
+        device, note = pick_device(s.voice.input_device, "input")
+        dev = sd.query_devices(device, "input")
+        if note:
+            line(WARN, f"microphone: {dev['name']}", note)
+        else:
+            line(OK, f"microphone: {dev['name']}")
     except Exception as e:
         line(FAIL, "no microphone / audio system", str(e)[:80])
         problems += 1
