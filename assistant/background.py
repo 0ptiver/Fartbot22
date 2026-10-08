@@ -174,6 +174,12 @@ def supervise(spawn: Callable[[], int] | None = None, sleep: Callable[[float], N
 
 
 def main_supervisor() -> None:
+    if sys.stdout is not None and sys.stdout.isatty():
+        # Started by hand from PowerShell: the window goes quiet from here on, which looks frozen.
+        print("Nova is starting in the tray (look for the dot near the clock).\n"
+              "This window stays blank while Nova runs: closing it stops Nova.\n"
+              "To start Nova without a window: .venv\\Scripts\\pythonw -m assistant background\n"
+              f"Nova's messages go to {LOG_FILE}", flush=True)
     log_to_file(LOG_DIR / "supervisor.log", max_bytes=200_000, backups=1)
     os.chdir(ROOT)
     sys.exit(supervise())
