@@ -36,6 +36,11 @@ class ExpertError(Exception):
     pass
 
 
+class OutOfSteps(ExpertError):
+    """Claude stopped because it used up its turns or its memory, not because it failed: a long job
+    can carry on in a fresh run from where it got to."""
+
+
 class Expert(ABC):
     name = "expert"
 
@@ -114,8 +119,16 @@ class ClaudeCodeExpert(Expert):
         except json.JSONDecodeError:
             data = {}
         if data.get("is_error") or code not in (0, None):
-            detail = data.get("result") or err.decode("utf-8", "replace").strip()[-300:] or f"exit {code}"
+            # Claude Code puts why it stopped in "errors" (no "result") for e.g. running out of turns,
+            # with exit 1 and nothing on stderr (owner's case: "Claude Code failed: exit 1").
+            errors = "; ".join(str(e) for e in data.get("errors") or [] if e)
+            detail = (data.get("result") or errors or err.decode("utf-8", "replace").strip()[-300:]
+                      or f"exit {code}")
             low = detail.lower()
+            if data.get("subtype") == "error_max_turns" or "maximum number of turns" in low:
+                raise OutOfSteps("Claude ran out of steps")
+            if "prompt is too long" in low or "context window" in low or "context length" in low:
+                raise OutOfSteps("Claude's memory for this run filled up")
             if "login" in low or "auth" in low or "credential" in low:
                 raise ExpertError("Claude Code isn't signed in. Run `claude` once and log in.")
             if "limit" in low:

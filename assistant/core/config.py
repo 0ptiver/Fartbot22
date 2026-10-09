@@ -68,6 +68,7 @@ class AgentConfig(BaseModel):
     # "Complete the task on my screen" (a survey, a form...): worked through to the end.
     task_timeout_s: float = 1800
     task_max_turns: int = 250
+    task_runs: int = 4              # a long job that uses up a run's steps carries on in a fresh run, up to this many
 
 
 class ExpertConfig(BaseModel):

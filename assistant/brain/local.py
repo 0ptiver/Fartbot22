@@ -22,7 +22,7 @@ import logging
 
 import httpx
 
-from assistant.brain.expert import Expert, ExpertError, create_expert
+from assistant.brain.expert import Expert, ExpertError, OutOfSteps, create_expert
 from assistant.brain.intents import match_intent
 from assistant.brain.llm import (BrainError, Event, TextDelta, ToolFinished, ToolStarted,
                                  TurnComplete, _ms)
@@ -611,7 +611,17 @@ class LocalBrain:
                                      ([after.handover()] if after is not None else []) +
                                      ([resume.resume()] if resume is not None else []) +
                                      [f"{k}: {v}" for k, v in now.items()])
-                result = await self._agent().run(task, context, on_step, long=True)
+                runs = max(1, int(getattr(self.settings.brain.agent, "task_runs", 1)))
+                for run in range(runs):
+                    try:
+                        result = await self._agent().run(task, context, on_step, long=True)
+                        break
+                    except OutOfSteps as e:
+                        if run == runs - 1:
+                            raise ExpertError(f"{e} after {runs} runs and {job.steps} steps") from None
+                        log.info("background job: %s; carrying on in a fresh run (%d of %d)", e, run + 2, runs)
+                        context = "\n".join(["Oliver asked Nova to do this whole job.", job.carry_on()] +
+                                             [f"{k}: {v}" for k, v in now.items()])
                 job.status, job.result = ("done" if result.ok else "failed"), result.say
             except asyncio.CancelledError:
                 if job.status == "running":

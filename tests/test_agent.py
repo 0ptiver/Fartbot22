@@ -529,3 +529,60 @@ async def test_says_why_when_claude_cant_take_it(local_settings, ctx):
     events = await collect(brain, Conversation(), "use claude to open a new tab", ctx)
     assert "I can't hand that to Claude right now, sir: handing jobs to Claude is switched off" in said(events)
     assert not fake.requests
+
+
+# --- long jobs that use up a run's steps ----------------------------------------------------------
+MAX_TURNS_JSON = (b'{"type":"result","subtype":"error_max_turns","is_error":true,"num_turns":251,'
+                  b'"errors":["Reached maximum number of turns (250)"],"terminal_reason":"max_turns"}')
+
+
+def test_running_out_of_turns_is_named_not_exit_1():
+    """Owner's case: long jobs died after 5-10 minutes with "Claude Code failed: exit 1". That's how
+    Claude Code (checked with the real CLI) reports running out of turns: exit 1, nothing on stderr,
+    the reason only in "errors"."""
+    from assistant.brain.expert import ClaudeCodeExpert, ExpertError, OutOfSteps
+    with pytest.raises(OutOfSteps, match="ran out of steps"):
+        ClaudeCodeExpert._parse(1, MAX_TURNS_JSON, b"")
+    with pytest.raises(ExpertError, match="Something odd"):
+        ClaudeCodeExpert._parse(1, b'{"is_error":true,"subtype":"error_during_execution","errors":["Something odd"]}', b"")
+
+
+class StepHungryAgent(FakeAgent):
+    """Uses up its steps a few times before finishing, like a long job does."""
+
+    def __init__(self, runs_needed, **kw):
+        super().__init__(**kw)
+        self.runs_needed = runs_needed
+
+    async def run(self, task, context="", on_step=None, long=False):
+        from assistant.brain.expert import OutOfSteps
+        self.calls.append((task, context))
+        on_step({"tool": "look_at_screen", "args": {}, "ok": True, "ms": 100, "result": "Page"})
+        on_step({"tool": "progress", "args": {"note": f"part {len(self.calls)} done"}, "ok": True, "ms": 0})
+        if len(self.calls) < self.runs_needed:
+            raise OutOfSteps("Claude ran out of steps")
+        return A.AgentResult(True, self.say, [])
+
+
+async def test_a_long_job_carries_on_in_a_fresh_run(local_settings, ctx):
+    brain, fake = make(local_settings, [])
+    agent = with_agent(brain, StepHungryAgent(3, say="Finished every part"))
+    voice = ctx.services["voice"] = FakeVoice()
+    await collect(brain, Conversation(), "do my homework", ctx)
+    await brain.jobs.current.handle
+    assert len(agent.calls) == 3 and brain.jobs.current.status == "done"
+    assert "ran out of steps" in agent.calls[1][1] and "part 1 done" in agent.calls[1][1]
+    assert "part 2 done" in agent.calls[2][1] and brain.jobs.current.steps == 3
+    assert voice.said == ["All done, sir. Finished every part."]
+
+
+async def test_a_job_that_never_finishes_stops_after_its_runs(local_settings, ctx):
+    local_settings.brain.agent.task_runs = 2
+    brain, fake = make(local_settings, [])
+    agent = with_agent(brain, StepHungryAgent(99))
+    voice = ctx.services["voice"] = FakeVoice()
+    await collect(brain, Conversation(), "do my homework", ctx)
+    await brain.jobs.current.handle
+    assert len(agent.calls) == 2 and brain.jobs.current.status == "failed"
+    assert voice.said == ["I had to stop, sir: Claude ran out of steps after 2 runs and 2 steps."]
+    assert "exit" not in voice.said[0]

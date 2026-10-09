@@ -65,6 +65,18 @@ class Job:
         lines.append("Oliver added, while you worked: " + " / ".join(self.extra))
         return "\n".join(lines)
 
+    def carry_on(self) -> str:
+        """For the fresh run after Claude used up a run's steps (a long job takes several)."""
+        where = self.note or (f"last step: {self.doing}" if self.doing else "just starting")
+        lines = [f"You were already doing this job and your previous run ran out of steps ({self.steps} steps "
+                 f"so far; {where}). Look at the screen first and carry on from where it is: don't redo "
+                 "finished parts. Call progress after each part so the next run knows where you got to."]
+        if self.document:
+            lines.append(f"You had saved '{self.document['title']}' in Documents\\Nova.")
+        if self.extra:
+            lines.append("Oliver added, while you worked: " + " / ".join(self.extra))
+        return "\n".join(lines)
+
     def handover(self) -> str:
         """What a follow-up job needs to know about this one ("now shorten them")."""
         lines = [f"This follows the job you just finished for Oliver: '{self.task}'. Its result: {self.result}"]
