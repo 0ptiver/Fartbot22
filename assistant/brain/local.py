@@ -284,7 +284,8 @@ class LocalBrain:
             async for ev in self._start_job(conv, text, ctx, sir, after=last):
                 yield ev
             return
-        if _SCREEN_TASK.match(text):
+        claude_job = _claude_task(text, getattr(conv, "last_request", None))
+        if _whole_job(text) or (claude_job is not None and _whole_job(claude_job)):
             # "Complete this assignment for me": the whole job, start to finish, in the background.
             if self.jobs.running():
                 async for ev in self._say(conv, user_text, f"I'm still on the last one{sir}: "
@@ -1482,6 +1483,19 @@ _WORK_IT_OUT = re.compile(
 _TASK_NOUN = (r"(?:task|survey|form|quiz|questionnaire|application|questions?|test|poll|sign ?up|checklist|job|"
               r"assignment|homework|worksheet|essay|report|paper|project|lab|exercises?|problems?|problem set|"
               r"module|lesson|coursework|course ?work|reading|work|thing)s?")
+# Extra instructions after a whole-job request ("..., start at question 22, don't press finish")
+# stay part of the job, but mustn't stop it being recognised as one (owner's case: it went to the
+# quick in-turn path instead and died there).
+_JOB_EXTRAS = re.compile(r"(?:[,;.]\s*|\s+(?:but|and|then)\s+|\s+(?=start (?:at|from|with)\b))"
+                         r"(?:but\s+|and\s+|then\s+|please\s+)?(?:don'?t|do not|never|start|begin|skip|stop|only|"
+                         r"make sure|leave|use|save|write|number|keep)\b.*$", re.I)
+
+
+def _whole_job(text: str) -> bool:
+    text = text.strip()
+    return bool(_SCREEN_TASK.match(text) or _SCREEN_TASK.match(_JOB_EXTRAS.sub("", text, count=1)))
+
+
 _SCREEN_TASK = re.compile(
     r"^(?:(?:hey|ok|okay|so|now|right|alright|yo)[, ]+)?(?:nova[, ]+)?"
     r"(?:(?:hey|ok|okay|so|now|right|please|can you|could you|will you|would you|go ahead and|i want you to|"

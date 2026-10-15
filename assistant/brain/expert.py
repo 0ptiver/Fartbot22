@@ -38,7 +38,8 @@ _API_ENV_VARS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_UR
 # "author" or a web page's "login" button in a failed task's text and blamed the sign-in.
 _SIGNED_OUT = re.compile(r"run /login|not logged in|log ?in again|invalid api key|oauth token|"
                          r"authentication[_ ]error|credentials? (?:not found|expired|missing|are invalid)|"
-                         r"please (?:sign|log) ?in to claude", re.I)
+                         r"please (?:sign|log) ?in to claude|failed to authenticate|oauth session|"
+                         r"session (?:has )?expired", re.I)
 
 
 class ExpertError(Exception):

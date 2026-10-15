@@ -600,3 +600,26 @@ def test_only_claude_codes_own_sign_in_messages_mean_signed_out():
         with pytest.raises(ExpertError) as e:
             ClaudeCodeExpert._parse(1, other, b"")
         assert "signed in" not in str(e.value)
+
+
+def test_an_expired_claude_sign_in_says_how_to_sign_in():
+    """Owner's screenshot: "Claude Code failed: Failed to authenticate: OAuth session expired and could
+    not be refreshed." That's a sign-in problem and should say how to fix it."""
+    from assistant.brain.expert import ClaudeCodeExpert, ExpertError
+    raw = b'{"is_error":true,"result":"Failed to authenticate: OAuth session expired and could not be refreshed."}'
+    with pytest.raises(ExpertError, match="/login"):
+        ClaudeCodeExpert._parse(1, raw, b"")
+
+
+@pytest.mark.parametrize("phrase", ["use claude to complete whats on my screen, dont press finish",
+                                    "complete this assignment for me, start at question 22, don't submit it",
+                                    "do my homework but don't hand it in"])
+async def test_a_whole_job_with_extra_instructions_is_still_a_background_job(local_settings, ctx, phrase):
+    """Owner's case: extra instructions on the end sent it down the quick in-turn path instead."""
+    brain, fake = make(local_settings, [])
+    agent = with_agent(brain, SlowAgent(say="Done"))
+    events = await collect(brain, Conversation(), phrase, ctx)
+    assert said(events).startswith("On it, sir.") and brain.jobs.running()
+    agent.go.set()
+    await brain.jobs.current.handle
+    assert agent.long is True and agent.calls[0][0] == phrase        # the instructions go with it
