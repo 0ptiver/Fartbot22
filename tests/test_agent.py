@@ -586,3 +586,17 @@ async def test_a_job_that_never_finishes_stops_after_its_runs(local_settings, ct
     assert len(agent.calls) == 2 and brain.jobs.current.status == "failed"
     assert voice.said == ["I had to stop, sir: Claude ran out of steps after 2 runs and 2 steps."]
     assert "exit" not in voice.said[0]
+
+
+def test_only_claude_codes_own_sign_in_messages_mean_signed_out():
+    """A failed task's text mentioning an author or a site's login page isn't a sign-in problem."""
+    from assistant.brain.expert import ClaudeCodeExpert, ExpertError
+    for real in (b'{"is_error":true,"result":"Invalid API key \\u00b7 Please run /login"}',
+                 b'{"is_error":true,"result":"OAuth token has expired. Please obtain a new token."}'):
+        with pytest.raises(ExpertError, match="isn't signed in"):
+            ClaudeCodeExpert._parse(1, real, b"")
+    for other in (b'{"is_error":true,"result":"FAILED: the quiz page asks for the author and a login"}',
+                  b'{"is_error":true,"errors":["Tool authorization step failed"]}'):
+        with pytest.raises(ExpertError) as e:
+            ClaudeCodeExpert._parse(1, other, b"")
+        assert "signed in" not in str(e.value)

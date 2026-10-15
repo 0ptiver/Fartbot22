@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import re
 import os
 import shutil
 import sys
@@ -30,6 +32,13 @@ EXPERT_SYSTEM = (
 # Environment variables that would make Claude Code bill the API instead of your subscription.
 _API_ENV_VARS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
                  "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY")
+
+
+# Claude Code's own sign-in messages. Specific on purpose: a loose "auth"/"login" also matched
+# "author" or a web page's "login" button in a failed task's text and blamed the sign-in.
+_SIGNED_OUT = re.compile(r"run /login|not logged in|log ?in again|invalid api key|oauth token|"
+                         r"authentication[_ ]error|credentials? (?:not found|expired|missing|are invalid)|"
+                         r"please (?:sign|log) ?in to claude", re.I)
 
 
 class ExpertError(Exception):
@@ -129,9 +138,11 @@ class ClaudeCodeExpert(Expert):
                 raise OutOfSteps("Claude ran out of steps")
             if "prompt is too long" in low or "context window" in low or "context length" in low:
                 raise OutOfSteps("Claude's memory for this run filled up")
-            if "login" in low or "auth" in low or "credential" in low:
-                raise ExpertError("Claude Code isn't signed in. Run `claude` once and log in.")
-            if "limit" in low:
+            if _SIGNED_OUT.search(detail):
+                logging.getLogger(__name__).warning("Claude Code sign-in problem: %s", detail[:300])
+                raise ExpertError("Claude Code isn't signed in (or its sign-in expired). In PowerShell run "
+                                  "claude, type /login and sign in with your Claude account")
+            if re.search(r"usage limit|rate limit|limit reached|limit will reset|hit your limit|out of (?:extra )?usage", low):
                 raise ExpertError("Your Claude plan's usage limit has been reached for now.")
             raise ExpertError(f"Claude Code failed: {detail[:300]}")
         result = data.get("result") if data else text
