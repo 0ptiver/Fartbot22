@@ -26,6 +26,11 @@ if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
     powershell -ExecutionPolicy Bypass -File scripts\enable_gpu_tts.ps1
 }
 
+# Keep Nova's notes in Obsidian up to date (only if that vault folder exists).
+if (Test-Path "$env:USERPROFILE\ObsidianClaude") {
+    powershell -ExecutionPolicy Bypass -File scripts\vault.ps1
+}
+
 & $py -m assistant models
 & $py -m assistant doctor
 

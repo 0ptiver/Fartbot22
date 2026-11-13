@@ -123,6 +123,7 @@ Branch: `claude/jarvis-voice-assistant-lhnfza` (commit and push there after ever
 6. Others offered: Discord by voice, Steam sale watcher, play-time nudges, clipboard memory, read-to-me, save/restore window layouts, click by description via vision (for games), Spotify playback fix.
 
 ## Working conventions
+- **Obsidian vault**: `vault/Nova/` (34 linked notes, "Nova Home" is the index) mirrors this file, README and PLAN for Oliver's Obsidian (`C:\Users\patto\ObsidianClaude\Nova`). `scripts/vault.ps1` copies it there; `update.ps1` runs it when that folder exists. Update the matching notes (Status and testing, Lessons learned, Troubleshooting...) when things change.
 - Keep PLAN.md checklists updated. Commit messages explain the "why". End commit messages with the attribution lines given by the system.
 - Write tests with fakes for everything, and reproduce owner-reported bugs as tests (test names/docstrings cite the "owner's case").
 - Be honest about what was and wasn't tested on real hardware. Say it in every hand-back to the owner.
